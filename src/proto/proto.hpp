@@ -992,6 +992,94 @@ namespace proto
 
     namespace detail
     {
+        template<class Val, class ValElse>
+        struct if_else
+        {
+            using sizeof_ = proto::common_size<proto::sizeof_<Val>, proto::sizeof_<ValElse>>;
+            using buffer_category = proto::common_buffer<
+                proto::buffer_category<Val>,
+                proto::buffer_category<ValElse>
+            >;
+
+            std::size_t static_serialize(uint8_t * p) const
+            {
+                return this->is_ok
+                    ? this->val_ok.static_serialize(p)
+                    : this->val_fail.static_serialize(p);
+            }
+
+            std::size_t limited_serialize(uint8_t * p) const
+            {
+                return this->is_ok
+                    ? static_or_limited_serialize(p, this->val_ok)
+                    : static_or_limited_serialize(p, this->val_fail);
+            }
+
+            array_view_const_u8 get_view_buffer() const
+            {
+                return this->is_ok
+                    ? this->val_ok.get_view_buffer()
+                    : this->val_fail.get_view_buffer();
+            }
+
+            template<class F>
+            void dynamic_serialize(F && f) const
+            {
+                // TODO { static or limited | view | dynamic } => dynamic_adapter
+                return this->is_ok
+                    ? this->val_ok.dynamic_serialize(f)
+                    : this->val_fail.dynamic_serialize(f);
+            }
+
+            bool is_ok;
+            Val val_ok;
+            ValElse val_fail;
+        };
+
+        template<class Cond, class Var, class VarElse>
+        struct if_else_act
+        {
+            using arguments = brigand::append<
+                get_arguments_t<Cond>,
+                get_arguments_t<Var>,
+                get_arguments_t<VarElse>
+            >;
+
+            template<class Params>
+            constexpr auto to_proto_value(Params params) const
+            {
+                auto value = this->var.to_proto_value(params);
+                using proto_val = decltype(value);
+
+                auto value_else = this->var_else.to_proto_value(params);
+                using proto_val_else = decltype(value_else);
+
+                // PERF value::value_type == value_else::value_type => not used if_else
+                using new_value_type = if_else<
+                    typename proto_val::value_type,
+                    typename proto_val_else::value_type
+                >;
+                // TODO ctx_vars_name ro proto_val::var_type
+                using context_name_type = /*std::conditional_t<
+                    std::is_same<typename proto_val::var_type, typename proto_val_else::var_type>::value,*/
+                    typename proto_val::var_type/*,
+                    ctx_vars_name<
+                        typename proto_val::var_type,
+                        typename proto_val_else::var_type
+                    >
+                >*/;
+                using new_var_type = named_var<new_value_type, context_name_type>;
+                return val<new_var_type, new_value_type>{
+                    {value.var},
+                    {bool(cond.to_proto_value(params).x.val), value.x, value_else.x}
+                };
+            }
+
+            Cond cond;
+            Var var;
+            VarElse var_else;
+        };
+
         template<class Val>
         struct only_if_true
         {
@@ -1007,10 +1095,7 @@ namespace proto
 
             std::size_t limited_serialize(uint8_t * p) const
             {
-                if (this->is_ok) {
-                    return static_or_limited_serialize(p, this->val_ok);
-                }
-                return 0;
+                return this->is_ok ? static_or_limited_serialize(p, this->val_ok) : 0u;
             }
 
             array_view_const_u8 get_view_buffer() const
@@ -1031,24 +1116,33 @@ namespace proto
         template<class Cond, class Var>
         struct if_act
         {
-            using arguments = brigand::append<get_arguments_t<Var>, get_arguments_t<Cond>>;
+            using arguments = brigand::append<get_arguments_t<Cond>, get_arguments_t<Var>>;
 
             template<class Params>
             constexpr auto to_proto_value(Params params) const
             {
-                auto value = this->var.to_proto_value(params);
-                using proto_val  = decltype(value);
+                auto value = this->else_.var.to_proto_value(params);
+                using proto_val = decltype(value);
                 using new_value_type = only_if_true<typename proto_val::value_type>;
                 using context_name_type = typename proto_val::var_type;
                 using new_var_type = named_var<new_value_type, context_name_type>;
                 return val<new_var_type, new_value_type>{
                     {value.var},
-                    {bool(cond.to_proto_value(params).x.val), value.x}
+                    {bool(else_.cond.to_proto_value(params).x.val), value.x}
                 };
             }
 
-            Cond cond;
-            Var var;
+            struct
+            {
+                template<class VarElse>
+                constexpr auto operator[](VarElse var_else) const
+                {
+                    return if_else_act<Cond, Var, VarElse>{cond, var, var_else};
+                }
+
+                Cond cond;
+                Var var;
+            } else_;
         };
 
         template<class Cond>
@@ -1057,7 +1151,7 @@ namespace proto
             template<class Var>
             constexpr auto operator[](Var var) const
             {
-                return if_act<Cond, Var>{cond, var};
+                return if_act<Cond, Var>{{cond, var}};
             }
 
             Cond cond;
