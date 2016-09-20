@@ -1690,7 +1690,7 @@ enum : uint64_t {
 
 struct FormatDataResponsePDU : public CliprdrHeader {
 
-    const double ARBITRARY_SCALE = 40;                      //26.46;
+    const double ARBITRARY_SCALE = 40;
 
     FormatDataResponsePDU()
         : CliprdrHeader( CB_FORMAT_DATA_RESPONSE
@@ -1753,22 +1753,17 @@ struct FormatDataResponsePDU : public CliprdrHeader {
 
     // fileDescriptorArray (variable): An array of File Descriptors (section 2.2.5.2.3.1). The number of elements in the array is specified by the cItems field.
 
-    enum : int {
-        FILE_DESCRIPTOR_SIZE = 596
-    };
-
-
     void emit_fileList(OutStream & stream, int cItems, std::string name, uint64_t size) {
-        this->dataLen_ = FILE_DESCRIPTOR_SIZE + 4;
+        this->dataLen_ = FileDescriptor::size() + 4;
         CliprdrHeader::emit(stream);
 
         stream.out_uint32_le(cItems);
 
         stream.out_uint32_le(FD_SHOWPROGRESSUI |
-                                 FD_FILESIZE       |
-                                 FD_WRITESTIME     |
-                                 FD_ATTRIBUTES
-                                );
+                             FD_FILESIZE       |
+                             FD_WRITESTIME     |
+                             FD_ATTRIBUTES
+                            );
         stream.out_clear_bytes(32);
         stream.out_uint32_le(FILE_ATTRIBUTE_ARCHIVE);
         stream.out_clear_bytes(16);
@@ -1788,7 +1783,7 @@ struct FormatDataResponsePDU : public CliprdrHeader {
         CliprdrHeader::emit(stream);
     }
 
-    void emit_metaFilePic(OutStream & stream, uint32_t data_length, uint16_t width, uint16_t height, uint16_t depth) {
+    void emit_metaFilePic(OutStream & stream, uint32_t data_length, uint16_t width, uint16_t height, uint16_t depth, const double ARBITRARY_SCALE) {
         this->dataLen_ = data_length + METAFILE_HEADERS_SIZE;
         CliprdrHeader::emit(stream);
 
@@ -1868,8 +1863,8 @@ struct FormatDataResponsePDU : public CliprdrHeader {
         // metaFileData (variable): The variable sized contents of the metafile as specified in [MS-WMF] section 2.
 
         stream.out_uint32_le(MM_ANISOTROPIC);
-        stream.out_uint32_le(int(double(width)  * this->ARBITRARY_SCALE));
-        stream.out_uint32_le(int(double(height) * this->ARBITRARY_SCALE));
+        stream.out_uint32_le(int(double(width)  * ARBITRARY_SCALE));
+        stream.out_uint32_le(int(double(height) * ARBITRARY_SCALE));
 
 
         // 3.2.1 META_HEADER Example
