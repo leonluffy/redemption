@@ -198,6 +198,7 @@ namespace proto
         template<class U> constexpr safe_int(U x) noexcept : val{x} {}
 
         operator T () const { return val; }
+        operator T & () { return val; }
     };
 
     namespace types {
@@ -890,39 +891,70 @@ namespace proto
 
     namespace dsl
     {
-#define PROTO_LAZY_BINARY_OP(name, op)         \
-        template<class T, class U>             \
-        struct name                            \
-        {                                      \
-            using arguments = brigand::append< \
-                get_arguments_t<T>,            \
-                get_arguments_t<U>             \
-            >;                                 \
-                                               \
-            template<class Params>             \
-            constexpr decltype(auto)           \
-            operator()(Params p) const {       \
-                return x(p) op y(p);           \
-            }                                  \
-                                               \
-            T x;                               \
-            U y;                               \
-        }
-
-        PROTO_LAZY_BINARY_OP(bit_and, &);
-
-#undef PROTO_LAZY_BINARY_OP
-
         template<class T>
         struct value
         {
             template<class Params>
-            constexpr decltype(auto) operator()(Params) const {
-                return x;
+            constexpr value to_proto_value(Params) const
+            {
+                return *this;
             }
 
             T x;
         };
+
+#define PROTO_LAZY_BINARY_OP(op)                                  \
+        template<class T, class U>                                \
+        struct op##_                                              \
+        {                                                         \
+            using arguments = brigand::append<                    \
+                get_arguments_t<T>,                               \
+                get_arguments_t<U>                                \
+            >;                                                    \
+                                                                  \
+            template<class Params>                                \
+            constexpr auto                                        \
+            to_proto_value(Params p) const                        \
+            {                                                     \
+                auto val =                                        \
+                    x.to_proto_value(p).x.val                     \
+                    op y.to_proto_value(p).x.val;                 \
+                return value<types::value<decltype(val)>>{{val}}; \
+            }                                                     \
+                                                                  \
+            T x;                                                  \
+            U y;                                                  \
+        }
+
+        PROTO_LAZY_BINARY_OP(bitand);
+
+#undef PROTO_LAZY_BINARY_OP
+
+#define PROTO_LAZY_BINARY_OP(op)                        \
+        template<class T, class U>                      \
+        struct op##_                                    \
+        {                                               \
+            using arguments = brigand::append<          \
+                get_arguments_t<T>,                     \
+                get_arguments_t<U>                      \
+            >;                                          \
+                                                        \
+            template<class Params>                      \
+            constexpr auto                              \
+            to_proto_value(Params p) const              \
+            {                                           \
+                auto ret = x.to_proto_value(p);         \
+                ret.x.val op y.to_proto_value(p).x.val; \
+                return ret;                             \
+            }                                           \
+                                                        \
+            T x;                                        \
+            U y;                                        \
+        }
+
+        PROTO_LAZY_BINARY_OP(and_eq);
+
+#undef PROTO_LAZY_BINARY_OP
 
         template<class Var>
         struct param
@@ -930,23 +962,30 @@ namespace proto
             using arguments = brigand::list<Var>;
 
             template<class Params>
-            constexpr decltype(auto) operator()(Params p) const {
-                return p[Var{}].val;
+            constexpr decltype(auto) to_proto_value(Params p) const
+            {
+                return p.get_proto_value(Var{});
             }
         };
     }
 
     template<class T, class U>
-    dsl::bit_and<dsl::param<T>, dsl::value<U>>
+    dsl::bitand_<dsl::param<T>, dsl::value<types::value<U>>>
     constexpr operator & (dsl::param<T>, U && x)
-    { return {{}, {x}}; }
+    { return {{}, {{x}}}; }
+
+    template<class T, class U>
+    dsl::and_eq_<dsl::param<T>, dsl::value<types::value<U>>>
+    constexpr operator &= (dsl::param<T>, U && x)
+    { return {{}, {{x}}}; }
 
     constexpr struct params_
     {
         constexpr params_() noexcept {}
 
         template<class Desc, class Derived>
-        constexpr dsl::param<Derived> operator[](var<Desc, Derived>) const noexcept {
+        constexpr dsl::param<Derived> operator[](var<Desc, Derived>) const noexcept
+        {
             return {};
         }
     } params;
@@ -1004,7 +1043,7 @@ namespace proto
                 using new_var_type = named_var<new_value_type, context_name_type>;
                 return val<new_var_type, new_value_type>{
                     {value.var},
-                    {bool(cond(params)), value.x}
+                    {bool(cond.to_proto_value(params).x.val), value.x}
                 };
             }
 
@@ -1023,18 +1062,6 @@ namespace proto
 
             Cond cond;
         };
-
-        template<class Var>
-        struct param_to_bool
-        {
-            using arguments = get_arguments_t<Var>;
-
-            template<class Params>
-            constexpr bool operator()(Params params) const
-            {
-                return bool(params[Var{}].val);
-            }
-        };
     }
 
     template<class Cond>
@@ -1046,6 +1073,6 @@ namespace proto
     template<class Var>
     constexpr auto if_true(Var v)
     {
-        return if_(detail::param_to_bool<Var>{})[v];
+        return if_(dsl::param<Var>{})[v];
     }
 }

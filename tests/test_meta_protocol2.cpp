@@ -249,7 +249,11 @@ void other_test()
     PROTO_VAR(proto::types::u8, b);
     constexpr auto bl = proto::desc(
         proto::if_(proto::params[a])
-            [proto::composer(a, b)]
+            [proto::composer(a, b)],
+        proto::if_(proto::params[a])
+            [proto::params[a]],
+        proto::if_(proto::params[a])
+            [proto::params[b] &= 1]
     );
     proto::apply(Buffering2<log_policy>{}, bl(a = 1_c, b = 1_c));
 }
@@ -326,7 +330,8 @@ void bench()
 
         srand(0);
 
-        unsigned imax = 100;
+        unsigned imax = 0;
+        //unsigned imax = 100;
         //unsigned imax = 500;
         for (unsigned i = 0; i < imax; ++i) {
             //alignas(4) uint8_t data[2621];
