@@ -1054,25 +1054,84 @@ namespace proto
                 auto value_else = this->var_else.to_proto_value(params);
                 using proto_val_else = decltype(value_else);
 
-                // PERF value::value_type == value_else::value_type => not used if_else
+                using is_same = std::is_same<
+                    typename proto_val::value_type,
+                    typename proto_val_else::value_type
+                >;
+
+                return to_proto_value_(
+                    typename is_same::type{},
+                    bool(cond.to_proto_value(params).x.val),
+                    value,
+                    value_else
+                );
+            }
+
+            template<class Value>
+            constexpr auto to_proto_value_(
+                std::true_type, bool test, Value & value, Value & value_else
+            ) const {
+                return test ? value : value_else;
+            }
+
+            template<class Value, class ValueElse>
+            constexpr auto to_proto_value_(
+                std::true_type, bool test, Value & value, ValueElse & value_else
+            ) const {
+                auto ctx_name = get_ctx_name(value, value_else);
+                using new_var_type = named_var<Value, decltype(ctx_name)>;
+                return val<new_var_type, Value>{
+                    ctx_name,
+                    {test ? value.x : value_else.x}
+                };
+
+                return value;
+            }
+
+            template<class Value, class ValueElse>
+            constexpr auto to_proto_value_(
+                std::false_type, bool test, Value & value, ValueElse & value_else
+            ) const {
+                using proto_val = decltype(value);
+                using proto_val_else = decltype(value_else);
+
                 using new_value_type = if_else<
                     typename proto_val::value_type,
                     typename proto_val_else::value_type
                 >;
-                // TODO ctx_vars_name ro proto_val::var_type
-                using context_name_type = /*std::conditional_t<
-                    std::is_same<typename proto_val::var_type, typename proto_val_else::var_type>::value,*/
-                    typename proto_val::var_type/*,
-                    ctx_vars_name<
-                        typename proto_val::var_type,
-                        typename proto_val_else::var_type
-                    >
-                >*/;
-                using new_var_type = named_var<new_value_type, context_name_type>;
+
+                auto ctx_name = get_ctx_name(value, value_else);
+                using new_var_type = named_var<new_value_type, decltype(ctx_name)>;
                 return val<new_var_type, new_value_type>{
-                    {value.var},
-                    {bool(cond.to_proto_value(params).x.val), value.x, value_else.x}
+                    ctx_name,
+                    {test, value.x, value_else.x}
                 };
+
+                return value;
+            }
+
+            template<class Value, class ValueElse>
+            static constexpr auto
+            get_ctx_name(Value & value, ValueElse & value_else)
+            {
+                return get_ctx_name_(
+                    typename std::is_same<typename Value::var_type, typename ValueElse::var_type>::type{},
+                    value, value_else
+                );
+            }
+
+            template<class Value, class ValueElse>
+            static constexpr auto
+            get_ctx_name_(std::true_type, Value & value, ValueElse &)
+            {
+                return value.var;
+            }
+
+            template<class Value, class ValueElse>
+            static constexpr ctx_vars_name<typename Value::var_type, typename ValueElse::var_type>
+            get_ctx_name_(std::false_type, Value &, ValueElse &)
+            {
+                return {};
             }
 
             Cond cond;

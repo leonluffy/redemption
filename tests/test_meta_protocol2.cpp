@@ -255,10 +255,15 @@ void other_test()
 
         proto::if_(proto::params[a])
             [proto::params[b] &= 1]
-//         .elif_(proto::params[b])
-//             [proto::params[b] &= 1]
         .else_
             [proto::params[b] &= 1]
+
+//         proto::if_(proto::params[a])
+//             [proto::params[b] &= 1]
+//         .elif_(proto::params[b])
+//             [proto::params[b] &= 1]
+//         .else_
+//             [proto::params[b] &= 1]
     );
     proto::apply(Buffering2<log_policy>{}, bl(a = 1_c, b = 1_c));
 }
