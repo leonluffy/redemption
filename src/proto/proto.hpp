@@ -415,18 +415,43 @@ namespace proto
             }
         };
 
-        template<class T>
-        struct pkt_sz
+        template<class Desc, typename Desc::type val>
+        struct static_value
         {
-            using type = T;
-            using sizeof_ = proto::sizeof_<T>;
+            using type = typename Desc::type;
+            using sizeof_ = proto::sizeof_<Desc>;
+            using buffer_category = proto::buffer_category<Desc>;
+
+            std::size_t static_serialize(uint8_t * p) const
+            {
+                return Desc{val}.static_serialize(p);
+            }
+
+            std::size_t limited_serialize(uint8_t * p) const
+            {
+                return Desc{val}.limited_serialize(p);
+            }
         };
 
-        template<class T>
+        template<class Desc>
+        struct pkt_sz
+        {
+            using type = Desc;
+            using sizeof_ = proto::sizeof_<Desc>;
+        };
+
+        template<class Desc>
         struct pkt_sz_with_self
         {
-            using type = T;
-            using sizeof_ = proto::sizeof_<T>;
+            using type = Desc;
+            using sizeof_ = proto::sizeof_<Desc>;
+        };
+
+        template<class Desc>
+        struct pkt_data
+        {
+            using type = Desc;
+            using sizeof_ = proto::sizeof_<Desc>;
         };
 
         template<class T>
@@ -480,10 +505,38 @@ namespace proto
 
         template<class T> struct is_pkt_sz_with_self : std::false_type {};
         template<class T> struct is_pkt_sz_with_self<types::pkt_sz_with_self<T>> : std::true_type {};
+
+        template<class T> struct is_pkt_data : std::false_type {};
+        template<class T> struct is_pkt_data<types::pkt_data<T>> : std::true_type {};
     }
     template<class T> using is_pkt_sz = typename detail::is_pkt_sz<T>::type;
     template<class T> using is_pkt_sz_with_self = typename detail::is_pkt_sz_with_self<T>::type;
     template<class T> using is_pkt_sz_category = brigand::bool_<is_pkt_sz<T>{} or is_pkt_sz_with_self<T>{}>;
+
+    template<class T> using is_pkt_data = typename detail::is_pkt_data<T>::type;
+
+    template<class T> using is_special_pkt = brigand::bool_<is_pkt_sz_category<T>{} or is_pkt_data<T>{}>;
+
+    namespace detail
+    {
+        template<class T, class = void>
+        struct get_special_pkts
+        { using type = brigand::list<>; };
+
+        template<class T>
+        struct get_special_pkts<T, std::enable_if_t<is_special_pkt<T>::value>>
+        { using type = brigand::list<T>; };
+
+        template<class T>
+        struct get_special_pkts<T, void_t<typename T::special_pkts>>
+        { using type = typename T::special_pkts; };
+    }
+
+    template<class T> using get_special_pkts_t = typename detail::get_special_pkts<T>::type;
+
+    template<class T> using has_special_pkt = brigand::bool_<
+        bool(brigand::size<typename detail::get_special_pkts<T>::type>::value)
+    >;
 
 
     template<class Var, class T>
@@ -552,6 +605,17 @@ namespace proto
     struct var<types::pkt_sz_with_self<Desc>, Derived>
     {
         using desc_type = types::pkt_sz_with_self<Desc>;
+        using var_type = Derived;
+
+        template<class Params>
+        Derived to_proto_value(Params) const noexcept
+        { return static_cast<Derived const &>(*this); }
+    };
+
+    template<class Desc, class Derived>
+    struct var<types::pkt_data<Desc>, Derived>
+    {
+        using desc_type = types::pkt_data<Desc>;
         using var_type = Derived;
 
         template<class Params>
@@ -663,6 +727,7 @@ namespace proto
     struct creator
     {
         using arguments = brigand::append<get_arguments_t<Descs>...>;
+        using special_pkts = brigand::append<get_special_pkts_t<Descs>...>;
 
         CtxName ctx_name;
         inherits<Descs...> values;
@@ -942,6 +1007,10 @@ namespace proto
                 get_arguments_t<T>,                               \
                 get_arguments_t<U>                                \
             >;                                                    \
+            using special_pkts = brigand::append<                 \
+                get_special_pkts_t<T>,                            \
+                get_special_pkts_t<U>                             \
+            >;                                                    \
                                                                   \
             template<class Params>                                \
             constexpr auto                                        \
@@ -968,6 +1037,10 @@ namespace proto
             using arguments = brigand::append<          \
                 get_arguments_t<T>,                     \
                 get_arguments_t<U>                      \
+            >;                                          \
+            using special_pkts = brigand::append<       \
+                get_special_pkts_t<T>,                  \
+                get_special_pkts_t<U>                   \
             >;                                          \
                                                         \
             template<class Params>                      \
@@ -1074,6 +1147,11 @@ namespace proto
                 get_arguments_t<Cond>,
                 get_arguments_t<Var>,
                 get_arguments_t<VarElse>
+            >;
+            using special_pkts = brigand::append<
+                get_special_pkts_t<Cond>,
+                get_special_pkts_t<Var>,
+                get_special_pkts_t<VarElse>
             >;
 
             template<class Params>
@@ -1207,6 +1285,7 @@ namespace proto
         struct if_act
         {
             using arguments = brigand::append<get_arguments_t<Cond>, get_arguments_t<Var>>;
+            using special_pkts = brigand::append<get_special_pkts_t<Cond>, get_special_pkts_t<Var>>;
 
             template<class Params>
             constexpr auto to_proto_value(Params params) const
