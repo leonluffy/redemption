@@ -559,17 +559,12 @@ namespace proto
         { return static_cast<Derived const &>(*this); }
     };
 
-
     template<class T>
     using desc_type_t = typename T::desc_type;
 
     template<class T, class = void> struct check;
     template<class T> struct check<T, std::enable_if_t<T::value>> { constexpr operator bool () { return 0; } };
 
-#define PROTO_CHECKS(Tpl, Ts)            \
-    (void)::std::initializer_list<bool>{ \
-      ::proto::check<Tpl<Ts>>{}...       \
-    }
 
     template<class T> using var_type_t = typename T::var_type;
 
@@ -616,6 +611,11 @@ namespace proto
         { return this->ctx_name.name(); }
 
         CtxName ctx_name;
+    };
+
+    struct ctx_unamed
+    {
+        constexpr char const * name() const noexcept { return "<unamed>"; }
     };
 
     struct ctx_c_str_name
@@ -801,6 +801,28 @@ namespace proto
         }
     };
 
+
+    /// \brief make a proto::packet
+    template<class Desc>
+    constexpr auto
+    value(Desc const & value)
+    {
+        using value_type = val<named_var<Desc, ctx_unamed>, Desc>;
+        return packet<value_type>{value_type{{ctx_unamed{}}, value}};
+    }
+
+    /// \brief make a proto::packet
+    template<class Desc>
+    constexpr auto
+    value(char const * s, Desc const & value)
+    {
+        using value_type = val<named_var<Desc, ctx_c_str_name>, Desc>;
+        return packet<value_type>{value_type{{{s}}, value}};
+    }
+
+    // TODO values
+
+
     template<class... Ts>
     struct packet_description
     {
@@ -839,6 +861,7 @@ namespace proto
         }
     };
 
+
     template<class T, class... Desc>
     constexpr auto
     creater(Desc... d)
@@ -876,17 +899,25 @@ namespace proto
         return packet_description<Desc...>{{d...}};
     }
 
-
     template<class T> struct is_proto_packet : std::false_type {};
     template<class... Ts>
     struct is_proto_packet<packet<Ts...>> : std::true_type {};
 
+    namespace detail
+    {
+        template<class F, class... Pkts>
+        void apply_impl(F & f, Pkts const & ... pkts)
+        { f(pkts...); }
+
+        template<class Pkt>
+        std::enable_if_t<is_proto_packet<Pkt>::value, Pkt const &>
+        get_if_packet(Pkt const & pkt)
+        { return pkt; }
+    }
+
     template<class F, class... Pkts>
     void apply(F f, Pkts const & ... pkts)
-    {
-        PROTO_CHECKS(is_proto_packet, Pkts);
-        f(pkts...);
-    }
+    { f(detail::get_if_packet(pkts)...); }
 
 
     namespace dsl

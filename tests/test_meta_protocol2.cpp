@@ -265,7 +265,11 @@ void other_test()
 //         .else_
 //             [proto::params[b] &= 1]
     );
-    proto::apply(Buffering2<log_policy>{}, bl(a = 1_c, b = 1_c));
+    proto::apply(
+        Buffering2<log_policy>{},
+        bl(a = 1_c, b = 1_c),
+        proto::value(proto::types::u8{1_c})
+    );
 }
 
 #include <chrono>
