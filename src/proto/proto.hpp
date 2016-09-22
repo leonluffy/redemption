@@ -841,31 +841,43 @@ namespace proto
         };
     }
 
-    template<class... Ts>
+    template<class Values, class LazyValues>
     struct packet
-    : private Ts...
     {
-        using type_list = brigand::list<Ts...>;
+        using type_list = brigand::wrap<Values, brigand::list>;
 
-        constexpr packet(Ts... args)
-        : Ts{std::move(args)}...
-        {}
+        Values values;
+        LazyValues lazy_values;
 
         template<class F>
-        void apply_for_each(F f)
+        void apply_for_each(F f) const
         {
-            (void)std::initializer_list<int>{
-                (void(f(static_cast<Ts&>(*this))), 1)...
-            };
+            apply_for_each_(f, type_list{});
         }
 
         template<class F>
         decltype(auto) apply(F f) const
         {
-            return f(static_cast<Ts const &>(*this)...);
+            return apply_(f, type_list{});
+        }
+
+    private:
+        template<class F, class... Ts>
+        void apply_for_each_(F & f, brigand::list<Ts...>) const
+        {
+            (void)std::initializer_list<int>{
+                (void(f(static_cast<Ts const &>(this->values))), 1)...
+            };
+        }
+
+        template<class F, class... Ts>
+        decltype(auto) apply_(F & f, brigand::list<Ts...>) const
+        {
+            return f(static_cast<Ts const &>(this->values)...);
         }
     };
 
+    class dummy_ {};
 
     /// \brief make a proto::packet
     template<class Desc>
@@ -873,7 +885,7 @@ namespace proto
     value(Desc const & value)
     {
         using value_type = val<named_var<Desc, ctx_unamed>, Desc>;
-        return packet<value_type>{value_type{{ctx_unamed{}}, value}};
+        return packet<inherits<value_type>, dummy_>{value_type{{ctx_unamed{}}, value}, {}};
     }
 
     /// \brief make a proto::packet
@@ -882,7 +894,7 @@ namespace proto
     value(char const * s, Desc const & value)
     {
         using value_type = val<named_var<Desc, ctx_c_str_name>, Desc>;
-        return packet<value_type>{value_type{{{s}}, value}};
+        return packet<inherits<value_type>, dummy_>{value_type{{{s}}, value}, {}};
     }
 
     // TODO values
@@ -892,8 +904,11 @@ namespace proto
     struct packet_description
     {
         using arguments = brigand::append<get_arguments_t<Ts>...>;
+        using lazy_arguments = brigand::copy_if<brigand::list<Ts...>, brigand::call<has_special_pkt>>;
+        using lazy_values_type = brigand::wrap<lazy_arguments, inherits>;
 
         inherits<Ts...> values;
+        lazy_values_type lazy_values;
 
         template<class Val>
         using check_param = std::enable_if_t<
@@ -908,21 +923,36 @@ namespace proto
             Val
         >;
 
+        constexpr packet_description(Ts... a)
+        : packet_description{lazy_arguments{}, a...}
+        {}
+
         template<class... Val>
         constexpr auto
-        operator()(Val... values) const
+        operator()(Val... values) const &
         {
             return ordering_parameter<check_param<Val>...>({values...});
         }
 
     private:
+        template<class... Lazy>
+        constexpr packet_description(brigand::list<Lazy...>, Ts... a)
+        : values{a...}
+        , lazy_arguments{static_cast<Lazy>(this->values)...}
+        {}
+
+        constexpr packet_description(brigand::list<>, Ts... a)
+        : values{a...}
+        {}
+
         template<class... Val>
         constexpr auto
         ordering_parameter(utils::parameters<Val...> params) const
         {
             return packet<
-                decltype(static_cast<Ts const &>(this->values).to_proto_value(params))...
-            >{(static_cast<Ts const &>(this->values).to_proto_value(params))...};
+                inherits<decltype(static_cast<Ts const &>(this->values).to_proto_value(params))...>,
+                lazy_values_type
+            >{{(static_cast<Ts const &>(this->values).to_proto_value(params))...}, this->lazy_values};
         }
     };
 
@@ -961,12 +991,12 @@ namespace proto
     constexpr auto
     desc(Desc... d)
     {
-        return packet_description<Desc...>{{d...}};
+        return packet_description<Desc...>{d...};
     }
 
     template<class T> struct is_proto_packet : std::false_type {};
-    template<class... Ts>
-    struct is_proto_packet<packet<Ts...>> : std::true_type {};
+    template<class Values, class LazyValues>
+    struct is_proto_packet<packet<Values, LazyValues>> : std::true_type {};
 
     namespace detail
     {
