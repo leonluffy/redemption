@@ -517,29 +517,6 @@ namespace proto
 
     template<class T> using is_pkt_data = typename detail::is_pkt_data<T>::type;
 
-    template<class T> using is_special_pkt = brigand::bool_<is_pkt_sz_category<T>{} or is_pkt_data<T>{}>;
-
-    namespace detail
-    {
-        template<class T, class = void>
-        struct get_special_pkts
-        { using type = brigand::list<>; };
-
-        template<class T>
-        struct get_special_pkts<T, std::enable_if_t<is_special_pkt<T>::value>>
-        { using type = brigand::list<T>; };
-
-        template<class T>
-        struct get_special_pkts<T, void_t<typename T::special_pkts>>
-        { using type = typename T::special_pkts; };
-    }
-
-    template<class T> using get_special_pkts_t = typename detail::get_special_pkts<T>::type;
-
-    template<class T> using has_special_pkt = brigand::bool_<
-        bool(brigand::size<typename detail::get_special_pkts<T>::type>::value)
-    >;
-
 
     template<class Var, class T>
     struct val
@@ -729,7 +706,6 @@ namespace proto
     struct creator
     {
         using arguments = brigand::append<get_arguments_t<Descs>...>;
-        using special_pkts = brigand::append<get_special_pkts_t<Descs>...>;
 
         CtxName ctx_name;
         inherits<Descs...> values;
@@ -853,37 +829,23 @@ namespace proto
         { return {x...}; }
     }
 
-    template<class Values, class LazyValues>
+    template<class... Ts>
     struct packet
     {
-        using type_list = brigand::wrap<Values, brigand::list>;
+        using type_list = brigand::list<Ts...>;
 
-        Values values;
-        LazyValues lazy_values;
+        inherits<Ts...> values;
 
         template<class F>
         void apply_for_each(F f) const
-        {
-            apply_for_each_(f, type_list{});
-        }
-
-        template<class F>
-        decltype(auto) apply(F f) const
-        {
-            return apply_(f, type_list{});
-        }
-
-    private:
-        template<class F, class... Ts>
-        void apply_for_each_(F & f, brigand::list<Ts...>) const
         {
             (void)std::initializer_list<int>{
                 (void(f(static_cast<Ts const &>(this->values))), 1)...
             };
         }
 
-        template<class F, class... Ts>
-        decltype(auto) apply_(F & f, brigand::list<Ts...>) const
+        template<class F>
+        decltype(auto) apply(F f) const
         {
             return f(static_cast<Ts const &>(this->values)...);
         }
@@ -897,7 +859,7 @@ namespace proto
     value(Desc const & value)
     {
         using value_type = val<named_var<Desc, ctx_unamed>, Desc>;
-        return packet<inherits<value_type>, dummy_>{value_type{{ctx_unamed{}}, value}, {}};
+        return packet<value_type>{value_type{{ctx_unamed{}}, value}};
     }
 
     /// \brief make a proto::packet
@@ -906,7 +868,7 @@ namespace proto
     value(char const * s, Desc const & value)
     {
         using value_type = val<named_var<Desc, ctx_c_str_name>, Desc>;
-        return packet<inherits<value_type>, dummy_>{value_type{{{s}}, value}, {}};
+        return packet<value_type>{value_type{{{s}}, value}};
     }
 
     // TODO values
@@ -916,13 +878,9 @@ namespace proto
     struct packet_description
     {
         using arguments = brigand::append<get_arguments_t<Ts>...>;
-        // TODO
         using lazy_arguments = brigand::list<>;
-        //using lazy_arguments = brigand::copy_if<brigand::list<Ts...>, brigand::call<has_special_pkt>>;
-        using lazy_values_type = brigand::wrap<lazy_arguments, inherits>;
 
         inherits<Ts...> values;
-        lazy_values_type lazy_values;
 
         template<class Val>
         using check_param = std::enable_if_t<
@@ -964,9 +922,8 @@ namespace proto
         ordering_parameter(utils::parameters<Val...> params) const
         {
             return packet<
-                inherits<decltype(static_cast<Ts const &>(this->values).to_proto_value(params))...>,
-                lazy_values_type
-            >{{(static_cast<Ts const &>(this->values).to_proto_value(params))...}, this->lazy_values};
+                decltype(static_cast<Ts const &>(this->values).to_proto_value(params))...
+            >{{(static_cast<Ts const &>(this->values).to_proto_value(params))...}};
         }
     };
 
@@ -1009,8 +966,8 @@ namespace proto
     }
 
     template<class T> struct is_proto_packet : std::false_type {};
-    template<class Values, class LazyValues>
-    struct is_proto_packet<packet<Values, LazyValues>> : std::true_type {};
+    template<class... Ts>
+    struct is_proto_packet<packet<Ts...>> : std::true_type {};
 
     namespace detail
     {
@@ -1051,10 +1008,6 @@ namespace proto
                 get_arguments_t<T>,                               \
                 get_arguments_t<U>                                \
             >;                                                    \
-            using special_pkts = brigand::append<                 \
-                get_special_pkts_t<T>,                            \
-                get_special_pkts_t<U>                             \
-            >;                                                    \
                                                                   \
             template<class Params>                                \
             constexpr auto                                        \
@@ -1081,10 +1034,6 @@ namespace proto
             using arguments = brigand::append<          \
                 get_arguments_t<T>,                     \
                 get_arguments_t<U>                      \
-            >;                                          \
-            using special_pkts = brigand::append<       \
-                get_special_pkts_t<T>,                  \
-                get_special_pkts_t<U>                   \
             >;                                          \
                                                         \
             template<class Params>                      \
@@ -1128,6 +1077,18 @@ namespace proto
     { return {{}, {{x}}}; }
 
 
+    namespace detail
+    {
+        template<class T> struct is_special_value_impl : std::false_type {};
+    }
+
+    template<class T>
+    using is_special_value = brigand::bool_<(
+        brigand::any<
+            get_arguments_t<T>,
+            brigand::call<detail::is_special_value_impl>
+        >::value
+    )>;
 
     namespace dsl
     {
@@ -1143,7 +1104,6 @@ namespace proto
             using var_type = lazy;
             using desc_type = Desc;
             using arguments = brigand::list<dsl::pkt_sz>;
-            using special_pkts = brigand::list<lazy>;
 
             template<class Params>
             constexpr Desc to_proto_value(Params p) const
@@ -1160,6 +1120,11 @@ namespace proto
             return {};
         }
     };
+
+    namespace detail
+    {
+        template<> struct is_special_value_impl<dsl::pkt_sz> : std::true_type {};
+    }
 
 
     constexpr struct params_
@@ -1226,11 +1191,6 @@ namespace proto
                 get_arguments_t<Cond>,
                 get_arguments_t<Var>,
                 get_arguments_t<VarElse>
-            >;
-            using special_pkts = brigand::append<
-                get_special_pkts_t<Cond>,
-                get_special_pkts_t<Var>,
-                get_special_pkts_t<VarElse>
             >;
 
             template<class Params>
@@ -1364,7 +1324,6 @@ namespace proto
         struct if_act
         {
             using arguments = brigand::append<get_arguments_t<Cond>, get_arguments_t<Var>>;
-            using special_pkts = brigand::append<get_special_pkts_t<Cond>, get_special_pkts_t<Var>>;
 
             template<class Params>
             constexpr auto to_proto_value(Params params) const

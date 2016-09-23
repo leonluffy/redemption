@@ -106,7 +106,7 @@ struct Buffering3
 
         using count_special_pkt = brigand::count_if<
             brigand::append<typename Pkts::type_list...>,
-            brigand::call<proto::has_special_pkt>
+            brigand::call<proto::is_special_value>
         >;
 
         using pkt_ptr_is_first_list = brigand::wrap<
@@ -209,7 +209,7 @@ struct Buffering3
         };
 
         template<class VarInfo, class Val>
-        std::enable_if_t<proto::has_special_pkt<Val>::value>
+        std::enable_if_t<proto::is_special_value<Val>::value>
         serialize_special_pkt(VarInfo, Val const & val)
         {
             PROTO_TRACE(name(val) << " = ");
@@ -227,7 +227,7 @@ struct Buffering3
         }
 
         template<class VarInfo, class Val>
-        std::enable_if_t<!proto::has_special_pkt<Val>::value>
+        std::enable_if_t<!proto::is_special_value<Val>::value>
         serialize_special_pkt(VarInfo, Val const &)
         {}
 
@@ -282,9 +282,8 @@ struct Buffering3
         template<class IsFirstPkt, class VarInfo, class Val>
         void serialize_without_special_pkt(IsFirstPkt is_first_pkt, VarInfo var_info, Val const & val)
         {
-            // TODO has_special_pkt -> is_special_pkt
-            constexpr bool is_special_pkt = proto::has_special_pkt<Val>::value;
-            if (!is_special_pkt) {
+            constexpr bool is_special_value = proto::is_special_value<Val>::value;
+            if (!is_special_value) {
                 PROTO_TRACE(name(val) << " = ");
                 PROTO_ENABLE_IF_TRACE(this->print(val));
             }
@@ -294,7 +293,7 @@ struct Buffering3
             // TODO check overflow (assert)
             this->serialize_type(
                 typename std::conditional<
-                    is_special_pkt,
+                    is_special_value,
                     special_op, proto::buffer_category<desc_type_t<VarInfo>>
                 >::type{},
                 var_info,
