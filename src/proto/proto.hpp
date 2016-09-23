@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "utils/sugar/numerics/safe_conversions.hpp"
+
 #include <iosfwd>
 
 #include <limits>
@@ -804,6 +806,12 @@ namespace proto
     template<class... Ts>
     using compose_t = detail::compose_impl<std::index_sequence_for<Ts...>, Ts...>;
 
+#ifdef IN_IDE_PARSER
+# define PROTO_IDE_CPP(...)
+#else
+# define PROTO_IDE_CPP(...) __VA_ARGS__
+#endif
+
     namespace utils
     {
         namespace detail
@@ -836,9 +844,13 @@ namespace proto
             constexpr decltype(auto) get_proto_value() const noexcept
             { return detail::ref_to_val<T>(refs); }
 
-        private:
             proto::inherits<detail::ref<Ts>...> refs;
         };
+
+        template<class... Ts>
+        parameters<Ts...>
+        make_parameters(Ts & ... x)
+        { return {x...}; }
     }
 
     template<class Values, class LazyValues>
@@ -904,7 +916,9 @@ namespace proto
     struct packet_description
     {
         using arguments = brigand::append<get_arguments_t<Ts>...>;
-        using lazy_arguments = brigand::copy_if<brigand::list<Ts...>, brigand::call<has_special_pkt>>;
+        // TODO
+        using lazy_arguments = brigand::list<>;
+        //using lazy_arguments = brigand::copy_if<brigand::list<Ts...>, brigand::call<has_special_pkt>>;
         using lazy_values_type = brigand::wrap<lazy_arguments, inherits>;
 
         inherits<Ts...> values;
@@ -1112,6 +1126,41 @@ namespace proto
     dsl::and_eq_<dsl::param<T>, dsl::value<types::value<U>>>
     constexpr operator &= (dsl::param<T>, U && x)
     { return {{}, {{x}}}; }
+
+
+
+    namespace dsl
+    {
+        struct pkt_sz {};
+    }
+    template<class Desc>
+    struct sz
+    {
+        using arguments = brigand::list<>;
+
+        struct lazy
+        {
+            using var_type = lazy;
+            using desc_type = Desc;
+            using arguments = brigand::list<dsl::pkt_sz>;
+            using special_pkts = brigand::list<lazy>;
+
+            template<class Params>
+            constexpr Desc to_proto_value(Params p) const
+            {
+                return Desc{checked_cast<typename Desc::type>(p.get_proto_value(dsl::pkt_sz{}).x())};
+            }
+
+            static char const * name() noexcept { return "pkt_sz"; }
+        };
+
+        template<class Params>
+        constexpr lazy to_proto_value(Params) const
+        {
+            return {};
+        }
+    };
+
 
     constexpr struct params_
     {

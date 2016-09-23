@@ -104,13 +104,9 @@ struct Buffering3
         // [ var_info<ipacket, ivar, var> ... ]
         using var_info_list = brigand::transform<ipacket_list, ivar_list, var_list, brigand::call<var_info>>;
 
-        // var_info_list with only pkt_sz* and pkt_data
-        using special_pkt_list = brigand::copy_if<
-            var_info_list,
-            brigand::bind<
-                proto::has_special_pkt,
-                brigand::call<proto::desc_type_t>
-            >
+        using count_special_pkt = brigand::count_if<
+            brigand::append<typename Pkts::type_list...>,
+            brigand::call<proto::has_special_pkt>
         >;
 
         using pkt_ptr_is_first_list = brigand::wrap<
@@ -118,7 +114,7 @@ struct Buffering3
             brigand::append
         >;
 
-        using special_ptr_array_t = std::array<uint8_t *, brigand::size<special_pkt_list>::value>;
+        using special_ptr_array_t = std::array<uint8_t *, count_special_pkt::value>;
         std::array<uint8_t *, brigand::size<packet_list>::value> pkt_ptrs;
         special_ptr_array_t special_pkt_ptrs;
         Policy const & policy;
@@ -135,7 +131,7 @@ struct Buffering3
 
         void impl(Pkts const & ... packets)
         {
-            PROTO_TRACE("special_pkt_ptrs.size: " << this->special_pkt_ptrs.size() << "\n");
+            PROTO_TRACE("special_pkt_ptrs.size: " << this->special_pkt_ptrs.size() << "\n\n");
 
             this->serialize_(
                 var_info_list{},
@@ -160,7 +156,7 @@ struct Buffering3
                 )
             )), 1)...};
 
-            this->special_pkt_iterator = std::begin(this->special_pkt_ptrs);
+            PROTO_TRACE("----------- special (" << count_special_pkt::value << ") -----------\n");
 
             (void)std::initializer_list<int>{(void((
                 this->serialize_special_pkt(
@@ -169,101 +165,88 @@ struct Buffering3
                 )
             )), 1)...};
 
+            PROTO_TRACE("----------- send -----------\n");
+
             this->policy.send(array_view_u8{this->av.data(), std::size_t(this->buf-this->av.data())});
         }
 
+        template<std::size_t ipacket>
+        struct lazy_sz
+        {
+            Impl const & impl;
+
+            std::size_t operator()() const
+            {
+                auto const sz = impl.buf - impl.pkt_ptrs[ipacket+1];
+                PROTO_TRACE(sz);
+                return sz;
+            }
+        };
+
+        template<std::size_t ipacket>
+        struct lazy_sz_with_self
+        {
+            Impl const & impl;
+
+            std::size_t operator()() const
+            {
+                auto const sz = impl.buf - impl.pkt_ptrs[ipacket];
+                PROTO_TRACE(sz);
+                return sz;
+            }
+        };
+
+        template<std::size_t ipacket>
+        struct lazy_data
+        {
+            Impl const & impl;
+
+            array_view_u8 operator()() const
+            {
+                PROTO_TRACE("{ptr, " << impl.buf - impl.pkt_ptrs[ipacket+1] << "}");
+                return array_view_u8{impl.pkt_ptrs[ipacket+1], impl.buf};
+            }
+        };
+
         template<class VarInfo, class Val>
-        void serialize_special_pkt(VarInfo var_info, Val const & val)
+        std::enable_if_t<proto::has_special_pkt<Val>::value>
+        serialize_special_pkt(VarInfo, Val const & val)
         {
             PROTO_TRACE(name(val) << " = ");
-            PROTO_ENABLE_IF_TRACE(this->print(val));
-            this->serialize_special(
-                proto::get_special_pkts_t<desc_type_t<VarInfo>>{},
-                var_info,
-                val
+
+            constexpr std::size_t ipacket = VarInfo::ipacket::value;
+            auto l1 = proto::val<proto::dsl::pkt_sz, lazy_sz<ipacket>>{{}, {{*this}}};
+//             proto::val<proto::dsl::pkt_data, lazy_data<ipacket>> l2{{}, {*this}};
+//             proto::val<proto::dsl::pkt_sz_with_self, lazy_sz_with_self<ipacket>> l3{{}, {*this}};
+
+            this->serialize_type2(
+                proto::buffer_category<desc_type_t<VarInfo>>{},
+                *--this->special_pkt_iterator,
+                val.to_proto_value(proto::utils::make_parameters(l1/*, l2, l3*/))
             );
         }
 
         template<class VarInfo, class Val>
-        void serialize_special(brigand::list<>, VarInfo, Val const &)
+        std::enable_if_t<!proto::has_special_pkt<Val>::value>
+        serialize_special_pkt(VarInfo, Val const &)
         {}
 
-        template<class T, class VarInfo, class Val>
-        void serialize_special(brigand::list<proto::types::pkt_sz<T>>, VarInfo var_info, Val const &)
-        {
-            constexpr auto pkt_idx = brigand::index_of<special_pkt_list, VarInfo>::value;
-            (void)pkt_idx;
-            auto const sz = this->buf - this->pkt_ptrs[VarInfo::ipacket::value+1];
-            PROTO_TRACE("special_pkt_ptrs[" << pkt_idx << "] {"
-                << static_cast<void*>(this->special_pkt_ptrs[pkt_idx]) << "} = "
-                << sz << "\n"
-            );
-            this->serialize_type2(
-                proto::buffer_category<desc_type_t<VarInfo>>{},
-                *this->special_pkt_iterator,
-                var_info,
-                T{checked_cast<typename T::type>(sz)}
-            );
-            ++this->special_pkt_iterator;
-            PROTO_TRACE("\n");
-        }
-
-        template<class T, class VarInfo, class Val>
-        void serialize_special(brigand::list<proto::types::pkt_sz_with_self<T>>, VarInfo var_info, Val const &)
-        {
-            constexpr auto pkt_idx = brigand::index_of<special_pkt_list, VarInfo>::value;
-            (void)pkt_idx;
-            auto const sz = this->buf - this->pkt_ptrs[VarInfo::ipacket::value];
-            PROTO_TRACE("special_pkt_ptrs[" << pkt_idx << "] {"
-                << static_cast<void*>(this->special_pkt_ptrs[pkt_idx]) << "} = "
-                << sz << "\n"
-            );
-            this->serialize_type2(
-                proto::buffer_category<desc_type_t<VarInfo>>{},
-                *this->special_pkt_iterator,
-                var_info,
-                T{checked_cast<typename T::type>(sz)}
-            );
-            ++this->special_pkt_iterator;
-            PROTO_TRACE("\n");
-        }
-
-        template<class T, class VarInfo, class Val>
-        void serialize_special(brigand::list<proto::types::pkt_data<T>>, VarInfo var_info, Val const &)
-        {
-            constexpr auto pkt_idx = brigand::index_of<special_pkt_list, VarInfo>::value;
-            (void)pkt_idx;
-            auto const sz = this->buf - this->pkt_ptrs[VarInfo::ipacket::value+1];
-            PROTO_TRACE("special_pkt_ptrs[" << pkt_idx << "] {"
-                << static_cast<void*>(this->special_pkt_ptrs[pkt_idx]) << "} =... "
-                << sz << "\n"
-            );
-            this->serialize_type2(
-                proto::buffer_category<desc_type_t<VarInfo>>{},
-                *this->special_pkt_iterator,
-                var_info,
-                T{array_view_u8{this->pkt_ptrs[VarInfo::ipacket::value+1], sz}}
-            );
-            ++this->special_pkt_iterator;
-            PROTO_TRACE("\n");
-        }
-
-        template<class VarInfo, class T>
-        void serialize_type2(proto::tags::static_buffer, unsigned char * buf, VarInfo, T const & x)
+        template<class T>
+        void serialize_type2(proto::tags::static_buffer, unsigned char * buf, T const & x)
         {
             policy.static_serialize(buf, x);
-            PROTO_TRACE("\n");
+            PROTO_TRACE(" [slen: " << proto::sizeof_<T>::value << "]\n");
         }
 
-        template<class VarInfo, class T>
-        void serialize_type2(proto::tags::limited_buffer, unsigned char * buf, VarInfo, T const & x)
+        template<class T>
+        void serialize_type2(proto::tags::limited_buffer, unsigned char * buf, T const & x)
         {
             std::size_t len = policy.limited_serialize(buf, x);
             PROTO_TRACE(" [len: " << len << "]\n");
         }
 
-        template<class VarInfo, class T>
-        void serialize_type2(proto::tags::view_buffer, unsigned char * buf, VarInfo, T const & x)
+        template<class T>
+        void serialize_type2(proto::tags::view_buffer, unsigned char * buf, T const & x)
         {
             auto av = policy.get_view_buffer(x);
             memcpy(buf, av.data(), av.size());
@@ -276,8 +259,8 @@ struct Buffering3
 #else
 # define PROTO_ENABLE_IF_DEBUG(...)
 #endif
-        template<class VarInfo, class T>
-        void serialize_type2(proto::tags::dynamic_buffer, unsigned char * buf, VarInfo, T const & x)
+        template<class T>
+        void serialize_type2(proto::tags::dynamic_buffer, unsigned char * buf, T const & x)
         {
             PROTO_ENABLE_IF_DEBUG(bool dynamic_is_used = false;)
             // PERFORMANCE or limited_serialize (policy rule)
@@ -292,33 +275,30 @@ struct Buffering3
                 x
             );
             assert(dynamic_is_used);
-            static_assert(!var_info_is_pkt_sz<VarInfo>{}, "");
         }
 #undef PROTO_ENABLE_IF_DEBUG
 #undef PROTO_NIL
 
-
-//         template<class Val, class IPacket, class IVar, class DescType>
-//         Val get_val()
-//         {}
-
         template<class IsFirstPkt, class VarInfo, class Val>
         void serialize_without_special_pkt(IsFirstPkt is_first_pkt, VarInfo var_info, Val const & val)
         {
-            PROTO_TRACE(name(val) << " = ");
-            PROTO_ENABLE_IF_TRACE(this->print(val));
+            // TODO has_special_pkt -> is_special_pkt
+            constexpr bool is_special_pkt = proto::has_special_pkt<Val>::value;
+            if (!is_special_pkt) {
+                PROTO_TRACE(name(val) << " = ");
+                PROTO_ENABLE_IF_TRACE(this->print(val));
+            }
             if (is_first_pkt) {
                 this->pkt_ptrs[VarInfo::ipacket::value] = this->buf;
             }
             // TODO check overflow (assert)
             this->serialize_type(
                 typename std::conditional<
-                    proto::has_special_pkt<desc_type_t<VarInfo>>::value,
+                    is_special_pkt,
                     special_op, proto::buffer_category<desc_type_t<VarInfo>>
                 >::type{},
                 var_info,
                 val
-//                 get_val(val, var_info)
             );
         }
 
@@ -335,8 +315,9 @@ struct Buffering3
         void serialize_type(proto::tags::static_buffer, VarInfo, Val const & val)
         {
             policy.static_serialize(this->buf, val.x);
-            this->buf += proto::sizeof_<desc_type_t<VarInfo>>{};
-            PROTO_TRACE("\n");
+            constexpr std::size_t sz = proto::sizeof_<desc_type_t<VarInfo>>::value;
+            PROTO_TRACE(" [slen: " << sz << "]\n");
+            this->buf += sz;
         }
 
         template<class VarInfo, class Val>
@@ -345,7 +326,6 @@ struct Buffering3
             std::size_t len = policy.limited_serialize(this->buf, val.x);
             PROTO_TRACE(" [len: " << len << "]\n");
             this->buf += len;
-            static_assert(!var_info_is_pkt_sz<VarInfo>{}, "");
         }
 
         template<class VarInfo, class Val>
@@ -355,7 +335,6 @@ struct Buffering3
             memcpy(this->buf, av.data(), av.size());
             PROTO_TRACE(" [view: 0x" << static_cast<void const *>(this->buf) << " | len: " << av.size() << "]\n");
             this->buf += av.size();
-            static_assert(!var_info_is_pkt_sz<VarInfo>{}, "");
         }
 
 # define PROTO_NIL
@@ -381,7 +360,6 @@ struct Buffering3
                 val.x
             );
             assert(dynamic_is_used);
-            static_assert(!var_info_is_pkt_sz<VarInfo>{}, "");
         }
 #undef PROTO_ENABLE_IF_DEBUG
 #undef PROTO_NIL
@@ -398,6 +376,10 @@ struct Buffering3
         template<class T, class Derived>
         static char const * name(proto::var<proto::types::pkt_sz_with_self<T>, Derived>)
         { return Derived::name(); }
+
+        template<class T>
+        auto name(T const & val)
+        { return val.name(); }
 
 
         template<class Var, class T>
@@ -417,6 +399,12 @@ struct Buffering3
         static void print(proto::var<proto::types::pkt_sz_with_self<T>, Derived>)
         {
             PROTO_TRACE("[pkt_sz_with_self]");
+        }
+
+        template<class T>
+        static void print(T const &)
+        {
+            PROTO_TRACE("[special]");
         }
 
         static void print_buffer_type(proto::tags::static_buffer)

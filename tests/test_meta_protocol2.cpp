@@ -4,6 +4,8 @@
 #include <boost/test/auto_unit_test.hpp>
 
 #define LOGPRINT
+// TODO
+#define ENABLE_PROTO_TRACE
 
 #include <iostream>
 #include "proto/proto.hpp"
@@ -107,30 +109,30 @@ struct log_policy : buffering2_policy_base
 
 BOOST_AUTO_TEST_CASE(proto_test)
 {
-    struct {
-        uint8_t a = 1;
-        uint8_t b = 2;
-        uint16_t d = 3;
-        char const c[3] = "ab";
-    } pkt;
-
-    auto packet = XXX::desc(
-        XXX::a = pkt.a,
-        XXX::b = pkt.b,
-        XXX::c = /*cstr_*/make_array_view(pkt.c),
-        XXX::d = pkt.d,
-        XXX::e = /*cstr_*/make_array_view(pkt.c),
-        XXX::f = pkt.d/*,
-//         XXX::sz,
-        XXX::sz2
-      , 1*/
-    );
-
-    packet.apply_for_each(Printer{});
-    std::cout << "\n";
-    packet.apply(Buffering{});
-    std::cout << "\n";
-    proto::apply(Buffering2<log_policy>{}, packet, packet);
+//     struct {
+//         uint8_t a = 1;
+//         uint8_t b = 2;
+//         uint16_t d = 3;
+//         char const c[3] = "ab";
+//     } pkt;
+//
+//     auto packet = XXX::desc(
+//         XXX::a = pkt.a,
+//         XXX::b = pkt.b,
+//         XXX::c = /*cstr_*/make_array_view(pkt.c),
+//         XXX::d = pkt.d,
+//         XXX::e = /*cstr_*/make_array_view(pkt.c),
+//         XXX::f = pkt.d/*,
+// //         XXX::sz,
+//         XXX::sz2
+//       , 1*/
+//     );
+//
+//     packet.apply_for_each(Printer{});
+//     std::cout << "\n";
+//     packet.apply(Buffering{});
+//     std::cout << "\n";
+//     proto::apply(Buffering2<log_policy>{}, packet, packet);
 
     test();
     other_test();
@@ -196,51 +198,51 @@ inline bool check_range(const_bytes_array p, const_bytes_array mem, char * messa
 
 void test_new()
 {
-    auto packet1 = x224::dt_tpdu_send();
-
-    uint8_t data[10];
-    CryptContext crypt;
-    auto packet2 = sec::sec_send(
-        sec::flags = uint32_t(~SEC::SEC_ENCRYPT),
-        sec::crypt = crypt,
-        sec::data = data
-    );
-
-    struct Policy : log_policy {
-        void send(iovec_array iovs) const {
-            BOOST_CHECK_EQUAL(iovs.size(), 1);
-            CHECK_RANGE(
-                make_array_view(reinterpret_cast<uint8_t const *>(iovs[0].iov_base), iovs[0].iov_len),
-                cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
-            );
-            log_policy::send(iovs);
-            this->used = true;
-        }
-
-        Policy(bool & used) : used(used) {}
-        bool & used;
-    };
-
-    bool used = false;
-    proto::apply(Buffering2<Policy>{used}, packet1, packet2);
-    BOOST_CHECK(used);
-
-
-    struct Policy2 : log_policy {
-        void send(array_view_u8 av) const {
-            CHECK_RANGE(av, cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff"));
-            iovec iov{av.data(), av.size()};
-            log_policy::send(iovec_array{&iov, 1u});
-            this->used = true;
-        }
-        Policy2(bool & used) : used(used) {}
-        bool & used;
-    };
-
-    uint8_t buf[1024];
-    used = false;
-    proto::apply(Buffering3<Policy2>{{used}, {buf}}, packet1, packet2);
-    BOOST_CHECK(used);
+//     auto packet1 = x224::dt_tpdu_send();
+//
+//     uint8_t data[10];
+//     CryptContext crypt;
+//     auto packet2 = sec::sec_send(
+//         sec::flags = uint32_t(~SEC::SEC_ENCRYPT),
+//         sec::crypt = crypt,
+//         sec::data = data
+//     );
+//
+//     struct Policy : log_policy {
+//         void send(iovec_array iovs) const {
+//             BOOST_CHECK_EQUAL(iovs.size(), 1);
+//             CHECK_RANGE(
+//                 make_array_view(reinterpret_cast<uint8_t const *>(iovs[0].iov_base), iovs[0].iov_len),
+//                 cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
+//             );
+//             log_policy::send(iovs);
+//             this->used = true;
+//         }
+//
+//         Policy(bool & used) : used(used) {}
+//         bool & used;
+//     };
+//
+//     bool used = false;
+//     proto::apply(Buffering2<Policy>{used}, packet1, packet2);
+//     BOOST_CHECK(used);
+//
+//
+//     struct Policy2 : log_policy {
+//         void send(array_view_u8 av) const {
+//             CHECK_RANGE(av, cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff"));
+//             iovec iov{av.data(), av.size()};
+//             log_policy::send(iovec_array{&iov, 1u});
+//             this->used = true;
+//         }
+//         Policy2(bool & used) : used(used) {}
+//         bool & used;
+//     };
+//
+//     uint8_t buf[1024];
+//     used = false;
+//     proto::apply(Buffering3<Policy2>{{used}, {buf}}, packet1, packet2);
+//     BOOST_CHECK(used);
 }
 
 void other_test()
@@ -264,133 +266,146 @@ void other_test()
 //             [proto::params[b] &= 1]
 //         .else_
 //             [proto::params[b] &= 1]
+
+        , proto::sz<proto::types::u8>{}
     );
+    uint8_t data[1024];
+    struct Policy3 : log_policy {
+        void send(array_view_u8 av) const {
+            iovec iov{av.data(), av.size()};
+            log_policy::send(iovec_array{&iov, 1u});
+        }
+    };
     proto::apply(
-        Buffering2<log_policy>{},
-        bl(a = 1_c, b = 1_c),
+        Buffering3<Policy3>{{}, array_view_u8{data}},
+        bl(a = 1_c, b = 3_c),
         proto::value(proto::types::u8{1_c})
     );
 }
 
-#include <chrono>
-
-static void escape(void const * p) {
-   asm volatile("" : : "g"(p) : "memory");
-}
-
-static void clobber() {
-   asm volatile("" : : : "memory");
-}
-
-
-
-inline void test1(uint8_t * p, CryptContext & crypt, uint32_t c) {
-    uint8_t data[10];
-    auto packet1 = x224::dt_tpdu_send();
-    auto packet2 = sec::sec_send(
-        sec::flags = c/*uint32_t(~SEC::SEC_ENCRYPT)*/,
-        sec::crypt = crypt,
-        sec::data = data
-    );
-    struct Policy : buffering2_policy_base {
-        void send(iovec_array iovs) const {
-            //escape(data);
-            for (auto iovec : iovs) {
-                memcpy(p, iovec.iov_base, iovec.iov_len);
-                p += iovec.iov_len;
-            }
-            //clobber();
-        }
-        Policy(uint8_t * p) : p (p) {}
-        mutable uint8_t * p;
-    };
-    proto::apply(Buffering2<Policy>{p}, packet1, packet2);
-}
-
-inline void test2(uint8_t * p, CryptContext & crypt, uint32_t c) {
-    uint8_t data[10];
-    uint8_t buf[256];
-    OutStream out_stream(buf + 126, 126);
-    StaticOutStream<128> hstream;
-//         escape(out_stream.get_data());
-//         escape(hstream.get_data());
-    SEC::Sec_Send(out_stream, data, 10, c, crypt, 0);
-    X224::DT_TPDU_Send(hstream, out_stream.get_offset());
-    auto bufp = out_stream.get_data() - hstream.get_offset();
-    memcpy(bufp, hstream.get_data(), hstream.get_offset());
-    out_stream = OutStream(bufp, out_stream.get_current() - bufp);
-    out_stream.out_skip_bytes(out_stream.get_capacity());
-    memcpy(p, out_stream.get_data(), out_stream.get_offset());
-//         clobber();
-//         clobber();
-}
+// #include <chrono>
+//
+// static void escape(void const * p) {
+//    asm volatile("" : : "g"(p) : "memory");
+// }
+//
+// static void clobber() {
+//    asm volatile("" : : : "memory");
+// }
+//
+//
+//
+// inline void test1(uint8_t * p, CryptContext & crypt, uint32_t c) {
+//     uint8_t data[10];
+//     auto packet1 = x224::dt_tpdu_send();
+//     auto packet2 = sec::sec_send(
+//         sec::flags = c/*uint32_t(~SEC::SEC_ENCRYPT)*/,
+//         sec::crypt = crypt,
+//         sec::data = data
+//     );
+//     struct Policy : buffering2_policy_base {
+//         void send(iovec_array iovs) const {
+//             //escape(data);
+//             for (auto iovec : iovs) {
+//                 memcpy(p, iovec.iov_base, iovec.iov_len);
+//                 p += iovec.iov_len;
+//             }
+//             //clobber();
+//         }
+//         Policy(uint8_t * p) : p (p) {}
+//         mutable uint8_t * p;
+//     };
+//     proto::apply(Buffering2<Policy>{p}, packet1, packet2);
+// }
+//
+// inline void test2(uint8_t * p, CryptContext & crypt, uint32_t c) {
+//     uint8_t data[10];
+//     uint8_t buf[256];
+//     OutStream out_stream(buf + 126, 126);
+//     StaticOutStream<128> hstream;
+// //         escape(out_stream.get_data());
+// //         escape(hstream.get_data());
+//     SEC::Sec_Send(out_stream, data, 10, c, crypt, 0);
+//     X224::DT_TPDU_Send(hstream, out_stream.get_offset());
+//     auto bufp = out_stream.get_data() - hstream.get_offset();
+//     memcpy(bufp, hstream.get_data(), hstream.get_offset());
+//     out_stream = OutStream(bufp, out_stream.get_current() - bufp);
+//     out_stream.out_skip_bytes(out_stream.get_capacity());
+//     memcpy(p, out_stream.get_data(), out_stream.get_offset());
+// //         clobber();
+// //         clobber();
+// }
 
 #include "openssl_tls.hpp"
 
 void bench()
 {
-    SSL_load_error_strings();
-    SSL_library_init();
-
-    auto bench = [](auto test) {
-        std::vector<long long> v;
-
-        CryptContext crypt;
-        crypt.encryptionMethod = 1;
-        memcpy(crypt.key, "\xd1\x26\x9e\x63\xec\x51\x65\x1d\x89\x5c\x5a\x2a\x29\xef\x08\x4c", 16);
-        memcpy(crypt.update_key, crypt.key, 16);
-
-        crypt.rc4.set_key(crypt.key, (crypt.encryptionMethod==1)?8:16);
-
-        srand(0);
-
-        unsigned imax = 0;
-        //unsigned imax = 100;
-        //unsigned imax = 500;
-        for (unsigned i = 0; i < imax; ++i) {
-            //alignas(4) uint8_t data[2621];
-            alignas(4) uint8_t data[262144];
-            //alignas(4) uint8_t data[1048576];
-            auto p = data;
-            test(p, crypt, 0);
-            auto sz = 12;
-
-            using resolution_clock = std::chrono::steady_clock; // std::chrono::high_resolution_clock;
-
-            auto t1 = resolution_clock::now();
-
-            uint32_t r = rand();
-
-            while (static_cast<size_t>(p - data + sz) < sizeof(data)) {
-                escape(p);
-                test(p, crypt, r);
-                clobber();
-                p += sz;
-            }
-
-            auto t2 = resolution_clock::now();
-
-            v.push_back((t2-t1).count()/imax);
-        }
-        return v;
-    };
-
-     auto v1 = bench(test1);
-     auto v2 = bench(test2);
-
-     std::sort(v1.begin(), v1.end());
-     std::sort(v2.begin(), v2.end());
-
-     long long sz = v1.size();
-     auto pmin = std::max(sz/2-30, 0LL);
-     auto pmax = std::min(sz/2+29, sz);
-     v1 = decltype(v1)(std::begin(v1) + pmin, std::begin(v1) + pmax);
-     v2 = decltype(v2)(std::begin(v2) + pmin, std::begin(v2) + pmax);
-
-     std::cerr << "\n\ntest1\ttest2\n";
-     auto it1 = v1.begin();
-     for (auto t : v2) {
-         std::cerr << *it1 << "\t" << t << "\n";
-         ++it1;
-     }
+//     SSL_load_error_strings();
+//     SSL_library_init();
+//
+//     auto bench = [](auto test) {
+//         std::vector<long long> v;
+//
+//         CryptContext crypt;
+//         crypt.encryptionMethod = 1;
+//         memcpy(crypt.key, "\xd1\x26\x9e\x63\xec\x51\x65\x1d\x89\x5c\x5a\x2a\x29\xef\x08\x4c", 16);
+//         memcpy(crypt.update_key, crypt.key, 16);
+//
+//         crypt.rc4.set_key(crypt.key, (crypt.encryptionMethod==1)?8:16);
+//
+//         srand(0);
+//
+//         unsigned imax = 0;
+//         //unsigned imax = 100;
+//         //unsigned imax = 500;
+//         for (unsigned i = 0; i < imax; ++i) {
+//             //alignas(4) uint8_t data[2621];
+//             alignas(4) uint8_t data[262144];
+//             //alignas(4) uint8_t data[1048576];
+//             auto p = data;
+//             test(p, crypt, 0);
+//             auto sz = 12;
+//
+//             using resolution_clock = std::chrono::steady_clock; // std::chrono::high_resolution_clock;
+//
+//             auto t1 = resolution_clock::now();
+//
+//             uint32_t r = rand();
+//
+//             while (static_cast<size_t>(p - data + sz) < sizeof(data)) {
+//                 escape(p);
+//                 test(p, crypt, r);
+//                 clobber();
+//                 p += sz;
+//             }
+//
+//             auto t2 = resolution_clock::now();
+//
+//             v.push_back((t2-t1).count()/imax);
+//         }
+//         return v;
+//     };
+//
+//      auto v1 = bench(test1);
+//      auto v2 = bench(test2);
+//
+//      std::sort(v1.begin(), v1.end());
+//      std::sort(v2.begin(), v2.end());
+//
+//      long long sz = v1.size();
+//      auto pmin = std::max(sz/2-30, 0LL);
+//      auto pmax = std::min(sz/2+29, sz);
+//      v1 = decltype(v1)(std::begin(v1) + pmin, std::begin(v1) + pmax);
+//      v2 = decltype(v2)(std::begin(v2) + pmin, std::begin(v2) + pmax);
+//
+//      std::cerr << "\n\ntest1\ttest2\n";
+//      auto it1 = v1.begin();
+//      for (auto t : v2) {
+//          std::cerr
+//            << *it1 << "\t" << t
+//            << " \033[01;" << (*it1 < t ? "32m" : "31m") << std::showpos << (*it1 - t) << "\033[0m\n"
+//            << std::noshowpos
+//         ;
+//          ++it1;
+//      }
 }
