@@ -58,6 +58,14 @@ using convert_pkt_sz2 = typename detail::convert_pkt_sz<
     Sz
 >::type;
 
+namespace detail {
+    template<class T, class = void> struct is_reserializer_impl : std::false_type {};
+    template<class T> struct is_reserializer_impl<T, proto::void_<typename T::is_reserializer>>
+    : brigand::bool_<T::is_reserializer::value> {};
+}
+template<class T>
+using is_reserializer = typename detail::is_reserializer_impl<T>::type;
+
 template<class L>
 using to_is_pkt_first_list = typename detail::to_is_pkt_first_list<L>::type;
 
@@ -221,6 +229,7 @@ struct Buffering3
 
             this->serialize_type2(
                 proto::buffer_category<desc_type_t<VarInfo>>{},
+                is_reserializer<desc_type_t<VarInfo>>{},
                 *--this->special_pkt_iterator,
                 val.to_proto_value(proto::utils::make_parameters(l1/*, l2, l3*/))
             );
@@ -232,21 +241,28 @@ struct Buffering3
         {}
 
         template<class T>
-        void serialize_type2(proto::tags::static_buffer, unsigned char * buf, T const & x)
+        void serialize_type2(proto::tags::static_buffer, std::false_type, unsigned char * buf, T const & x)
         {
             policy.static_serialize(buf, x);
             PROTO_TRACE(" [slen: " << proto::sizeof_<T>::value << "]\n");
         }
 
         template<class T>
-        void serialize_type2(proto::tags::limited_buffer, unsigned char * buf, T const & x)
+        void serialize_type2(proto::tags::static_buffer, std::true_type, unsigned char * buf, T const & x)
+        {
+            policy.static_reserialize(buf, x, array_view_u8{*this->special_pkt_iterator, proto::sizeof_<T>{}});
+            PROTO_TRACE(" [slen: " << proto::sizeof_<T>::value << "]\n");
+        }
+
+        template<class T>
+        void serialize_type2(proto::tags::limited_buffer, std::false_type, unsigned char * buf, T const & x)
         {
             std::size_t len = policy.limited_serialize(buf, x);
             PROTO_TRACE(" [len: " << len << "]\n");
         }
 
         template<class T>
-        void serialize_type2(proto::tags::view_buffer, unsigned char * buf, T const & x)
+        void serialize_type2(proto::tags::view_buffer, std::false_type, unsigned char * buf, T const & x)
         {
             auto av = policy.get_view_buffer(x);
             memcpy(buf, av.data(), av.size());
@@ -260,7 +276,7 @@ struct Buffering3
 # define PROTO_ENABLE_IF_DEBUG(...)
 #endif
         template<class T>
-        void serialize_type2(proto::tags::dynamic_buffer, unsigned char * buf, T const & x)
+        void serialize_type2(proto::tags::dynamic_buffer, std::false_type, unsigned char * buf, T const & x)
         {
             PROTO_ENABLE_IF_DEBUG(bool dynamic_is_used = false;)
             // PERFORMANCE or limited_serialize (policy rule)

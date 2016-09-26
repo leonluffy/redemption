@@ -137,6 +137,7 @@ namespace proto
         class dynamic_buffer {};
         class view_buffer {};
         class limited_buffer {};
+        class overrided_buffer {};
     }
 
     template<class T> struct sizeof_impl { using type = typename T::sizeof_; };
@@ -170,6 +171,8 @@ namespace proto
       = typename std::is_same<tags::view_buffer, buffer_category<T>>::type;
     template<class T> using is_dynamic_buffer
       = typename std::is_same<tags::dynamic_buffer, buffer_category<T>>::type;
+    template<class T> using is_overrided_buffer
+      = typename std::is_same<tags::overrided_buffer, buffer_category<T>>::type;
 
     namespace detail
     {
@@ -463,6 +466,8 @@ namespace proto
         };
     }
 
+    template<class...> using void_ = void;
+
 
     template<class... Ts>
     struct inherits : Ts...
@@ -702,21 +707,101 @@ namespace proto
     using get_arguments_t = typename get_arguments<T>::type;
 
 
-    template<class T, class CtxName, class... Descs>
-    struct creator
+    namespace detail
     {
-        using arguments = brigand::append<get_arguments_t<Descs>...>;
+        template<class T> struct is_special_value_impl : std::false_type {};
+    }
+
+    template<class T>
+    using is_special_value = brigand::bool_<(
+        brigand::any<
+            get_arguments_t<T>,
+            brigand::call<detail::is_special_value_impl>
+        >::value
+    )>;
+
+    // TODO deprecated
+    template<class T>
+    struct value_wrapper
+    {
+        T x;
+    };
+
+    template<class Var, class T>
+    constexpr T get_value(val<Var, T> v)
+    { return v.x; }
+
+    template<class T>
+    constexpr T get_value(T v)
+    { return v; }
+
+
+    template<class T, class CtxName, class... Vars>
+    struct lazy_creator
+    {
+        using var_type = lazy_creator;
+        using desc_type = T;
+        using arguments = brigand::append<get_arguments_t<Vars>...>;
 
         CtxName ctx_name;
-        inherits<Descs...> values;
+        // TODO tuple
+        inherits<Vars...> values;
 
         template<class Params>
-        constexpr val<named_var<T, CtxName>, T>
+        constexpr T
         to_proto_value(Params params) const
+        {
+            return T{get_value(static_cast<Vars const &>(this->values).to_proto_value(params))...};
+        }
+
+        constexpr decltype(auto) name() const noexcept
+        { return this->ctx_name.name(); }
+    };
+
+    template<class T, class CtxName, class... Vars>
+    struct creator
+    {
+        using arguments = brigand::append<get_arguments_t<Vars>...>;
+
+        CtxName ctx_name;
+        // TODO tuple
+        inherits<Vars...> values;
+
+        template<class Params>
+        constexpr auto
+        to_proto_value(Params params) const
+        {
+            return this->to_proto_value_(
+                static_cast<Vars const &>(this->values).to_proto_value(params)...
+            );
+        }
+
+    private:
+        template<class... V>
+        constexpr
+        std::enable_if_t<
+            !brigand::any<brigand::list<is_special_value<V>...>>::value,
+            val<named_var<T, CtxName>, T>
+        >
+        to_proto_value_(V && ... values) const
         {
             return {
                 named_var<T, CtxName>{this->ctx_name},
-                T{static_cast<Descs const &>(this->values).to_proto_value(params).x...}
+                T{std::move(values.x)...}
+            };
+        }
+
+        template<class... V>
+        constexpr
+        std::enable_if_t<
+            brigand::any<brigand::list<is_special_value<V>...>>::value,
+            lazy_creator<T, CtxName, V...>
+        >
+        to_proto_value_(V && ... values) const
+        {
+            return {
+                this->ctx_name,
+                {std::move(values)...}
             };
         }
     };
@@ -878,6 +963,7 @@ namespace proto
     struct packet_description
     {
         using arguments = brigand::append<get_arguments_t<Ts>...>;
+        // TODO deprecated
         using lazy_arguments = brigand::list<>;
 
         inherits<Ts...> values;
@@ -1076,20 +1162,6 @@ namespace proto
     constexpr operator &= (dsl::param<T>, U && x)
     { return {{}, {{x}}}; }
 
-
-    namespace detail
-    {
-        template<class T> struct is_special_value_impl : std::false_type {};
-    }
-
-    template<class T>
-    using is_special_value = brigand::bool_<(
-        brigand::any<
-            get_arguments_t<T>,
-            brigand::call<detail::is_special_value_impl>
-        >::value
-    )>;
-
     namespace dsl
     {
         struct pkt_sz {};
@@ -1098,6 +1170,8 @@ namespace proto
     struct sz
     {
         using arguments = brigand::list<>;
+
+        constexpr static char const * name() { return "proto::sz"; }
 
         struct lazy
         {

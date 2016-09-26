@@ -823,6 +823,12 @@ struct base_policy
     }
 
     template<class T>
+    static auto static_reserialize(uint8_t * p, T const & val, array_view_u8 av)
+    {
+        return val.static_reserialize(p, av);
+    }
+
+    template<class T>
     static auto get_view_buffer(T const & val)
     {
         return val.get_view_buffer();
