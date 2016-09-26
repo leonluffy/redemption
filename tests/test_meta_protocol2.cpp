@@ -256,6 +256,8 @@ void other_test()
 
         void static_reserialize(uint8_t * p, array_view_u8 av) const
         {
+            p[0] = 15;
+            p[1] = 15;
             std::cout << "a  -- " << a.val << "\n";
             std::cout << "sz -- " << sz.val << "\n";
         }
@@ -283,6 +285,8 @@ void other_test()
 
         , proto::sz<proto::types::u8>{}
         , proto::creater<lazy>(a, proto::sz<proto::types::u8>{})
+        , proto::if_(proto::params[a])
+            [proto::sz<proto::types::u8>{}]
     );
     uint8_t data[1024];
     struct Policy3 : log_policy {
@@ -294,16 +298,17 @@ void other_test()
     proto::apply(
         Buffering3<Policy3>{{}, array_view_u8{data}},
         bl(a = 1_c, b = 3_c),
-        proto::value(proto::types::u8{1_c})
+        proto::value(proto::types::u8{2_c})
     );
 
 //     auto ctor = proto::creater<lazy>(a, proto::sz<proto::types::u8>{});
+//     auto ctor = proto::if_(proto::params[a])[proto::sz<proto::types::u8>{}];
 //     auto v1 = a = 1_c;
 //     auto lvalue = ctor.to_proto_value(proto::utils::make_parameters(v1));
 //     struct lazy_sz { std::size_t operator()() const { return 3; }; };
 //     auto lsz = proto::val<proto::dsl::pkt_sz, lazy_sz>{};
 //     auto value = lvalue.to_proto_value(proto::utils::make_parameters(lsz));
-//     value.reserialize({});
+//     value = 1;
 }
 
 // #include <chrono>

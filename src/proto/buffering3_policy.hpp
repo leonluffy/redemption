@@ -69,6 +69,19 @@ using is_reserializer = typename detail::is_reserializer_impl<T>::type;
 template<class L>
 using to_is_pkt_first_list = typename detail::to_is_pkt_first_list<L>::type;
 
+
+template<class Val>
+std::enable_if_t<proto::is_static_buffer<desc_type_t<Val>>::value, std::size_t>
+reserved_size(Val const &)
+{ return proto::sizeof_<desc_type_t<Val>>{}; }
+
+template<class Val>
+std::enable_if_t<!proto::is_static_buffer<desc_type_t<Val>>::value, std::size_t>
+reserved_size(Val const & val)
+{ return val.reserved_size(); }
+
+using proto::var_type_t;
+
 struct special_op {};
 
 template<class Policy>
@@ -296,55 +309,62 @@ struct Buffering3
 #undef PROTO_NIL
 
         template<class IsFirstPkt, class VarInfo, class Val>
-        void serialize_without_special_pkt(IsFirstPkt is_first_pkt, VarInfo var_info, Val const & val)
+        void serialize_without_special_pkt(IsFirstPkt is_first_pkt, VarInfo, Val const & val)
         {
-            constexpr bool is_special_value = proto::is_special_value<Val>::value;
-            if (!is_special_value) {
-                PROTO_TRACE(name(val) << " = ");
-                PROTO_ENABLE_IF_TRACE(this->print(val));
-            }
+            using is_special_value = proto::is_special_value<Val>;
+            print_if_not_special(is_special_value{}, val);
             if (is_first_pkt) {
                 this->pkt_ptrs[VarInfo::ipacket::value] = this->buf;
             }
             // TODO check overflow (assert)
             this->serialize_type(
                 typename std::conditional<
-                    is_special_value,
+                    is_special_value::value,
                     special_op, proto::buffer_category<desc_type_t<VarInfo>>
                 >::type{},
-                var_info,
                 val
             );
         }
 
-        template<class VarInfo, class Val>
-        void serialize_type(special_op, VarInfo, Val const &)
+        template<class Val>
+        static void print_if_not_special(std::false_type, Val const & val)
+        {
+            PROTO_TRACE(name(val) << " = ");
+            PROTO_ENABLE_IF_TRACE(print(val));
+            (void)val;
+        }
+
+        template<class Val>
+        static void print_if_not_special(std::true_type, Val const &)
+        {}
+
+        template<class Val>
+        void serialize_type(special_op, Val const & val)
         {
             *this->special_pkt_iterator = this->buf;
             ++this->special_pkt_iterator;
-            // TODO policy.reserved_size(val.x);
-            this->buf += proto::sizeof_<desc_type_t<VarInfo>>{};
+            this->buf += reserved_size(val);
         }
 
-        template<class VarInfo, class Val>
-        void serialize_type(proto::tags::static_buffer, VarInfo, Val const & val)
+        template<class Val>
+        void serialize_type(proto::tags::static_buffer, Val const & val)
         {
             policy.static_serialize(this->buf, val.x);
-            constexpr std::size_t sz = proto::sizeof_<desc_type_t<VarInfo>>::value;
+            constexpr std::size_t sz = proto::sizeof_<desc_type_t<var_type_t<Val>>>::value;
             PROTO_TRACE(" [slen: " << sz << "]\n");
             this->buf += sz;
         }
 
-        template<class VarInfo, class Val>
-        void serialize_type(proto::tags::limited_buffer, VarInfo, Val const & val)
+        template<class Val>
+        void serialize_type(proto::tags::limited_buffer, Val const & val)
         {
             std::size_t len = policy.limited_serialize(this->buf, val.x);
             PROTO_TRACE(" [len: " << len << "]\n");
             this->buf += len;
         }
 
-        template<class VarInfo, class Val>
-        void serialize_type(proto::tags::view_buffer, VarInfo, Val const & val)
+        template<class Val>
+        void serialize_type(proto::tags::view_buffer, Val const & val)
         {
             auto av = policy.get_view_buffer(val.x);
             memcpy(this->buf, av.data(), av.size());
@@ -358,8 +378,8 @@ struct Buffering3
 #else
 # define PROTO_ENABLE_IF_DEBUG(...)
 #endif
-        template<class VarInfo, class Val>
-        void serialize_type(proto::tags::dynamic_buffer, VarInfo, Val const & val)
+        template<class Val>
+        void serialize_type(proto::tags::dynamic_buffer, Val const & val)
         {
             PROTO_ENABLE_IF_DEBUG(bool dynamic_is_used = false;)
             // PERFORMANCE or limited_serialize (policy rule)
@@ -381,7 +401,7 @@ struct Buffering3
 
 
         template<class Var, class T>
-        auto name(proto::val<Var, T> const & val)
+        static auto name(proto::val<Var, T> const & val)
         { return val.var.name(); }
 
         template<class T, class Derived>
@@ -393,7 +413,7 @@ struct Buffering3
         { return Derived::name(); }
 
         template<class T>
-        auto name(T const & val)
+        static auto name(T const & val)
         { return val.name(); }
 
 

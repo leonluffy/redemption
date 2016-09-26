@@ -1289,6 +1289,11 @@ namespace proto
                 );
             }
 
+            Cond cond;
+            Var var;
+            VarElse var_else;
+
+        private:
             template<class Value>
             constexpr auto to_proto_value_(
                 std::true_type, bool test, Value & value, Value & value_else
@@ -1355,10 +1360,6 @@ namespace proto
             {
                 return {};
             }
-
-            Cond cond;
-            Var var;
-            VarElse var_else;
         };
 
         template<class Val>
@@ -1394,6 +1395,36 @@ namespace proto
             Val val_ok;
         };
 
+        template<class Var>
+        struct lazy_only_if_true
+        {
+            using var_type = lazy_only_if_true;
+            using desc_type = only_if_true<desc_type_t<Var>>;
+            using arguments = get_arguments_t<Var>;
+
+            bool is_ok;
+            Var var;
+
+            template<class Params>
+            constexpr auto
+            to_proto_value(Params params) const
+            {
+                return only_if_true<decltype(this->var.to_proto_value(params))>{
+                    this->is_ok,
+                    this->var.to_proto_value(params)
+                };
+            }
+
+            std::size_t reserved_size() const
+            {
+                static_assert(proto::is_static_buffer<desc_type_t<Var>>{}, "unimplemented");
+                return proto::sizeof_<desc_type_t<Var>>::value;
+            }
+
+            static constexpr char const * name() noexcept
+            { return "<unimplemented>"; }
+        };
+
         template<class Cond, class Var>
         struct if_act
         {
@@ -1402,15 +1433,11 @@ namespace proto
             template<class Params>
             constexpr auto to_proto_value(Params params) const
             {
-                auto value = this->else_.var.to_proto_value(params);
-                using proto_val = decltype(value);
-                using new_value_type = only_if_true<typename proto_val::value_type>;
-                using context_name_type = typename proto_val::var_type;
-                using new_var_type = named_var<new_value_type, context_name_type>;
-                return val<new_var_type, new_value_type>{
-                    {value.var},
-                    {bool(else_.cond.to_proto_value(params).x.val), value.x}
-                };
+                return this->to_proto_value_(
+                    this->else_.cond.to_proto_value(params),
+                    this->else_.var.to_proto_value(params),
+                    1
+                );
             }
 
             struct
@@ -1424,6 +1451,33 @@ namespace proto
                 Cond cond;
                 Var var;
             } else_;
+
+        private:
+            template<class ValueCond, class Value, class D = std::enable_if_t<
+                (!is_special_value<Value>::value and !is_special_value<ValueCond>::value),
+                char
+            >>
+            constexpr auto to_proto_value_(ValueCond cond, Value value, D) const
+            {
+                using new_value_type = only_if_true<typename Value::value_type>;
+                using context_name_type = typename Value::var_type;
+                using new_var_type = named_var<new_value_type, context_name_type>;
+                return val<new_var_type, new_value_type>{
+                    {value.var},
+                    {bool(cond.x.val), value.x}
+                };
+            }
+
+            template<class ValueCond, class Value>
+            constexpr std::enable_if_t<
+                (is_special_value<Value>::value or is_special_value<ValueCond>::value),
+                lazy_only_if_true<Value>
+            >
+            to_proto_value_(ValueCond cond, Value value, int) const
+            {
+                static_assert(!is_special_value<ValueCond>::value, "unimplemented");
+                return {bool(cond.x.val), value};
+            }
         };
 
         template<class Cond>
