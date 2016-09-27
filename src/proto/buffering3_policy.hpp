@@ -26,63 +26,7 @@ namespace proto_buffering3 {
 
 using namespace proto_buffering2;
 
-namespace detail
-{
-    using namespace proto_buffering2::detail;
-
-    template<class>
-    struct to_is_pkt_first_list;
-
-    template<class T, class...>
-    using enable_type = T;
-
-    template<class T, class... Ts>
-    struct to_is_pkt_first_list<brigand::list<T, Ts...>>
-    { using type = brigand::list<brigand::bool_<1>, enable_type<brigand::bool_<0>, Ts>...>; };
-}
-
-namespace detail {
-    template<template<class> class IsPktSz, class Pkt, class Sz>
-    struct convert_pkt_sz2
-    { using type = Pkt; };
-
-    template<template<class> class IsPktSz, class... Ts, std::size_t n>
-    struct convert_pkt_sz2<IsPktSz, brigand::list<Ts...>, proto::size_<n>>
-    { using type = brigand::list<std::conditional_t<IsPktSz<Ts>{}, proto::types::static_value<Ts, n>, Ts>...>; };
-}
-// TODO
-template<class Pkt, class Sz, class SzNext>
-using convert_pkt_sz2 = typename detail::convert_pkt_sz<
-    proto::is_pkt_sz_with_self,
-    typename detail::convert_pkt_sz<proto::is_pkt_sz, Pkt, SzNext>::type,
-    Sz
->::type;
-
-namespace detail {
-    template<class T, class = void> struct is_reserializer_impl : std::false_type {};
-    template<class T> struct is_reserializer_impl<T, proto::void_<typename T::is_reserializer>>
-    : brigand::bool_<T::is_reserializer::value> {};
-}
-template<class T>
-using is_reserializer = typename detail::is_reserializer_impl<T>::type;
-
-template<class L>
-using to_is_pkt_first_list = typename detail::to_is_pkt_first_list<L>::type;
-
-
-template<class Val>
-std::enable_if_t<proto::is_static_buffer<desc_type_t<Val>>::value, std::size_t>
-reserved_size(Val const &)
-{ return proto::sizeof_<desc_type_t<Val>>{}; }
-
-template<class Val>
-std::enable_if_t<!proto::is_static_buffer<desc_type_t<Val>>::value, std::size_t>
-reserved_size(Val const & val)
-{ return val.reserved_size(); }
-
 using proto::var_type_t;
-
-struct special_op {};
 
 template<class Policy>
 struct Buffering3
@@ -99,7 +43,7 @@ struct Buffering3
         // [ { static | dynamic | limited }_size<n> ... ] == [ Xsize<0..N>, Xsize<1..N> ... ]
         using accu_sizeof_by_packet = make_accumulate_sizeof_list<sizeof_by_packet>;
 
-        // [ [ val | pkt_sz_var | pkt_sz_with_size ... ] ... ]
+        // [ [ val | pkt_sz_var ... ] ... ]
         using packet_list = brigand::transform<
             packet_list_,
             accu_sizeof_by_packet,
@@ -124,6 +68,7 @@ struct Buffering3
 
         // [ var_info<ipacket, ivar, var> ... ]
         using var_info_list = brigand::transform<ipacket_list, ivar_list, var_list, brigand::call<var_info>>;
+
 
         using count_special_pkt = brigand::count_if<
             brigand::append<typename Pkts::type_list...>,
@@ -162,16 +107,16 @@ struct Buffering3
             );
         }
 
-        template<class... VarInfos, class... ReverseVarInfos, class... IsFirstPkt>
+        template<class... VarInfos, class... ReverseVarInfos, class... IsFirstPkts>
         void serialize_(
             brigand::list<VarInfos...>,
             brigand::list<ReverseVarInfos...>,
-            brigand::list<IsFirstPkt...>,
+            brigand::list<IsFirstPkts...>,
             Pkts const & ... pkts
         ) {
             (void)std::initializer_list<int>{(void((
                 this->serialize_without_special_pkt(
-                    IsFirstPkt{},
+                    IsFirstPkts{},
                     VarInfos{},
                     larg<VarInfos::ivar::value>(arg<VarInfos::ipacket::value>(pkts...))
                 )
@@ -237,14 +182,14 @@ struct Buffering3
 
             constexpr std::size_t ipacket = VarInfo::ipacket::value;
             auto l1 = proto::val<proto::dsl::pkt_sz, lazy_sz<ipacket>>{{}, {{*this}}};
-//             proto::val<proto::dsl::pkt_data, lazy_data<ipacket>> l2{{}, {*this}};
-//             proto::val<proto::dsl::pkt_sz_with_self, lazy_sz_with_self<ipacket>> l3{{}, {*this}};
+            auto l2 = proto::val<proto::dsl::pkt_data, lazy_data<ipacket>>{{}, {*this}};
+            auto l3 = proto::val<proto::dsl::pkt_sz_with_self, lazy_sz_with_self<ipacket>>{{}, {*this}};
 
             this->serialize_type2(
                 proto::buffer_category<desc_type_t<VarInfo>>{},
                 is_reserializer<desc_type_t<VarInfo>>{},
                 *--this->special_pkt_iterator,
-                val.to_proto_value(proto::utils::make_parameters(l1/*, l2, l3*/))
+                val.to_proto_value(proto::utils::make_parameters(l1, l2, l3))
             );
         }
 

@@ -261,6 +261,14 @@ void other_test()
             std::cout << "a  -- " << a.val << "\n";
             std::cout << "sz -- " << sz.val << "\n";
         }
+
+        void static_reserialize(uint8_t * p, iovec_array av) const
+        {
+            p[0] = 15;
+            p[1] = 15;
+            std::cout << "a  -- " << a.val << "\n";
+            std::cout << "sz -- " << sz.val << "\n";
+        }
     };
 
     PROTO_VAR(proto::types::u8, a);
@@ -297,6 +305,12 @@ void other_test()
     };
     proto::apply(
         Buffering3<Policy3>{{}, array_view_u8{data}},
+        bl(a = 1_c, b = 3_c),
+        proto::value(proto::types::u8{2_c})
+    );
+
+    proto::apply(
+        Buffering2<log_policy>{},
         bl(a = 1_c, b = 3_c),
         proto::value(proto::types::u8{2_c})
     );

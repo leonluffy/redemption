@@ -1162,12 +1162,8 @@ namespace proto
     constexpr operator &= (dsl::param<T>, U && x)
     { return {{}, {{x}}}; }
 
-    namespace dsl
-    {
-        struct pkt_sz {};
-    }
-    template<class Desc>
-    struct sz
+    template<class Sp, class Desc>
+    struct special
     {
         using arguments = brigand::list<>;
 
@@ -1177,12 +1173,12 @@ namespace proto
         {
             using var_type = lazy;
             using desc_type = Desc;
-            using arguments = brigand::list<dsl::pkt_sz>;
+            using arguments = brigand::list<Sp>;
 
             template<class Params>
             constexpr Desc to_proto_value(Params p) const
             {
-                return Desc{checked_cast<typename Desc::type>(p.get_proto_value(dsl::pkt_sz{}).x())};
+                return Desc{checked_cast<typename Desc::type>(p.get_proto_value(Sp{}).x())};
             }
 
             static char const * name() noexcept { return "pkt_sz"; }
@@ -1195,9 +1191,27 @@ namespace proto
         }
     };
 
+    namespace dsl
+    {
+        struct pkt_sz {};
+        struct pkt_sz_with_self {};
+        struct pkt_data {};
+    }
+
+    template<class Desc>
+    using sz = special<dsl::pkt_sz, Desc>;
+
+    template<class Desc>
+    using sz_with_self = special<dsl::pkt_sz_with_self, Desc>;
+
+    template<class Desc>
+    using data = special<dsl::pkt_data, Desc>;
+
     namespace detail
     {
         template<> struct is_special_value_impl<dsl::pkt_sz> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::pkt_sz_with_self> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::pkt_data> : std::true_type {};
     }
 
 
@@ -1281,6 +1295,10 @@ namespace proto
                     typename proto_val_else::value_type
                 >;
 
+                static_assert(!is_special_value<decltype(cond.to_proto_value(params))>::value, "unimplemented special value with if_else");
+                static_assert(!is_special_value<decltype(value)>::value, "unimplemented special value with if_else");
+                static_assert(!is_special_value<decltype(value_else)>::value, "unimplemented special value with if_else");
+
                 return to_proto_value_(
                     typename is_same::type{},
                     bool(cond.to_proto_value(params).x.val),
@@ -1298,7 +1316,7 @@ namespace proto
             constexpr auto to_proto_value_(
                 std::true_type, bool test, Value & value, Value & value_else
             ) const {
-                return test ? value : value_else;
+                return test ? std::move(value) : std::move(value_else);
             }
 
             template<class Value, class ValueElse>
@@ -1309,10 +1327,8 @@ namespace proto
                 using new_var_type = named_var<Value, decltype(ctx_name)>;
                 return val<new_var_type, Value>{
                     ctx_name,
-                    {test ? value.x : value_else.x}
+                    {test ? std::move(value.x) : std::move(value_else.x)}
                 };
-
-                return value;
             }
 
             template<class Value, class ValueElse>
@@ -1331,10 +1347,8 @@ namespace proto
                 using new_var_type = named_var<new_value_type, decltype(ctx_name)>;
                 return val<new_var_type, new_value_type>{
                     ctx_name,
-                    {test, value.x, value_else.x}
+                    {test, std::move(value.x), std::move(value_else.x)}
                 };
-
-                return value;
             }
 
             template<class Value, class ValueElse>
@@ -1418,7 +1432,7 @@ namespace proto
             std::size_t reserved_size() const
             {
                 static_assert(proto::is_static_buffer<desc_type_t<Var>>{}, "unimplemented");
-                return proto::sizeof_<desc_type_t<Var>>::value;
+                return this->is_ok ? proto::sizeof_<desc_type_t<Var>>::value : 0u;
             }
 
             static constexpr char const * name() noexcept
