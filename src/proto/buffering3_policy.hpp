@@ -97,6 +97,7 @@ struct Buffering3
 
         void impl(Pkts const & ... packets)
         {
+            PROTO_TRACE("av: {" << static_cast<void const*>(this->av.data()) << ", " << this->av.size() << "}\n");
             PROTO_TRACE("special_pkt_ptrs.size: " << this->special_pkt_ptrs.size() << "\n\n");
 
             this->serialize_(
@@ -181,14 +182,17 @@ struct Buffering3
             PROTO_TRACE(name(val) << " = ");
 
             constexpr std::size_t ipacket = VarInfo::ipacket::value;
-            auto l1 = proto::val<proto::dsl::pkt_sz, lazy_sz<ipacket>>{{}, {{*this}}};
+            auto l1 = proto::val<proto::dsl::pkt_sz, lazy_sz<ipacket>>{{}, {*this}};
             auto l2 = proto::val<proto::dsl::pkt_data, lazy_data<ipacket>>{{}, {*this}};
             auto l3 = proto::val<proto::dsl::pkt_sz_with_self, lazy_sz_with_self<ipacket>>{{}, {*this}};
 
+            --this->special_pkt_iterator;
+            PROTO_TRACE("[" << static_cast<void const *>(*this->special_pkt_iterator) << "] ");
+
             this->serialize_type2(
                 proto::buffer_category<desc_type_t<VarInfo>>{},
-                is_reserializer<desc_type_t<VarInfo>>{},
-                *--this->special_pkt_iterator,
+                proto::is_reserializer<desc_type_t<VarInfo>>{},
+                *this->special_pkt_iterator,
                 val.to_proto_value(proto::utils::make_parameters(l1, l2, l3))
             );
         }
@@ -216,6 +220,13 @@ struct Buffering3
         void serialize_type2(proto::tags::limited_buffer, std::false_type, unsigned char * buf, T const & x)
         {
             std::size_t len = policy.limited_serialize(buf, x);
+            PROTO_TRACE(" [len: " << len << "]\n");
+        }
+
+        template<class T>
+        void serialize_type2(proto::tags::limited_buffer, std::true_type, unsigned char * buf, T const & x)
+        {
+            std::size_t len = policy.limited_reserialize(buf, x, array_view_u8{*this->special_pkt_iterator, proto::sizeof_<T>::value});
             PROTO_TRACE(" [len: " << len << "]\n");
         }
 

@@ -129,7 +129,7 @@ namespace proto
 
 
     struct dyn_size {};
-    template<std::size_t i> struct limited_size {};
+    template<std::size_t n> struct limited_size { static const std::size_t value = n; };
 
     namespace tags
     {
@@ -709,11 +709,20 @@ namespace proto
 
     namespace detail
     {
+        template<class T, class = void> struct is_reserializer_impl : std::false_type {};
+        template<class T> struct is_reserializer_impl<T, proto::void_<typename T::is_reserializer>>
+        : brigand::bool_<T::is_reserializer::value> {};
+    }
+    template<class T>
+    using is_reserializer = typename detail::is_reserializer_impl<T>::type;
+
+    namespace detail
+    {
         template<class T> struct is_special_value_impl : std::false_type {};
     }
 
     template<class T>
-    using is_special_value = brigand::bool_<(
+    using is_special_value = brigand::bool_<is_reserializer<T>::value or (
         brigand::any<
             get_arguments_t<T>,
             brigand::call<detail::is_special_value_impl>
@@ -742,6 +751,7 @@ namespace proto
         using var_type = lazy_creator;
         using desc_type = T;
         using arguments = brigand::append<get_arguments_t<Vars>...>;
+        using is_reserializer = proto::is_reserializer<T>;
 
         CtxName ctx_name;
         // TODO tuple
@@ -780,7 +790,7 @@ namespace proto
         template<class... V>
         constexpr
         std::enable_if_t<
-            !brigand::any<brigand::list<is_special_value<V>...>>::value,
+            !is_reserializer<T>::value and !brigand::any<brigand::list<is_special_value<V>...>>::value,
             val<named_var<T, CtxName>, T>
         >
         to_proto_value_(V && ... values) const
@@ -794,7 +804,7 @@ namespace proto
         template<class... V>
         constexpr
         std::enable_if_t<
-            brigand::any<brigand::list<is_special_value<V>...>>::value,
+            is_reserializer<T>::value or brigand::any<brigand::list<is_special_value<V>...>>::value,
             lazy_creator<T, CtxName, V...>
         >
         to_proto_value_(V && ... values) const
@@ -818,6 +828,17 @@ namespace proto
     { return x.limited_serialize(p); }
 
 
+    template<class T, class AV>
+    std::enable_if_t<is_static_buffer<T>::value, std::size_t>
+    static_or_limited_reserialize(uint8_t * p, T const & x, AV av)
+    { return x.static_reserialize(p, av); }
+
+    template<class T, class AV>
+    std::enable_if_t<!is_static_buffer<T>::value, std::size_t>
+    static_or_limited_reserialize(uint8_t * p, T const & x, AV av)
+    { return x.limited_reserialize(p, av); }
+
+
     namespace detail
     {
         template<class Ints, class... Ts>
@@ -827,13 +848,30 @@ namespace proto
         struct indexed_value
         { T x; };
 
+
+        template<class, class>
+        struct add_size_impl;
+
+        template<std::size_t n1, std::size_t n2>
+        struct add_size_impl<size_<n1>, size_<n2>> { using type = limited_size<n1 + n2>; };
+
+        template<std::size_t n1, std::size_t n2>
+        struct add_size_impl<limited_size<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
+        template<std::size_t n1, std::size_t n2>
+        struct add_size_impl<size_<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
+        template<std::size_t n1, std::size_t n2>
+        struct add_size_impl<limited_size<n1>, size_<n2>> { using type = limited_size<n1 + n2>; };
+
+        template<class Sz1, class Sz2>
+        using add_size = typename add_size_impl<Sz1, Sz2>::type;
+
         template<std::size_t... Ints, class... Ts>
         struct compose_impl<std::integer_sequence<std::size_t, Ints...>, Ts...>
         {
             using sizeof_ = brigand::fold<
                 brigand::list<proto::sizeof_<Ts>...>,
                 size_<0>,
-                brigand::call<common_size>
+                brigand::call<add_size>
             >;
 
             constexpr compose_impl(Ts... v) : values{v...} {}
@@ -1207,12 +1245,32 @@ namespace proto
     template<class Desc>
     using data = special<dsl::pkt_data, Desc>;
 
+
+    namespace types {
+        using ::proto::sz;
+        using ::proto::sz_with_self;
+        using ::proto::data;
+    }
+
     namespace detail
     {
         template<> struct is_special_value_impl<dsl::pkt_sz> : std::true_type {};
         template<> struct is_special_value_impl<dsl::pkt_sz_with_self> : std::true_type {};
         template<> struct is_special_value_impl<dsl::pkt_data> : std::true_type {};
+
+        template<class T> struct is_special_sz_impl : std::false_type {};
+        template<> struct is_special_sz_impl<dsl::pkt_sz> : std::true_type {};
+        template<> struct is_special_sz_impl<dsl::pkt_sz_with_self> : std::true_type {};
+
+        template<class T> struct is_special_data_impl : std::false_type {};
+        template<> struct is_special_data_impl<dsl::pkt_data> : std::true_type {};
     }
+
+    template<class T>
+    using has_special_sz = brigand::any<
+        get_arguments_t<T>,
+        brigand::call<detail::is_special_sz_impl>
+    >;
 
 
     constexpr struct params_
@@ -1388,10 +1446,17 @@ namespace proto
                     proto::buffer_category<Val>
                 >
             >::type;
+            using is_reserializer = proto::is_reserializer<Val>;
 
             std::size_t limited_serialize(uint8_t * p) const
             {
                 return this->is_ok ? static_or_limited_serialize(p, this->val_ok) : 0u;
+            }
+
+            template<class AV>
+            std::size_t limited_reserialize(uint8_t * p, AV av) const
+            {
+                return this->is_ok ? static_or_limited_reserialize(p, this->val_ok, av) : 0u;
             }
 
             array_view_const_u8 get_view_buffer() const
@@ -1415,6 +1480,7 @@ namespace proto
             using var_type = lazy_only_if_true;
             using desc_type = only_if_true<desc_type_t<Var>>;
             using arguments = get_arguments_t<Var>;
+            using is_reserializer = proto::is_reserializer<desc_type_t<Var>>;
 
             bool is_ok;
             Var var;
@@ -1436,7 +1502,7 @@ namespace proto
             }
 
             static constexpr char const * name() noexcept
-            { return "<unimplemented>"; }
+            { return "<unimplemented name>"; }
         };
 
         template<class Cond, class Var>

@@ -5,7 +5,7 @@
 
 #define LOGPRINT
 // TODO
-#define ENABLE_PROTO_TRACE
+// #define ENABLE_PROTO_TRACE
 
 #include <iostream>
 #include "proto/proto.hpp"
@@ -17,8 +17,8 @@ namespace XXX {
     PROTO_VAR(proto::types::u16_le, d);
     PROTO_VAR(proto::types::str8_to_str16, e);
     PROTO_VAR(proto::types::u16_encoding, f);
-    PROTO_VAR(proto::types::pkt_sz<proto::types::u8>, sz);
-    PROTO_VAR(proto::types::pkt_sz_with_self<proto::types::u8>, sz2);
+    PROTO_VAR(proto::types::sz<proto::types::u8>, sz);
+    PROTO_VAR(proto::types::sz_with_self<proto::types::u8>, sz2);
 
     constexpr auto desc = proto::desc(a, b, c, d, e, f, sz, sz2);
 }
@@ -34,7 +34,6 @@ namespace x224
 {
     PROTO_VAR(proto::types::u8, version);
     PROTO_VAR(proto::types::u8, unknown);
-    PROTO_VAR(proto::types::pkt_sz_with_self<proto::types::u16_be>, pkt_len);
     PROTO_VAR(proto::types::u8, LI);
     PROTO_VAR(proto::types::enum_u8<decltype(X224::DT_TPDU)>, type);
     PROTO_VAR(proto::types::enum_u8<decltype(X224::EOT_EOT)>, cat);
@@ -42,27 +41,38 @@ namespace x224
     constexpr auto dt_tpdu_send = proto::desc(
         version = 3_c,
         unknown = 0_c,
-        pkt_len,
+        proto::sz_with_self<proto::types::u16_be>{},
         LI = 2_c,
         type = X224::DT_TPDU,
         cat = X224::EOT_EOT
     );
 }
 
+#include "proto/iovec.hpp"
+
 namespace sec
 {
     struct proto_signature
     {
-        proto::types::mutable_bytes av;
         proto::types::value<CryptContext&> crypt;
 
         using sizeof_ = proto::size_<8>;
+        using is_reserializer = std::true_type;
 
-        auto static_serialize(uint8_t * p) const
+        auto static_reserialize(uint8_t * p, array_view_u8 av) const
         {
             auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
-            this->crypt.val.sign(this->av.av.data(), this->av.av.size(), signature);
-            this->crypt.val.decrypt(const_cast<uint8_t*>(this->av.av.data()), this->av.av.size());
+            this->crypt.val.sign(av.data(), av.size(), signature);
+            this->crypt.val.decrypt(const_cast<uint8_t*>(av.data()), av.size());
+            return sizeof_{};
+        }
+
+        auto static_reserialize(uint8_t * p, iovec_array /*av*/) const
+        {
+            auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
+            // TODO
+            //this->crypt.val.sign(av.data(), av.size(), signature);
+            //this->crypt.val.decrypt(const_cast<uint8_t*>(av.data()), av.size());
             return sizeof_{};
         }
     };
@@ -73,13 +83,12 @@ namespace sec
     }
 
     PROTO_VAR(proto::types::u32_le, flags);
-    PROTO_VAR(proto::types::mutable_bytes, data);
     PROTO_VAR(proto::types::value<CryptContext&>, crypt);
 
     constexpr auto sec_send = proto::desc(
         proto::if_true(flags),
         proto::if_(proto::params[flags] & SEC::SEC_ENCRYPT)
-            [proto::creater<proto_signature>(data, crypt)]
+            [proto::creater<proto_signature>(crypt)]
     );
 }
 
@@ -198,51 +207,49 @@ inline bool check_range(const_bytes_array p, const_bytes_array mem, char * messa
 
 void test_new()
 {
-//     auto packet1 = x224::dt_tpdu_send();
-//
-//     uint8_t data[10];
-//     CryptContext crypt;
-//     auto packet2 = sec::sec_send(
-//         sec::flags = uint32_t(~SEC::SEC_ENCRYPT),
-//         sec::crypt = crypt,
-//         sec::data = data
-//     );
-//
-//     struct Policy : log_policy {
-//         void send(iovec_array iovs) const {
-//             BOOST_CHECK_EQUAL(iovs.size(), 1);
-//             CHECK_RANGE(
-//                 make_array_view(reinterpret_cast<uint8_t const *>(iovs[0].iov_base), iovs[0].iov_len),
-//                 cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
-//             );
-//             log_policy::send(iovs);
-//             this->used = true;
-//         }
-//
-//         Policy(bool & used) : used(used) {}
-//         bool & used;
-//     };
-//
-//     bool used = false;
-//     proto::apply(Buffering2<Policy>{used}, packet1, packet2);
-//     BOOST_CHECK(used);
-//
-//
-//     struct Policy2 : log_policy {
-//         void send(array_view_u8 av) const {
-//             CHECK_RANGE(av, cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff"));
-//             iovec iov{av.data(), av.size()};
-//             log_policy::send(iovec_array{&iov, 1u});
-//             this->used = true;
-//         }
-//         Policy2(bool & used) : used(used) {}
-//         bool & used;
-//     };
-//
-//     uint8_t buf[1024];
-//     used = false;
-//     proto::apply(Buffering3<Policy2>{{used}, {buf}}, packet1, packet2);
-//     BOOST_CHECK(used);
+    auto packet1 = x224::dt_tpdu_send();
+
+    CryptContext crypt;
+    auto packet2 = sec::sec_send(
+        sec::flags = uint32_t(~SEC::SEC_ENCRYPT),
+        sec::crypt = crypt
+    );
+
+    struct Policy : log_policy {
+        void send(iovec_array iovs) const {
+            BOOST_CHECK_EQUAL(iovs.size(), 1);
+            CHECK_RANGE(
+                make_array_view(reinterpret_cast<uint8_t const *>(iovs[0].iov_base), iovs[0].iov_len),
+                cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
+            );
+            log_policy::send(iovs);
+            this->used = true;
+        }
+
+        Policy(bool & used) : used(used) {}
+        bool & used;
+    };
+
+    bool used = false;
+    proto::apply(Buffering2<Policy>{used}, packet1, packet2);
+    BOOST_CHECK(used);
+
+
+    struct Policy2 : log_policy {
+        void send(array_view_u8 av) const {
+            CHECK_RANGE(av, cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff"));
+            iovec iov{av.data(), av.size()};
+            log_policy::send(iovec_array{&iov, 1u});
+            this->used = true;
+        }
+        Policy2(bool & used) : used(used) {}
+        bool & used;
+    };
+
+    uint8_t buf[1024];
+    used = false;
+    proto::apply(Buffering3<Policy2>{{used}, {buf}}, packet1, packet2);
+    BOOST_CHECK(used);
 }
 
 void other_test()
@@ -254,32 +261,36 @@ void other_test()
         using sizeof_ = proto::size_<2>;
         using is_reserializer = std::true_type;
 
-        void static_reserialize(uint8_t * p, array_view_u8 av) const
+        void static_reserialize(uint8_t * p, array_view_u8 /*av*/) const
         {
             p[0] = 15;
             p[1] = 15;
-            std::cout << "a  -- " << a.val << "\n";
-            std::cout << "sz -- " << sz.val << "\n";
+            std::cout << " [a=" << int(a.val) << "]";
+            std::cout << " [sz=" << int(sz.val) << "]";
         }
 
-        void static_reserialize(uint8_t * p, iovec_array av) const
+        void static_reserialize(uint8_t * p, iovec_array /*av*/) const
         {
             p[0] = 15;
             p[1] = 15;
-            std::cout << "a  -- " << a.val << "\n";
-            std::cout << "sz -- " << sz.val << "\n";
+            std::cout << " [a=" << int(a.val) << "]";
+            std::cout << " [sz=" << int(sz.val) << "]";
         }
     };
+
+    // inhibit warn
+    lazy::sizeof_{};
+    lazy::is_reserializer{};
 
     PROTO_VAR(proto::types::u8, a);
     PROTO_VAR(proto::types::u8, b);
     constexpr auto bl = proto::desc(
         proto::if_(proto::params[a])
-            [proto::composer(a, b)],
-        proto::if_(proto::params[a])
-            [proto::params[a]],
+            [proto::composer(a, b)]
+      , proto::if_(proto::params[a])
+            [proto::params[a]]
 
-        proto::if_(proto::params[a])
+      , proto::if_(proto::params[a])
             [proto::params[b] &= 1]
         .else_
             [proto::params[b] &= 1]
@@ -309,6 +320,8 @@ void other_test()
         proto::value(proto::types::u8{2_c})
     );
 
+    std::cout << "\n\n";
+
     proto::apply(
         Buffering2<log_policy>{},
         bl(a = 1_c, b = 3_c),
@@ -325,25 +338,23 @@ void other_test()
 //     value = 1;
 }
 
-// #include <chrono>
-//
-// static void escape(void const * p) {
-//    asm volatile("" : : "g"(p) : "memory");
-// }
-//
-// static void clobber() {
-//    asm volatile("" : : : "memory");
-// }
-//
-//
-//
+#include <chrono>
+
+static void escape(void const * p) {
+   asm volatile("" : : "g"(p) : "memory");
+}
+
+static void clobber() {
+   asm volatile("" : : : "memory");
+}
+
+
+
 // inline void test1(uint8_t * p, CryptContext & crypt, uint32_t c) {
-//     uint8_t data[10];
 //     auto packet1 = x224::dt_tpdu_send();
 //     auto packet2 = sec::sec_send(
 //         sec::flags = c/*uint32_t(~SEC::SEC_ENCRYPT)*/,
-//         sec::crypt = crypt,
-//         sec::data = data
+//         sec::crypt = crypt
 //     );
 //     struct Policy : buffering2_policy_base {
 //         void send(iovec_array iovs) const {
@@ -397,8 +408,8 @@ void bench()
 //
 //         srand(0);
 //
-//         unsigned imax = 0;
-//         //unsigned imax = 100;
+//         //unsigned imax = 0;
+//         unsigned imax = 100;
 //         //unsigned imax = 500;
 //         for (unsigned i = 0; i < imax; ++i) {
 //             //alignas(4) uint8_t data[2621];
