@@ -1067,49 +1067,78 @@ struct Buffering2
         template<class Info, class Val>
         void serialize_spe_value(Info, std::true_type, Val const & val)
         {
-          PROTO_TRACE(name(val) << " = ");
-          cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
-              this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
-                  return this->next_size_or_0<Info>();
-              }, val);
-          });
-          cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){
-              this->serialize_eval_sz<Info, proto::dsl::pkt_sz_with_self>([this]{
-                  return this->sizes[Info::ipacket];
-              }, val);
-          });
-          cifv(proto::is_reserializer<desc_type_t<Val>>{}, val, [this](auto const & val){
-              iovec & iov = this->buffers.data[Info::ibuf];
-              iovec tmpiov = iov;
-              if (keep_info_pkt_data_ptr<Info>{}) {
-                  auto p = reinterpret_cast<uint8_t *>(*--this->ppkt_data_ptrs);
-                  auto iov_base = reinterpret_cast<uint8_t *>(iov.iov_base);
-                  assert(p <= iov_base);
-                  iov.iov_base = p;
-                  iov.iov_len = iov_base - p;
-              }
+            PROTO_TRACE(name(val) << " = ");
+            cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
+                this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
+                    return this->next_size_or_0<Info>();
+                }, val);
+            });
+            cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){
+                this->serialize_eval_sz<Info, proto::dsl::pkt_sz_with_self>([this]{
+                    return this->sizes[Info::ipacket];
+                }, val);
+            });
+            cifv(proto::is_reserializer<desc_type_t<Val>>{}, val, [this](auto const & val){
+                auto const & new_val = val.to_proto_value(proto::utils::make_parameters());
+                PROTO_ENABLE_IF_TRACE(Printer::print(new_val, 1));
+                iovec & iov = this->buffers.data[Info::ibuf];
 
-              void * buf = keep_info_special_pkt_ptr<Info>{}
-                ? *--this->pspecial_pkt
-                : this->buffers.data[Info::ibuf].iov_base;
+                auto buf = static_cast<uint8_t*>(
+                    keep_info_special_pkt_ptr<Info>{}
+                    ? *--this->pspecial_pkt
+                    : this->buffers.data[Info::ibuf].iov_base
+                );
 
-              auto const & new_val = val.to_proto_value(proto::utils::make_parameters());
-              PROTO_ENABLE_IF_TRACE(Printer::print(new_val, 1));
+                using buf_cat = proto::buffer_category<desc_type_t<Val>>;
 
-              this->serialize_eval_data(
-                  Info{},
-                  proto::buffer_category<desc_type_t<Val>>{},
-                  reinterpret_cast<uint8_t *>(buf),
-                  //static_iovec_array<iovec, brigand::size<buffer_list>{} - Info::ibuf>{};
-                  iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - Info::ibuf)},
-                  new_val
-              );
+                uint8_t * p;
+                if (keep_info_pkt_data_ptr<Info>{}) {
+                    p = static_cast<uint8_t *>(*--this->ppkt_data_ptrs);
+#ifndef NDEBUG
+                    auto iov_base = static_cast<uint8_t *>(iov.iov_base);
+                    assert(p <= iov_base);
+                    assert(iov.iov_len > std::size_t(iov_base - p));
+#endif
+                }
 
-              if (keep_info_pkt_data_ptr<Info>{}) {
-                  iov = tmpiov;
-              }
-          });
-          PROTO_TRACE("\n");
+                if (Info::ibuf == brigand::size<buffer_list>::value - 1) {
+                    auto iov_base = static_cast<uint8_t *>(iov.iov_base);
+                    this->reserializer(
+                        buf_cat{},
+                        buf,
+                        new_val,
+                        keep_info_pkt_data_ptr<Info>{}
+                        ? [&]{
+                            return array_view_u8{
+                                p,
+                                std::size_t(iov.iov_len - (iov_base - p))
+                            };
+                        }()
+                        : array_view_u8{iov_base, iov.iov_len}
+                    );
+                }
+                else {
+                    iovec tmpiov = iov;
+                    if (keep_info_pkt_data_ptr<Info>{}) {
+                        iov.iov_base = p;
+                        iov.iov_len -= static_cast<uint8_t *>(iov.iov_base) - p;
+                    }
+
+                    this->reserializer(
+                        buf_cat{},
+                        buf,
+                        new_val,
+                        //static_iovec_array<iovec, brigand::size<buffer_list>{} - Info::ibuf>{};
+                        iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - Info::ibuf)},
+                        this->next_size_or_0<Info>()
+                    );
+
+                    if (keep_info_pkt_data_ptr<Info>{}) {
+                        iov = tmpiov;
+                    }
+                }
+            });
+            PROTO_TRACE("\n");
         }
 
         template<class Info, class Sp, class Get, class Val>
@@ -1125,33 +1154,31 @@ struct Buffering2
               : this->buffers.data[Info::ibuf].iov_base;
 
             this->serialize_spe_type(
-                Info{},
                 proto::buffer_category<new_val_type>{},
                 reinterpret_cast<uint8_t *>(buf),
                 new_val
             );
         }
 
-        template<class Info, class Val>
-        void serialize_spe_type(Info, proto::tags::static_buffer, uint8_t * p, Val const & val) {
+        template<class Val>
+        void serialize_spe_type(proto::tags::static_buffer, uint8_t * p, Val const & val) {
             this->policy.static_serialize(p, val);
         }
 
-        template<class Info, class Val>
-        void serialize_spe_type(Info, proto::tags::limited_buffer, uint8_t * p, Val const & val) {
+        template<class Val>
+        void serialize_spe_type(proto::tags::limited_buffer, uint8_t * p, Val const & val) {
             this->policy.limited_serialize(p, val);
         }
 
-        template<class Info, class Val>
-        void serialize_eval_data(Info, proto::tags::static_buffer, uint8_t * p, iovec_array iovs, Val const & val) {
-            this->policy.static_reserialize(p, val, iovs, next_size_or_0<Info>());
+        template<class... Args>
+        auto reserializer(proto::tags::static_buffer, Args && ... args) {
+            this->policy.static_reserialize(args...);
         }
 
-        template<class Info, class Val>
-        void serialize_eval_data(Info, proto::tags::limited_buffer, uint8_t * p, iovec_array iovs, Val const & val) {
-            this->policy.limited_reserialize(p, val, iovs, next_size_or_0<Info>());
+        template<class... Args>
+        auto reserializer(proto::tags::limited_buffer, Args && ... args) {
+            this->policy.limited_reserialize(args...);
         }
-
 
         template<class... Infos, class DInfos>
         void serialize_(
