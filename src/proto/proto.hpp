@@ -1205,12 +1205,21 @@ namespace proto
     constexpr operator &= (dsl::param<T>, U && x)
     { return {{}, {{x}}}; }
 
+    namespace dsl
+    {
+        struct pkt_sz {};
+        struct pkt_sz_with_self {};
+        struct pkt_data {};
+    }
+
     template<class Sp, class Desc>
     struct special
     {
         using arguments = brigand::list<>;
 
-        constexpr static char const * name() { return "proto::sz"; }
+        constexpr static char const * name() {
+            return std::is_same<Sp, dsl::pkt_sz>{} ? "proto::sz" : "proto::sz_with_self";
+        }
 
         struct lazy
         {
@@ -1224,7 +1233,9 @@ namespace proto
                 return Desc{checked_cast<typename Desc::type>(p.get_proto_value(Sp{}).x())};
             }
 
-            static char const * name() noexcept { return "pkt_sz"; }
+            static char const * name() noexcept {
+                return std::is_same<Sp, dsl::pkt_sz>{} ? "pkt_sz" : "pkt_sz_with_self";
+            }
         };
 
         template<class Params>
@@ -1233,13 +1244,6 @@ namespace proto
             return {};
         }
     };
-
-    namespace dsl
-    {
-        struct pkt_sz {};
-        struct pkt_sz_with_self {};
-        struct pkt_data {};
-    }
 
     template<class Desc>
     using sz = special<dsl::pkt_sz, Desc>;

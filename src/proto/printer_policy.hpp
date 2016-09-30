@@ -26,25 +26,29 @@
 struct Printer
 {
     template<class var, class T>
-    void operator()(proto::val<var, T> x) const {
+    void operator()(proto::val<var, T> const & x) const
+    {
         std::cout << x.var.name() << " = ";
         print(x.x, 1);
+        print_buffer_cat<typename var::desc_type>();
+    }
+
+    template<class T>
+    void operator()(T const & x) const
+    {
+        std::cout << x.name() << " = <lazy>";
+        print_buffer_cat<typename T::desc_type>();
+    }
+
+    template<class Desc>
+    static void print_buffer_cat()
+    {
         std::cout
-            << "  static: " << proto::is_static_buffer<typename var::desc_type>{}
-            << "  dyn: " << proto::is_dynamic_buffer<typename var::desc_type>{}
-            << "  view: " << proto::is_view_buffer<typename var::desc_type>{}
-            << "  limited: " << proto::is_limited_buffer<typename var::desc_type>{}
+            << "  static: " << proto::is_static_buffer<Desc>{}
+            << "  dyn: " << proto::is_dynamic_buffer<Desc>{}
+            << "  view: " << proto::is_view_buffer<Desc>{}
+            << "  limited: " << proto::is_limited_buffer<Desc>{}
             << "\n";
-    }
-
-    template<class T, class tag>
-    void operator()(proto::var<proto::types::pkt_sz<T>, tag>) const {
-        std::cout << "[pkt_sz]\n";
-    }
-
-    template<class T, class tag>
-    void operator()(proto::var<proto::types::pkt_sz_with_self<T>, tag>) const {
-        std::cout << "[pkt_sz_with_self]\n";
     }
 
     template<class T>

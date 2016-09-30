@@ -74,13 +74,9 @@ struct Buffering
     static void print(proto::val<Var, T> const & x)
     { Printer{}.print(x.x, 1); }
 
-    template<class T, class tag>
-    static void print(proto::var<proto::types::pkt_sz<T>, tag>)
-    { std::cout << "[pkt_sz]"; }
-
-    template<class T, class tag>
-    static void print(proto::var<proto::types::pkt_sz_with_self<T>, tag>)
-    { std::cout << "[pkt_sz_with_self]"; }
+    template<class T>
+    static void print(T const & x)
+    { std::cout << x.name(); }
 };
 
 }

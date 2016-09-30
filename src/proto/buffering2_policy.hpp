@@ -615,7 +615,7 @@ namespace detail
 
         template<class I>
         void init_buf(I, proto::dyn_size) {
-            PROTO_TRACE("dyn_size\n");
+            PROTO_TRACE(I{} << " - dyn_size\n");
         }
 
         template<class I, std::size_t arr_len>
@@ -1064,7 +1064,7 @@ struct Buffering2
           PROTO_TRACE(name(val) << " = ");
           cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
               this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
-                  return this->sizes[Info::ipacket+1];
+                  return Info::ipacket + 1 == sizeof...(Pkts) ? 0u : this->sizes[Info::ipacket+1];
               }, val);
           });
           cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){

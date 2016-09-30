@@ -17,10 +17,10 @@ namespace XXX {
     PROTO_VAR(proto::types::u16_le, d);
     PROTO_VAR(proto::types::str8_to_str16, e);
     PROTO_VAR(proto::types::u16_encoding, f);
-    PROTO_VAR(proto::types::sz<proto::types::u8>, sz);
-    PROTO_VAR(proto::types::sz_with_self<proto::types::u8>, sz2);
 
-    constexpr auto desc = proto::desc(a, b, c, d, e, f, sz, sz2);
+    constexpr auto desc = proto::desc(
+        a, b, c, d, e, f, proto::sz<proto::types::u8>{}, proto::sz_with_self<proto::types::u8>{}
+    );
 }
 
 #include "core/RDP/sec.hpp"
@@ -117,30 +117,30 @@ struct log_policy : buffering2_policy_base
 
 BOOST_AUTO_TEST_CASE(proto_test)
 {
-//     struct {
-//         uint8_t a = 1;
-//         uint8_t b = 2;
-//         uint16_t d = 3;
-//         char const c[3] = "ab";
-//     } pkt;
-//
-//     auto packet = XXX::desc(
-//         XXX::a = pkt.a,
-//         XXX::b = pkt.b,
-//         XXX::c = /*cstr_*/make_array_view(pkt.c),
-//         XXX::d = pkt.d,
-//         XXX::e = /*cstr_*/make_array_view(pkt.c),
-//         XXX::f = pkt.d/*,
-// //         XXX::sz,
-//         XXX::sz2
-//       , 1*/
-//     );
-//
-//     packet.apply_for_each(Printer{});
-//     std::cout << "\n";
-//     packet.apply(Buffering{});
-//     std::cout << "\n";
-//     proto::apply(Buffering2<log_policy>{}, packet, packet);
+    struct {
+        uint8_t a = 1;
+        uint8_t b = 2;
+        uint16_t d = 3;
+        char const c[3] = "ab";
+    } pkt;
+
+    auto packet = XXX::desc(
+        XXX::a = pkt.a,
+        XXX::b = pkt.b,
+        XXX::c = /*cstr_*/make_array_view(pkt.c),
+        XXX::d = pkt.d,
+        XXX::e = /*cstr_*/make_array_view(pkt.c),
+        XXX::f = pkt.d/*,
+//         XXX::sz,
+        XXX::sz2
+      , 1*/
+    );
+
+    packet.apply_for_each(Printer{});
+    std::cout << "\n";
+    packet.apply(Buffering{});
+    std::cout << "\n";
+    proto::apply(Buffering2<log_policy>{}, packet, packet);
 
     test();
     other_test();
