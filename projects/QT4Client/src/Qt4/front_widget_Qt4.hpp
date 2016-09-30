@@ -798,8 +798,9 @@ public:
     //QGraphicsScene       _scene;
     //QGraphicsView        _view;
     QPainter             _cache_painter;
-    const int            _width;
-    const int            _height;
+
+    int            _width;
+    int            _height;
     bool                 _connexionLasted;
     const int            _buttonHeight;
     QTimer               _timer;
@@ -815,8 +816,8 @@ public:
         , _penColor(Qt::black)
         , _cache(front->getMainScreen()->_cache)
         //, _cache_painter(&(this->_cache))
-        , _width(this->_front->_width)
-        , _height(this->_front->_height)
+        , _width(this->_front->_screen_dimensions[screen_index].cx)
+        , _height(this->_front->_screen_dimensions[screen_index].cy)
         , _connexionLasted(false)
         , _buttonHeight(20)
         , _timer(this)
@@ -829,7 +830,12 @@ public:
         std::string title = "Remote Desktop Player connected to [" + this->_front->_targetIP +  "]. " + screen_index_str;
         this->setWindowTitle(QString(title.c_str()));
 
-        this->setFixedSize(this->_width, this->_height + this->_buttonHeight);
+        if (this->_front->_span) {
+            this->setWindowState(Qt::WindowFullScreen);
+            this->_height -= Front_Qt_API::BUTTON_HEIGHT;
+        } else {
+            this->setFixedSize(this->_width, this->_height + this->_buttonHeight);
+        }
 
         QRect rectCtrlAltDel(QPoint(0, this->_height+1),QSize(this->_width/3, this->_buttonHeight));
         this->_buttonCtrlAltDel.setToolTip(this->_buttonCtrlAltDel.text());
@@ -855,7 +861,7 @@ public:
         this->QObject::connect(&(this->_buttonDisconnexion), SIGNAL (released()), this, SLOT (disconnexionRelease()));
         this->_buttonDisconnexion.setFocusPolicy(Qt::NoFocus);
 
-        QDesktopWidget* desktop = QApplication::desktop();
+        QDesktopWidget * desktop = QApplication::desktop();
         int shift(10 * this->_screen_index);
         uint32_t centerW = (desktop->width()/2)  - (this->_width/2);
         uint32_t centerH = (desktop->height()/2) - ((this->_height+this->_buttonHeight)/2);
@@ -875,12 +881,12 @@ public:
         , _buttonRefresh("Refresh", this)
         , _buttonDisconnexion("Disconnection", this)
         , _penColor(Qt::black)
-        , _cache(new QPixmap(this->_front->_info.width*front->_monitorCount, this->_front->_info.height))
+        , _cache(new QPixmap(this->_front->_info.width, this->_front->_info.height))
         , _cache_painter(this->_cache)
-        , _width(this->_front->_width)
-        , _height(this->_front->_height)
+        , _width(this->_front->_screen_dimensions[0].cx)
+        , _height(this->_front->_screen_dimensions[0].cy)
         , _connexionLasted(false)
-        , _buttonHeight(20)
+        , _buttonHeight(Front_Qt_API::BUTTON_HEIGHT)
         , _timer(this)
         , _screen_index(0)
     {
@@ -890,9 +896,12 @@ public:
         std::string title = "Remote Desktop Player connected to [" + this->_front->_targetIP +  "].";
         this->setWindowTitle(QString(title.c_str()));
 
-        this->_cache_painter.fillRect(0, 0, this->_width * this->_front->_monitorCount, this->_height, QColor(127, 127, 127, 0));
-
-        this->setFixedSize(this->_width, this->_height + this->_buttonHeight);
+         if (this->_front->_span) {
+            this->setWindowState(Qt::WindowFullScreen);
+            this->_height -= Front_Qt_API::BUTTON_HEIGHT;
+        } else {
+            this->setFixedSize(this->_width, this->_height + this->_buttonHeight);
+        }
 
         QRect rectCtrlAltDel(QPoint(0, this->_height+1),QSize(this->_width/3, this->_buttonHeight));
         this->_buttonCtrlAltDel.setToolTip(this->_buttonCtrlAltDel.text());
@@ -921,6 +930,10 @@ public:
         QDesktopWidget* desktop = QApplication::desktop();
         uint32_t centerW = (desktop->width()/2)  - (this->_width/2);
         uint32_t centerH = (desktop->height()/2) - ((this->_height+20)/2);
+        if (this->_front->_span) {
+            centerW = 0;
+            centerH = 0;
+        }
         this->move(centerW, centerH);
 
         this->QObject::connect(&(this->_timer), SIGNAL (timeout()),  this, SLOT (slotRepaint()));
@@ -1033,7 +1046,7 @@ private Q_SLOTS:
 
 
 
-class Connector_Qt : public QObject
+class Mod_Qt : public QObject
 {
 
 Q_OBJECT
@@ -1044,61 +1057,27 @@ public:
     mod_rdp                   * _callback;
     SocketTransport           * _sck;
     int                         _client_sck;
-    QClipboard                * _clipboard;
-    bool                        _local_clipboard_stream;
-    size_t                      _cliboard_data_length;
-    std::unique_ptr<uint8_t[]>  _chunk;
-    QImage                    * _bufferImage;
-    uint16_t                    _bufferTypeID;
-    std::string                 _bufferTypeLongName;
-    int                         _cItems;
     TimeSystem                  _timeSystem;
-    struct CB_out_File {
-        uint64_t     size;
-        std::string  name;
-        std::string  nameUTF8;
-        char *       chunk;
-
-        CB_out_File()
-          : size(0)
-          , name("")
-          , nameUTF8("")
-          , chunk(nullptr)
-        {}
-
-        ~CB_out_File() {
-            delete[] (chunk);
-        }
-    };
-    std::vector<CB_out_File *>  _items_list;
-    std::vector<std::string>    _temp_files_list;
 
 
-    Connector_Qt(Front_Qt * front, QWidget * parent)
+    Mod_Qt(Front_Qt * front, QWidget * parent)
         : QObject(parent)
         , _front(front)
         , _sckRead(nullptr)
         , _callback(nullptr)
         , _sck(nullptr)
         , _client_sck(0)
-        , _clipboard(nullptr)
-        , _local_clipboard_stream(true)
-        , _cliboard_data_length(0)
-        , _bufferImage(nullptr)
-        , _bufferTypeID(0)
-        , _bufferTypeLongName("")
-        , _cItems(0)
     {
-        this->_clipboard = QApplication::clipboard();
-        this->QObject::connect(this->_clipboard, SIGNAL(dataChanged()),  this, SLOT(mem_clipboard()));
+        //this->_clipboard = QApplication::clipboard();
+        //this->QObject::connect(this->_clipboard, SIGNAL(dataChanged()),  this, SLOT(mem_clipboard()));
     }
 
-    ~Connector_Qt() {
+    ~Mod_Qt() {
         this->drop_connexion();
     }
 
     void drop_connexion() {
-        this->emptyBuffer();
+        this->_front->emptyLocalBuffer();
 
         if (this->_callback != nullptr) {
             static_cast<mod_api*>(this->_callback)->disconnect();
@@ -1184,7 +1163,15 @@ public:
         LCGRandom gen(0); // To always get the same client random, in tests
 
         try {
-            this->_callback = new mod_rdp(*(this->_sck), *(this->_front), this->_front->_info, ini.get_ref<cfg::mod_rdp::redir_info>(), gen, this->_timeSystem, mod_rdp_params);
+            this->_callback = new mod_rdp( *(this->_sck)
+                                         , *(this->_front)
+                                         , this->_front->_info
+                                         , ini.get_ref<cfg::mod_rdp::redir_info>()
+                                         , gen
+                                         , this->_timeSystem
+                                         , mod_rdp_params
+                                         );
+
             this->_front->_to_server_sender._callback = this->_callback;
             this->_front->_callback = this->_callback;
             this->_sckRead = new QSocketNotifier(this->_client_sck, QSocketNotifier::Read, this);
@@ -1203,6 +1190,69 @@ public:
         }
     }
 
+public Q_SLOTS:
+    void call_Draw() {
+        if (this->_front->_callback)
+        this->_front->call_Draw();
+    }
+
+
+};
+
+
+
+class ClipBoard_Qt : public QObject
+{
+
+    Q_OBJECT
+
+public:
+    Front_Qt                  * _front;
+    QClipboard                * _clipboard;
+    bool                        _local_clipboard_stream;
+    size_t                      _cliboard_data_length;
+    std::unique_ptr<uint8_t[]>  _chunk;
+    QImage                    * _bufferImage;
+    uint16_t                    _bufferTypeID;
+    std::string                 _bufferTypeLongName;
+    int                         _cItems;
+    struct CB_out_File {
+        uint64_t     size;
+        std::string  name;
+        std::string  nameUTF8;
+        char *       chunk;
+
+        CB_out_File()
+          : size(0)
+          , name("")
+          , nameUTF8("")
+          , chunk(nullptr)
+        {}
+
+        ~CB_out_File() {
+            delete[] (chunk);
+        }
+    };
+    std::vector<CB_out_File *>  _items_list;
+    std::vector<std::string>    _temp_files_list;
+
+
+
+    ClipBoard_Qt(Front_Qt * front, QWidget * parent)
+        : QObject(parent)
+        , _front(front)
+        , _clipboard(nullptr)
+        , _local_clipboard_stream(true)
+        , _cliboard_data_length(0)
+        , _bufferImage(nullptr)
+        , _bufferTypeID(0)
+        , _bufferTypeLongName("")
+        , _cItems(0)
+    {
+        this->_clipboard = QApplication::clipboard();
+        this->QObject::connect(this->_clipboard, SIGNAL(dataChanged()),  this, SLOT(mem_clipboard()));
+    }
+
     void write_clipboard_temp_file(std::string fileName, uint8_t * data, size_t data_len) {
         std::string filePath(this->_front->CB_TEMP_DIR + fileName);
         std::string filePath_mem(filePath);
@@ -1215,7 +1265,8 @@ public:
     }
 
     void setClipboard_files(std::vector<Front_Qt::CB_in_Files> items_list) {
-        QClipboard *cb = QApplication::clipboard();
+
+        /*QClipboard *cb = QApplication::clipboard();
         QMimeData* newMimeData = new QMimeData();
         const QMimeData* oldMimeData = cb->mimeData();
         QStringList ll = oldMimeData->formats();
@@ -1223,16 +1274,45 @@ public:
             newMimeData->setData(ll[i], oldMimeData->data(ll[i]));
         }
         QList<QUrl> list;
-        for (size_t i = 0; i < items_list.size(); i++) {
-            std::string path(this->_front->CB_TEMP_DIR + items_list[i].name);
-            std::cout << "path on clipboard " << path <<  std::endl;
-            QString qpath(path.c_str());
-            list.append(QUrl::fromLocalFile(qpath));
-            QByteArray gnomeFormat = QByteArray("copy\n").append(QUrl::fromLocalFile(qpath).toEncoded());
+
+        const std::string delimiter = "\n";
+        uint32_t pos = 0;
+        std::string str = items_list[0].name;
+        while (pos <= str.size()) {
+            pos = str.find(delimiter);
+            std::string path = str.substr(0, pos);
+            str = str.substr(pos+1, str.size());
+            QString fileName(path.c_str());
+            newMimeData->setText(fileName);
+            list.append(QUrl::fromLocalFile(fileName));
+            QByteArray gnomeFormat = QByteArray("copy\n").append(QUrl::fromLocalFile(fileName).toEncoded());
             newMimeData->setData("x-special/gnome-copied-files", gnomeFormat);
         }
 
         newMimeData->setUrls(list);
+        cb->setMimeData(newMimeData);*/
+
+
+        QClipboard *cb = QApplication::clipboard();
+        QMimeData* newMimeData = new QMimeData();
+        const QMimeData* oldMimeData = cb->mimeData();
+        QStringList ll = oldMimeData->formats();
+        for (int i = 0; i < ll.size(); i++) {
+            newMimeData->setData(ll[i], oldMimeData->data(ll[i]));
+        }
+
+        QByteArray gnomeFormat = QByteArray("copy\n");
+
+        for (size_t i = 0; i < items_list.size(); i++) {
+
+            std::string path(this->_front->CB_TEMP_DIR + items_list[i].name);
+            std::cout <<  path <<  std::endl;
+            QString qpath(path.c_str());
+
+            gnomeFormat.append(QUrl::fromLocalFile(qpath).toEncoded());
+        }
+
+        newMimeData->setData("x-special/gnome-copied-files", gnomeFormat);
         cb->setMimeData(newMimeData);
     }
 
@@ -1266,16 +1346,10 @@ public:
     }
 
 
-
-
 public Q_SLOTS:
-    void call_Draw() {
-        if (this->_front->_callback)
-        this->_front->call_Draw();
-    }
 
     void mem_clipboard() {
-        if (this->_callback != nullptr && this->_local_clipboard_stream) {
+        if (this->_front->_callback != nullptr && this->_local_clipboard_stream) {
             const QMimeData * mimeData = this->_clipboard->mimeData();
 
             if (mimeData->hasImage()){
@@ -1287,13 +1361,17 @@ public Q_SLOTS:
                 this->_bufferTypeID = RDPECLIP::CF_METAFILEPICT;
                 this->_bufferTypeLongName = "";
                 QImage bufferImageTmp(this->_clipboard->image());
-                bufferImageTmp = bufferImageTmp.convertToFormat(QImage::Format_RGB888);
-                bufferImageTmp = bufferImageTmp.rgbSwapped();
+                if (bufferImageTmp.depth() > 24) {
+                    bufferImageTmp = bufferImageTmp.convertToFormat(QImage::Format_RGB888);
+                    bufferImageTmp = bufferImageTmp.rgbSwapped();
+                }
                 this->_bufferImage = new QImage(bufferImageTmp);
 
                 this->_cliboard_data_length = this->_bufferImage->byteCount();
 
                 this->send_FormatListPDU(false);
+            //==========================================================================
+
 
 
             } else if (mimeData->hasText()){                //  File or Text copy
@@ -1302,9 +1380,9 @@ public Q_SLOTS:
                 std::string str(this->_clipboard->text(QClipboard::Clipboard).toUtf8().constData());
 
                 if (str.at(0) == '/') {
-                //==================
-                //    FILE COPY
-                //==================
+            //==================
+            //    FILE COPY
+            //==================
                     this->_bufferTypeID       = Front_Qt::Clipbrd_formats_list::CF_QT_CLIENT_FILEGROUPDESCRIPTORW;
                     this->_bufferTypeLongName = this->_front->_clipbrd_formats_list.FILEGROUPDESCRIPTORW;
 
@@ -1369,12 +1447,14 @@ public Q_SLOTS:
                     }
 
                     this->send_FormatListPDU(true);
+            //==========================================================================
+
 
 
                 } else {
-                //==================
-                //    TEXT COPY
-                //==================
+            //==================
+            //    TEXT COPY
+            //==================
                     this->_bufferTypeID = RDPECLIP::CF_UNICODETEXT;
                     this->_bufferTypeLongName = "";
 
@@ -1395,6 +1475,7 @@ public Q_SLOTS:
                     this->_cliboard_data_length = ::UTF8toUTF16_CrLf(reinterpret_cast<const uint8_t *>(str.c_str()), this->_chunk.get(), size) + 2;
 
                     this->send_FormatListPDU(false);
+            //==========================================================================
 
                 }
             }
@@ -1403,5 +1484,3 @@ public Q_SLOTS:
 
 
 };
-
-

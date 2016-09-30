@@ -85,7 +85,8 @@
 
 class Form_Qt;
 class Screen_Qt;
-class Connector_Qt;
+class Mod_Qt;
+class ClipBoard_Qt;
 
 
 class Front_Qt_API : public FrontAPI
@@ -125,6 +126,15 @@ private:
 
 
 public:
+
+    enum : int {
+        BUTTON_HEIGHT = 20
+    };
+
+    enum : int {
+        MAX_MONITOR_COUNT = GCC::UserData::CSMonitor::MAX_MONITOR_COUNT / 4
+    };
+
     uint32_t          verbose;
     ClientInfo        _info;
     int               _width;
@@ -145,6 +155,9 @@ public:
     int                  _fps;
     int                  _monitorCount;
     const std::string    CB_TEMP_DIR;
+    QPixmap            * _cache;
+    bool                 _span;
+    Rect                 _screen_dimensions[MAX_MONITOR_COUNT];
 
 
     Front_Qt_API( bool param1
@@ -159,7 +172,8 @@ public:
     , _fps(30)
     , _monitorCount(1)
     , CB_TEMP_DIR(TEMP_PATH_TEST)
-
+    , _cache(nullptr)
+    , _span(false)
     {
         this->_to_client_sender._front = this;
     }
@@ -193,6 +207,7 @@ public:
     virtual bool can_be_pause_capture() override { return true; }
     virtual bool can_be_resume_capture() override { return true; }
     virtual bool must_be_stop_capture() override { return true; }
+    virtual void emptyLocalBuffer() = 0;
 };
 
 
@@ -219,10 +234,6 @@ public:
       , PASTE_PIC_CONTENT_SIZE  = PDU_MAX_SIZE - RDPECLIP::METAFILE_HEADERS_SIZE - PDU_HEADER_SIZE
     };
 
-    enum : int {
-        MAX_MONITOR_COUNT = GCC::UserData::CSMonitor::MAX_MONITOR_COUNT / 4
-    };
-
 
     // Graphic members
     uint8_t               mod_bpp;
@@ -231,7 +242,8 @@ public:
     Screen_Qt          * _screen[MAX_MONITOR_COUNT] {};
 
     // Connexion socket members
-    Connector_Qt       * _connector;
+    Mod_Qt             * _mod_qt;
+    ClipBoard_Qt       * _clipboard_qt;
     int                  _timer;
     bool                 _connected;
     bool                 _monitorCountNegociated;
@@ -261,14 +273,14 @@ public:
         enum : int {
               CLIPBRD_FORMAT_COUNT = 5
         };
-        
-        const double      ARBITRARY_SCALE = 40;  //  module MetaFilePic resolution,
-                                                 //  40 empirically keep original resolution.
+
         const std::string FILECONTENTS;
         const std::string FILEGROUPDESCRIPTORW;
         uint32_t          IDs[CLIPBRD_FORMAT_COUNT];
         std::string       names[CLIPBRD_FORMAT_COUNT];
         int index = 0;
+        const double      ARBITRARY_SCALE;  //  module MetaFilePic resolution, value=40 is
+                                            //  empirically close to original resolution.
 
         Clipbrd_formats_list()
           : FILECONTENTS(
@@ -277,6 +289,7 @@ public:
           , FILEGROUPDESCRIPTORW(
               "F\0i\0l\0e\0G\0r\0o\0u\0p\0D\0e\0s\0c\0r\0i\0p\0t\0o\0r\0W\0\0\0"
             , 42)
+          , ARBITRARY_SCALE(40)
         {}
 
         void add_format(uint32_t ID, const std::string & name) {
@@ -340,6 +353,8 @@ public:
     void show_out_stream(int flags, OutStream & chunk, size_t length);
 
     Screen_Qt * getMainScreen();
+
+    virtual void emptyLocalBuffer();
 
 
 
