@@ -5,7 +5,7 @@
 
 #define LOGPRINT
 // TODO
-// #define ENABLE_PROTO_TRACE
+#define ENABLE_PROTO_TRACE
 
 #include <iostream>
 #include "proto/proto.hpp"
@@ -63,17 +63,16 @@ namespace sec
         {
             auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
             this->crypt.val.sign(av.data(), av.size(), signature);
-            this->crypt.val.decrypt(const_cast<uint8_t*>(av.data()), av.size());
+            this->crypt.val.decrypt(av.data(), av.size());
             return sizeof_{};
         }
 
-        auto static_reserialize(uint8_t * p, iovec_array /*av*/) const
+        auto static_reserialize(uint8_t * p, iovec_array avs) const
         {
-            auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
             // TODO
-            //this->crypt.val.sign(av.data(), av.size(), signature);
-            //this->crypt.val.decrypt(const_cast<uint8_t*>(av.data()), av.size());
-            return sizeof_{};
+            auto iov = avs.front();
+            auto av = array_view_u8{reinterpret_cast<uint8_t *>(iov.iov_base), iov.iov_len};
+            return this->static_reserialize(p, av);
         }
     };
 
@@ -252,36 +251,29 @@ void test_new()
     BOOST_CHECK(used);
 }
 
+struct lazy {
+    proto::types::u8 a;
+
+    using sizeof_ = proto::size_<2>;
+    using is_reserializer = std::true_type;
+
+    void static_reserialize(uint8_t * p, array_view_u8 /*av*/) const
+    {
+        p[0] = 15;
+        p[1] = 15;
+    }
+
+    void static_reserialize(uint8_t * p, iovec_array /*av*/) const
+    {
+        p[0] = 15;
+        p[1] = 15;
+    }
+
+    friend std::ostream & operator<<(std::ostream & os, lazy const & x)
+    { return os << "lazy {a=" << int(x.a.val) << "}"; }
+};
 void other_test()
 {
-    struct lazy {
-        proto::types::u8 a;
-        proto::types::u8 sz;
-
-        using sizeof_ = proto::size_<2>;
-        using is_reserializer = std::true_type;
-
-        void static_reserialize(uint8_t * p, array_view_u8 /*av*/) const
-        {
-            p[0] = 15;
-            p[1] = 15;
-            std::cout << " [a=" << int(a.val) << "]";
-            std::cout << " [sz=" << int(sz.val) << "]";
-        }
-
-        void static_reserialize(uint8_t * p, iovec_array /*av*/) const
-        {
-            p[0] = 15;
-            p[1] = 15;
-            std::cout << " [a=" << int(a.val) << "]";
-            std::cout << " [sz=" << int(sz.val) << "]";
-        }
-    };
-
-    // inhibit warn
-    lazy::sizeof_{};
-    lazy::is_reserializer{};
-
     PROTO_VAR(proto::types::u8, a);
     PROTO_VAR(proto::types::u8, b);
     constexpr auto bl = proto::desc(
@@ -303,7 +295,7 @@ void other_test()
 //             [proto::params[b] &= 1]
 
         , proto::sz<proto::types::u8>{}
-        , proto::creater<lazy>(a, proto::sz<proto::types::u8>{})
+        , proto::creater<lazy>(a)
         , proto::if_(proto::params[a])
             [proto::sz<proto::types::u8>{}]
     );
@@ -338,18 +330,18 @@ void other_test()
 //     value = 1;
 }
 
-#include <chrono>
-
-static void escape(void const * p) {
-   asm volatile("" : : "g"(p) : "memory");
-}
-
-static void clobber() {
-   asm volatile("" : : : "memory");
-}
-
-
-
+// #include <chrono>
+//
+// static void escape(void const * p) {
+//    asm volatile("" : : "g"(p) : "memory");
+// }
+//
+// static void clobber() {
+//    asm volatile("" : : : "memory");
+// }
+//
+//
+//
 // inline void test1(uint8_t * p, CryptContext & crypt, uint32_t c) {
 //     auto packet1 = x224::dt_tpdu_send();
 //     auto packet2 = sec::sec_send(
@@ -410,6 +402,7 @@ void bench()
 //
 //         //unsigned imax = 0;
 //         unsigned imax = 100;
+//         //unsigned imax = 1;
 //         //unsigned imax = 500;
 //         for (unsigned i = 0; i < imax; ++i) {
 //             //alignas(4) uint8_t data[2621];
@@ -456,8 +449,10 @@ void bench()
 //      for (auto t : v2) {
 //          std::cerr
 //            << *it1 << "\t" << t
-//            << " \033[01;" << (*it1 < t ? "32m" : "31m") << std::showpos << (*it1 - t) << "\033[0m\n"
+//            << " \033[01;" << (*it1 < t ? "32m" : "31m") << std::showpos << (*it1 - t)
 //            << std::noshowpos
+//            << "  " << (*it1 * 100 / t) << "%"
+//            << "\033[0m\n"
 //         ;
 //          ++it1;
 //      }

@@ -42,7 +42,7 @@ namespace detail
     {};
 
     template <template<class...> class F, class... Args>
-    struct apply<call_<F>, Args...>
+    struct apply<call_<F>, brigand::list<Args...>>
     {
         using type = F<Args...>;
     };
@@ -55,6 +55,10 @@ namespace detail
 
     template<template<class, class, class> class F>
     bind<F, _1, _2, _3> get_call_impl(call_<F>, int);
+
+//     template<template<
+//       class, class, class, class, class, class, class, class> class F>
+//     bind<F, _1, _2, _3, _4, _5, _6, _7, _8> get_call_impl(call_<F>, int);
 
     template<class F>
     F get_call_impl(F, char);
@@ -163,6 +167,7 @@ namespace proto
     template<class T> struct buffer_category_impl : detail::buffer_category_impl<T> {};
     template<class T> using buffer_category = typename buffer_category_impl<T>::type;
 
+    // TODO has_*
     template<class T> using is_static_buffer
       = typename std::is_same<tags::static_buffer, buffer_category<T>>::type;
     template<class T> using is_limited_buffer

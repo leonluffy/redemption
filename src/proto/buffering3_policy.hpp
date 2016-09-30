@@ -219,14 +219,16 @@ struct Buffering3
         template<class T>
         void serialize_type2(proto::tags::limited_buffer, std::false_type, unsigned char * buf, T const & x)
         {
-            std::size_t len = policy.limited_serialize(buf, x);
+            PROTO_ENABLE_IF_TRACE_PRE(std::size_t len = )
+            policy.limited_serialize(buf, x);
             PROTO_TRACE(" [len: " << len << "]\n");
         }
 
         template<class T>
         void serialize_type2(proto::tags::limited_buffer, std::true_type, unsigned char * buf, T const & x)
         {
-            std::size_t len = policy.limited_reserialize(buf, x, array_view_u8{*this->special_pkt_iterator, proto::sizeof_<T>::value});
+            PROTO_ENABLE_IF_TRACE_PRE(std::size_t len = )
+            policy.limited_reserialize(buf, x, array_view_u8{*this->special_pkt_iterator, proto::sizeof_<T>::value});
             PROTO_TRACE(" [len: " << len << "]\n");
         }
 

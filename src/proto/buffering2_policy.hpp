@@ -49,6 +49,9 @@ namespace brigand
 {
     template<class L, class n> using drop = pop_front<L, n>;
     template<class L, class n> using take = pop_back<L, brigand::size_t<(brigand::size<L>::value - n::value)>>;
+
+    template<class Lbd, class LArgs>
+    using lapply = typename detail::apply<Lbd, LArgs>::type;
 }
 
 namespace proto_buffering2 {
@@ -94,14 +97,85 @@ using is_buffer_delimiter = brigand::bool_<
     (proto::is_limited_buffer<T>::value and proto::has_special_sz<T>::value)
 >;
 
+
+using proto::desc_type_t;
+using proto::var_type_t;
+
+template<class T>
+using var_to_desc_type = desc_type_t<var_type_t<T>>;
+
+namespace detail {
+    template<class T>
+    struct is_size_impl : std::false_type
+    {};
+
+    template<std::size_t n>
+    struct is_size_impl<proto::size_<n>> : std::true_type
+    {};
+}
+template<class Sz>
+using is_size_ = typename detail::is_size_impl<Sz>::type;
+
+template<class Val>
+using has_pkt_sz = typename std::is_same<
+    proto::get_arguments_t<Val>,
+    brigand::list<proto::dsl::pkt_sz>
+>::type;
+
+template<class Val>
+using has_pkt_sz_with_self = typename std::is_same<
+    proto::get_arguments_t<Val>,
+    brigand::list<proto::dsl::pkt_sz_with_self>
+>::type;
+
+template<class Val>
+using has_pkt_sz_cat = brigand::bool_<
+    has_pkt_sz<Val>{} ||
+    has_pkt_sz_with_self<Val>{}
+>;
+
+template<class Val>
+using has_pkt_data = proto::is_reserializer<var_to_desc_type<Val>>;
+
+template<class Val>
+using has_special_pkt = brigand::bool_<
+    has_pkt_sz_cat<Val>{} || has_pkt_data<Val>{}
+>;
+
+template<class Info>
+using keep_info_pkt_data_ptr = brigand::bool_<
+    !Info::is_begin_buf && Info::enable_pkt_data && Info::is_begin_pkt
+>;
+
+template<class Info>
+using keep_info_special_pkt_ptr = brigand::bool_<
+    !Info::is_begin_buf && has_special_pkt<typename Info::val>{}
+>;
+
+template<class Val, class Sz, class Sz2>
+using is_delimiter = brigand::bool_<
+    proto::is_dynamic_buffer<var_to_desc_type<Val>>::value
+    or
+    proto::is_view_buffer<var_to_desc_type<Val>>::value
+    or
+    ( proto::is_limited_buffer<var_to_desc_type<Val>>::value
+      and
+      ( ( has_pkt_sz_with_self<Val>::value and !is_size_<Sz>::value )
+            or
+            ( has_pkt_sz<Val>::value and !is_size_<Sz2>::value )
+      )
+    )
+>;
+
+
 template<std::size_t n>
 using mk_seq = brigand::range<std::size_t, 0, n>;
 
 template<class n>
 using mk_seq2 = brigand::range<std::size_t, 0, n::value>;
 
-template<class I, class Size>
-using mk_filled_list = brigand::filled_list<I, Size::value>;
+template<class T, class Size>
+using mk_filled_list = brigand::filled_list<T, Size::value>;
 
 template<class IPacket, class IVar, class DescType>
 struct var_info {
@@ -110,8 +184,39 @@ struct var_info {
     using desc_type = DescType;
 };
 
+template<
+    class I,
+    class Val,
+    class IPacket,
+    class IVar,
+    class IBuf,
+    class DescType,
+    class isBeginBuf,
+    class isEndBuf,
+    class isBeginPkt,
+    class isEndPkt,
+    class EnablePktData
+>
+struct val_info
+{
+    using val = Val;
+    using desc_type = DescType;
+    static constexpr std::size_t i = I::value;
+    static constexpr std::size_t ipacket = IPacket::value;
+    static constexpr std::size_t ivar = IVar::value;
+    static constexpr std::size_t ibuf = IBuf::value;
+    static constexpr bool is_begin_buf = isBeginBuf::value;
+    static constexpr bool is_end_buf = isEndBuf::value;
+    static constexpr bool is_begin_pkt = isBeginPkt::value;
+    static constexpr bool is_end_pkt = isEndPkt::value;
+    static constexpr bool enable_pkt_data = EnablePktData::value;
+};
+
+using cvoidp = void const *;
+
 template<class var_info>
 using var_info_is_buffer_delimiter = is_buffer_delimiter<typename var_info::desc_type>;
+
 
 template<std::size_t n> struct static_size : brigand::size_t<n> {};
 template<std::size_t n> struct dynamic_size : brigand::size_t<n> {};
@@ -155,6 +260,51 @@ using sizeof_packet = brigand::fold<
     brigand::call<add_size>
 >;
 
+
+namespace lazy {
+    template<class, class>
+    struct sizeof_packet_add2_impl
+    { using type = proto::dyn_size; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct sizeof_packet_add2_impl<proto::size_<n1>, proto::size_<n2>>
+    { using type = proto::size_<n1+n2>; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::limited_size<n2>>
+    { using type = proto::limited_size<n1+n2>; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct sizeof_packet_add2_impl<proto::size_<n1>, proto::limited_size<n2>>
+    { using type = proto::limited_size<n1+n2>; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::size_<n2>>
+    { using type = proto::limited_size<n1+n2>; };
+}
+template<class i1, class i2>
+using sizeof_packet_add2 = typename lazy::sizeof_packet_add2_impl<i1, i2>::type;
+
+template<class L>
+using sizeof_packet2 = brigand::fold<
+    brigand::transform<L, brigand::call<proto::sizeof_>>,
+    proto::size_<0>,
+    brigand::call<sizeof_packet_add2>
+>;
+
+namespace detail {
+    template<class Sz>
+    struct limited_to_dyn_impl
+    { using type = Sz; };
+
+    template<std::size_t n>
+    struct limited_to_dyn_impl<proto::limited_size<n>>
+    { using type = proto::dyn_size; };
+}
+
+template<class Sz>
+using limited_to_dyn = typename detail::limited_to_dyn_impl<Sz>::type;
+
 namespace detail {
     template<class T>
     struct limited_size_to_dyn_size
@@ -191,6 +341,42 @@ using mk_list_accu = typename lazy::mk_list_accu<L, x>::type;
 template<class L>
 using make_accumulate_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<mk_list_accu>>;
 
+namespace detail {
+    template<class L, class Add>
+    struct mk_list_accu_impl2;
+
+    template<template<class...> class L, class... Ts, class n>
+    struct mk_list_accu_impl2<L<Ts...>, n>
+    { using type = L<sizeof_packet_add2<Ts, n>..., n>; };
+}
+template<class L, class x>
+using mk_list_accu2 = typename detail::mk_list_accu_impl2<L, x>::type;
+
+namespace detail {
+    template<class L, class Add>
+    struct laccu_impl;
+
+    template<template<class...> class L, class... Ts, class n>
+    struct laccu_impl<L<Ts...>, n>
+    { using type = L<brigand::size_t<Ts::value + n::value>..., n>; };
+}
+template<class L, class T>
+using laccu = typename detail::laccu_impl<L, T>::type;
+
+template<class L>
+using accu_add_size_list = brigand::fold<L, brigand::list<>, brigand::call<mk_list_accu2>>;
+
+template <class A, class B>
+using plus = std::integral_constant<std::size_t, A::value + B::value>;
+
+template <class A, class B>
+using minus = std::integral_constant<std::size_t, A::value - B::value>;
+
+template <class A, class B>
+using not_equal_to = brigand::bool_<(A::value != B::value)>;
+
+template<class C, class True, class False>
+using eval = typename std::conditional_t<C::value, True, False>::type;
 
 namespace detail {
     template<class T, std::size_t n> struct pkt_sz_with_size { using desc_type = T; };
@@ -224,9 +410,6 @@ using convert_pkt_sz = typename detail::convert_pkt_sz<
 >::type;
 
 
-using proto::desc_type_t;
-using proto::var_type_t;
-
 template<std::size_t i>
 using i_ = std::integral_constant<std::size_t, i>;
 
@@ -244,6 +427,10 @@ namespace detail {
     struct sizeof_to_buffer<dynamic_size<n>>
     { using type = proto::dyn_size; };
 
+    template<>
+    struct sizeof_to_buffer<proto::dyn_size>
+    { using type = proto::dyn_size; };
+
     template<std::size_t n>
     struct uninitialized_buf
     {
@@ -258,6 +445,14 @@ namespace detail {
 
     template<std::size_t n>
     struct sizeof_to_buffer<limited_size<n>>
+    { using type = uninitialized_buf<n>; };
+
+    template<std::size_t n>
+    struct sizeof_to_buffer<proto::size_<n>>
+    { using type = uninitialized_buf<n>; };
+
+    template<std::size_t n>
+    struct sizeof_to_buffer<proto::limited_size<n>>
     { using type = uninitialized_buf<n>; };
 }
 template<class T>
@@ -373,6 +568,7 @@ Ts const & get(detail::tuple_element<i, Ts> const & te)
 { return te.elem; }
 
 
+
 namespace detail
 {
     template<std::size_t n>
@@ -460,9 +656,6 @@ namespace detail
     };
 }
 
-template<class T>
-using var_to_desc_type = desc_type_t<proto::var_type_t<T>>;
-
 namespace detail {
     template<template<class> class IsPktSz, class Pkt, class Sz>
     struct convert_pkt_sz2
@@ -522,6 +715,41 @@ template<class L>
 using to_is_pkt_first_list = typename detail::to_is_pkt_first_list<L>::type;
 
 
+template<class L>
+using to_is_first_list = brigand::push_front<
+  brigand::filled_list<std::false_type, brigand::size<L>::value-1>,
+  std::true_type
+>;
+
+template<class L>
+using to_is_last_list = brigand::push_back<
+  brigand::filled_list<std::false_type, brigand::size<L>::value-1>,
+  std::true_type
+>;
+
+template<class T, class F>
+void cifv(std::false_type, T &&, F &&)
+{}
+
+template<class T, class F>
+void cifv(std::true_type, T && v, F && f)
+{ f(std::forward<T>(v)); }
+
+#ifdef IN_IDE_PARSER
+# define PROTO_UNPACK
+#else
+# define PROTO_UNPACK(...) \
+  (void)std::initializer_list<int>{(void((__VA_ARGS__)), 1)...}
+#endif
+
+template<class... T, class F>
+void mpl_for_each(brigand::list<T...>, F && f)
+{ PROTO_UNPACK(f(T{})); }
+
+template<class... T, class... U, class F>
+void mpl_for_each(brigand::list<T...>, brigand::list<U...>, F && f)
+{ PROTO_UNPACK(f(T{}, U{})); }
+
 struct special_op {};
 
 template<class Policy>
@@ -530,95 +758,230 @@ struct Buffering2
     template<class... Pkts>
     struct Impl
     {
-        // [ [ val | pkt_sz_var ... ] ... ]
-        using packet_list_ = brigand::list<brigand::transform<typename Pkts::type_list, brigand::call<var_to_desc_type>>...>;
-
-        // [ { static | dynamic | limited }_size<n> ... ]
-        using sizeof_by_packet = brigand::transform<packet_list_, brigand::call<sizeof_packet>>;
-
-        // [ { static | dynamic | limited }_size<n> ... ] == [ Xsize<0..N>, Xsize<1..N> ... ]
-        using accu_sizeof_by_packet = make_accumulate_sizeof_list<sizeof_by_packet>;
-
-        // [ [ val | pkt_sz_var | static_value ... ] ... ]
-        using packet_list = brigand::transform<
-            packet_list_,
-            accu_sizeof_by_packet,
-            brigand::push_back<brigand::pop_front<accu_sizeof_by_packet>, proto::size_<0>>,
-            brigand::call<convert_pkt_sz2 /*TODO*/>
+        // [ [ desc_type ... ] ... ]
+        using desc_list_by_packet = brigand::list<
+            brigand::transform<
+                typename Pkts::type_list,
+                brigand::call<var_to_desc_type>
+            >...
         >;
 
-        // [ size<packet> ... ]
-        using packet_count_list = brigand::transform<packet_list, brigand::call<brigand::size>>;
+        using flat_values = brigand::append<typename Pkts::type_list...>;
+
+        // [ size_<n> | limited_size<n> | dyn_size ... ]
+        using sizeof_by_packet = brigand::transform<
+            desc_list_by_packet,
+            brigand::call<sizeof_packet2>
+        >;
+
+        // [ size_<n> | dyn_size ... ]
+        using accu_sizeof_by_packet = accu_add_size_list<
+            brigand::transform<
+                sizeof_by_packet,
+                brigand::call<limited_to_dyn>
+            >
+        >;
+        // [ size_<n> | dyn_size ... ]
+        using accu_sizeof_by_packet2 = brigand::push_back<
+            brigand::pop_front<accu_sizeof_by_packet>,
+            proto::size_<0>
+        >;
+
+
+        // [ size<pkt> ... ]
+        using packet_size_list = brigand::transform<
+            desc_list_by_packet,
+            brigand::call<brigand::size>
+        >;
+
+
+        // [ size_<n> | dyn_size ... ]
+        using flat_accu_sizeof_by_packet_by_packet = brigand::join<
+            brigand::transform<
+                accu_sizeof_by_packet,
+                packet_size_list,
+                brigand::call<mk_filled_list>
+            >
+        >;
+        // [ size_<n> | dyn_size ... ]
+        using flat_accu_sizeof_by_packet_by_packet2 = brigand::join<
+            brigand::transform<
+                accu_sizeof_by_packet2,
+                packet_size_list,
+                brigand::call<mk_filled_list>
+            >
+        >;
+
+        // [ [ desc_type ... ] ... ]
+        using desc_list_by_buffer = brigand::transform<
+            brigand::split_if<
+                brigand::transform<
+                    flat_values,
+                    flat_accu_sizeof_by_packet_by_packet,
+                    flat_accu_sizeof_by_packet_by_packet2,
+                    brigand::call<brigand::list>
+                >,
+                brigand::bind<
+                    brigand::lapply,
+                    brigand::pin<brigand::call<is_delimiter>>,
+                    brigand::_1
+                >
+            >,
+            brigand::bind<
+                brigand::transform,
+                brigand::_1,
+                brigand::pin<
+                    brigand::bind<
+                        var_to_desc_type,
+                        brigand::call<brigand::front>
+                    >
+                >
+            >
+        >;
+
+
+        // [ 0 | 1 ... ]
+        using is_delimiter_list = brigand::transform<
+            flat_values,
+            flat_accu_sizeof_by_packet_by_packet,
+            flat_accu_sizeof_by_packet_by_packet2,
+            brigand::call<is_delimiter>
+        >;
+
+        // [ filled_list<ibuf, size<buffer>> ... ]
+        // [ [ 0 ... ] [ 1 ... ] ... ]
+        using ibuf_list_by_buffer = brigand::transform<
+            mk_seq2<brigand::size<desc_list_by_buffer>>,
+            brigand::transform<
+                desc_list_by_buffer,
+                brigand::call<brigand::size>
+            >,
+            brigand::call<mk_filled_list>
+        >;
+
+        // [ [ 1 0... ] ... ]
+        using is_first_ibuf_list = brigand::transform<
+            desc_list_by_buffer,
+            brigand::call<to_is_first_list>
+        >;
+
+        // [ [ 0... 1 ] ... ]
+        using is_last_ibuf_list = brigand::transform<
+            desc_list_by_buffer,
+            brigand::call<to_is_last_list>
+        >;
+
 
         // [ filled_list<ipacket, size<packet>> ... ]
-        using ipacket_list_by_var = brigand::transform<mk_seq<sizeof...(Pkts)>, packet_count_list, brigand::call<mk_filled_list>>;
-
-        // flatten<ipacket_list_by_var>
-        using ipacket_list = brigand::wrap<ipacket_list_by_var, brigand::append>;
-
-        // flatten<packet_list>
-        using var_list = brigand::wrap<packet_list, brigand::append>;
-
-        // flatten<range<0, size<packet> ... >
-        using ivar_list = brigand::wrap<brigand::transform<packet_count_list, brigand::call<mk_seq2>>, brigand::append>;
-
-        // [ var_info<ipacket, ivar, var> ... ]
-        using var_info_list = brigand::transform<ipacket_list, ivar_list, var_list, brigand::call<var_info>>;
-
-
-        using count_special_pkt = brigand::count_if<
-            brigand::append<typename Pkts::type_list...>,
-            brigand::call<proto::is_special_value>
+        // [ [ 0 ... ] [ 1 ... ] ... ]
+        using ipacket_list_by_packet = brigand::transform<
+            mk_seq<sizeof...(Pkts)>,
+            packet_size_list,
+            brigand::call<mk_filled_list>
         >;
 
-        using pkt_ptr_is_first_list = brigand::wrap<
-            brigand::transform<ipacket_list_by_var, brigand::call<to_is_pkt_first_list>>,
-            brigand::append
+        // [ [ 0..size<packet> ] ... ]
+        using ivar_list_by_packet = brigand::transform<
+            packet_size_list,
+            brigand::call<mk_seq2>
         >;
 
-        // [ [ var_info ... ] ... ]
-        using var_info_list_by_buffer = brigand::split_if<var_info_list, brigand::call<var_info_is_buffer_delimiter>>;
 
+        // [ [ 1 0... ] ... ]
+        using is_first_var_list_by_packet = brigand::transform<
+            ivar_list_by_packet,
+            brigand::call<to_is_first_list>
+        >;
+
+        // [ [ 0... 1 ] ... ]
+        using is_last_var_list_by_packet = brigand::transform<
+            ivar_list_by_packet,
+            brigand::call<to_is_last_list>
+        >;
+
+        // [ [ 1 ... ] | [ 0 ... ] ... ]
+        using is_pkt_data_packet = brigand::transform<
+            brigand::push_front<
+                brigand::pop_back<
+                    brigand::list<
+                        brigand::any<
+                        typename Pkts::type_list,
+                        brigand::call<has_pkt_data>
+                        >...
+                    >
+                >,
+                brigand::bool_<false>
+            >,
+            packet_size_list,
+            brigand::call<mk_filled_list>
+        >;
+
+
+        // [ val_info<...> ... ]
+        using val_infos = brigand::transform<
+            mk_seq2<brigand::size<flat_values>>,
+            flat_values,
+            brigand::join<ipacket_list_by_packet>,
+            brigand::join<ivar_list_by_packet>,
+            brigand::join<ibuf_list_by_buffer>,
+            brigand::join<desc_list_by_packet>,
+            brigand::join<is_first_ibuf_list>,
+            brigand::join<is_last_ibuf_list>,
+            brigand::join<is_first_var_list_by_packet>,
+            brigand::join<is_last_var_list_by_packet>,
+            brigand::join<is_pkt_data_packet>,
+            brigand::call<val_info>
+        >;
+
+
+        using special_pkt_size = brigand::count_if<
+            val_infos,
+            brigand::call<keep_info_special_pkt_ptr>
+        >;
+
+        using pkt_data_size = brigand::count_if<
+            val_infos,
+            brigand::call<keep_info_pkt_data_ptr>
+        >;
+
+        // [ size_<n> | limited_size<n> | dyn_size ... ]
+        using sizeof_by_buffer = brigand::transform<
+            desc_list_by_buffer,
+            brigand::call<sizeof_packet2>
+        >;
 
         // [ uninitialized_buf | dyn_size ... ]
-        using buffer_list = brigand::transform<var_info_list_by_buffer, brigand::call<buffer_from_var_infos>>;
+        using buffer_list = brigand::transform<
+            sizeof_by_buffer,
+            brigand::call<sizeof_to_buffer>
+        >;
 
-        // [ { static | dynamic | limited }_size<n> ... ]
-        //using default_buffer_size = brigand::transform<packet_list_, brigand::call<sizeof_packet_with_limited_size_to_dyn_size>>;
+        using special_ptr_array_t = std::array<void*, special_pkt_size{}>;
+        using pkt_size_array_t = std::array<std::size_t, sizeof...(Pkts)>;
+        using pkt_ptr_array_t = std::array<void*, pkt_data_size{}>;
 
-        // var_info_list with only pkt_sz
-//         using pkt_sz_list = brigand::copy_if<
-//             var_info_list,
-//             brigand::bind<
-//                 proto::is_pkt_sz_category,
-//                 brigand::call<proto::desc_type_t>
-//             >
-//         >;
 
         brigand::wrap<buffer_list, tuple_buf> buffer_tuple;
-        detail::Buffers<brigand::size<buffer_list>::value> buffers{buffer_tuple};
-
-        using special_ptr_array_t = std::array<uint8_t *, count_special_pkt::value>;
-        using pkt_size_array_t = std::array<std::size_t, sizeof...(Pkts) + 1>;
-        using pkt_ptr_array_t = std::array<std::size_t, sizeof...(Pkts)>;
+        detail::Buffers<brigand::size<buffer_list>{}> buffers{buffer_tuple};
 
         special_ptr_array_t special_pkt_ptrs;
         pkt_size_array_t sizes;
-        pkt_ptr_array_t pkt_ptrs;
+        pkt_ptr_array_t pkt_data_ptrs;
         Policy const & policy;
-        typename special_ptr_array_t::iterator special_pkt_iterator;
+
+        typename special_ptr_array_t::iterator pspecial_pkt;
         typename pkt_size_array_t::iterator psize;
-        typename pkt_ptr_array_t::iterator ppkt_ptrs;
+        typename pkt_ptr_array_t::iterator ppkt_data_ptrs;
+
         iovec * piov;
 
         Impl(Policy const & policy) noexcept
         : policy(policy)
-        , special_pkt_iterator(std::begin(this->special_pkt_ptrs))
+        , pspecial_pkt(std::begin(this->special_pkt_ptrs))
         , psize(std::begin(sizes))
-        , ppkt_ptrs(std::begin(pkt_ptrs))
+        , ppkt_data_ptrs(std::begin(pkt_data_ptrs))
         , piov(buffers.data.data())
         {
-          this->pkt_ptrs.back() = 0;
         }
 
         uint8_t * iov_base() const noexcept { return static_cast<uint8_t*>(this->piov->iov_base); }
@@ -626,41 +989,36 @@ struct Buffering2
         void impl(Pkts const & ... packets)
         {
             PROTO_TRACE("----------- pkt (" << sizeof...(Pkts) << ") -----------\n");
-            PROTO_TRACE("--------- bufsz (" << brigand::size<buffer_list>::value << ") -----------\n");
+            PROTO_TRACE("--------- bufsz (" << brigand::size<buffer_list>{} << ") -----------\n");
 
-            this->serialize(
-                var_info_list_by_buffer{},
-                pkt_ptr_is_first_list{},
-                packets...
-            );
+            this->serialize(val_infos{}, packets...);
         }
 
-        template<class VarInfoByBuffer, class... VarInfoByBuffers, class IsFirstPkts>
-        void serialize(
-            brigand::list<VarInfoByBuffer, VarInfoByBuffers...>,
-            IsFirstPkts,
-            Pkts const & ... pkts
-        ) {
-            using sz = brigand::size<VarInfoByBuffer>;
-            this->serialize_without_special_pkt(
-                brigand::list<VarInfoByBuffers...>{},
-                brigand::drop<IsFirstPkts, sz>{},
-                proto::is_dynamic_buffer<desc_type_t<brigand::front<VarInfoByBuffer>>>{},
-                VarInfoByBuffer{},
-                brigand::take<IsFirstPkts, sz>{},
+        template<class... Info>
+        void serialize(brigand::list<Info...>, Pkts const & ... pkts)
+        {
+            using at = brigand::index_if<
+                brigand::list<desc_type_t<Info>...>,
+                brigand::call<proto::is_dynamic_buffer>,
+                i_<sizeof...(Info)>
+            >;
+
+            using splitted = brigand::split_at<
+                brigand::list<Info...>,
+                at
+            >;
+
+            this->serialize_(
+                brigand::front<splitted>{},
+                brigand::back<splitted>{},
                 pkts...
             );
         }
 
-        void serialize(brigand::list<>, brigand::list<>, Pkts const & ... pkts) {
-            PROTO_TRACE("----------- special (" << count_special_pkt::value << ") -----------\n");
+        void serialize(brigand::list<>, Pkts const & ... pkts)
+        {
+            PROTO_TRACE("----------- special (" << special_pkt_size{} << ") -----------\n");
 
-            constexpr std::size_t ibuf = brigand::size<var_info_list_by_buffer>::value - 1;
-            --this->piov;
-            PROTO_TRACE(" [--piov]\n");
-            PROTO_TRACE(" [ e " << this->piov->iov_base << "]");
-            this->inc_size<ibuf>(proto::is_view_buffer<desc_type_t<brigand::back<var_info_list>>>{});
-            *++this->psize = 0;
             PROTO_TRACE("\nsizes: ");
             PROTO_ENABLE_IF_TRACE(for (auto sz : this->sizes) PROTO_TRACE(sz << " "));
             PROTO_TRACE("\n\n");
@@ -668,7 +1026,6 @@ struct Buffering2
             this->buffers.reset_ptr(this->buffer_tuple);
 
             // propagate_size
-            // TODO to serialize_special_pkt_
             {
                 std::size_t i = sizeof...(Pkts) - 1;
                 while (i-- > 0) {
@@ -676,307 +1033,137 @@ struct Buffering2
                 }
             }
 
-            this->serialize_special_pkt(
-                brigand::reverse<var_info_list_by_buffer>{},
-                brigand::reverse<mk_seq2<brigand::size<var_info_list_by_buffer>>>{},
-                pkts...
-            );
+            this->serialize_spe(brigand::reverse<val_infos>{}, pkts...);
 
             PROTO_TRACE("----------- send -----------\n");
 
             this->policy.send(this->buffers.view());
         }
 
-        template<class... ReverseVarInfosByBuffers, class... IBuf>
-        void serialize_special_pkt(
-            brigand::list<ReverseVarInfosByBuffers...>,
-            brigand::list<IBuf...>,
-            Pkts const & ... pkts
-        ) {
-            (void)std::initializer_list<int>{(void((
-                this->serialize_special_pkt2(
-                    IBuf{},
-                    brigand::reverse<ReverseVarInfosByBuffers>{},
-                    pkts...
+        template<class... Info>
+        void serialize_spe(brigand::list<Info...>, Pkts const & ... pkts)
+        {
+            PROTO_UNPACK(
+                has_special_pkt<typename Info::val>{}
+                ? this->serialize_spe_value(
+                    Info{},
+                    has_special_pkt<typename Info::val>{},
+                    larg<Info::ivar>(arg<Info::ipacket>(pkts...))
                 )
-            )), 1)...};
-            PROTO_TRACE("\n");
-        }
-
-        template<class IBuf, class... ReverseVarInfos>
-        void serialize_special_pkt2(
-            IBuf ibuf,
-            brigand::list<ReverseVarInfos...>,
-            Pkts const & ... pkts
-        ) {
-            (void)std::initializer_list<int>{(void((
-                this->serialize_special_pkt_(
-                    ibuf,
-                    ReverseVarInfos{},
-                    larg<ReverseVarInfos::ivar::value>(arg<ReverseVarInfos::ipacket::value>(pkts...))
-                )
-            )), 1)...};
-            PROTO_TRACE("\n");
-        }
-
-        template<std::size_t ipacket>
-        struct lazy_sz
-        {
-            Impl const & impl;
-
-            std::size_t operator()() const
-            {
-                auto const sz = impl.sizes[ipacket+1];
-                PROTO_TRACE(sz);
-                return sz;
-            }
-        };
-
-        template<std::size_t ipacket>
-        struct lazy_sz_with_self
-        {
-            Impl const & impl;
-
-            std::size_t operator()() const
-            {
-                auto const sz = impl.sizes[ipacket];
-                PROTO_TRACE(sz);
-                return sz;
-            }
-        };
-
-        template<std::size_t ibuf>
-        struct lazy_data
-        {
-            Impl const & impl;
-
-            iovec_array operator()() const
-            {
-                iovec_array av{
-                    &impl.buffers.data[ibuf],
-                    impl.buffers.data.data() + impl.buffers.data.size()
-                };
-                PROTO_TRACE("{ptr, " << av.size() << "}");
-                return av;
-            }
-        };
-
-        template<class IBuf, class VarInfo, class Val>
-        std::enable_if_t<proto::is_special_value<Val>::value>
-        serialize_special_pkt_(IBuf ibuf, VarInfo, Val const & val)
-        {
-            PROTO_TRACE(name(val) << " = ");
-
-            void * oldp;
-
-            constexpr std::size_t ipacket = VarInfo::ipacket::value;
-            auto l1 = proto::val<proto::dsl::pkt_sz, lazy_sz<ipacket>>{{}, {*this}};
-            auto l2 = proto::val<proto::dsl::pkt_data, lazy_data<IBuf::value>>{{}, {*this}};
-            auto l3 = proto::val<proto::dsl::pkt_sz_with_self, lazy_sz_with_self<ipacket>>{{}, {*this}};
-
-            if (proto::is_reserializer<Val>::value) {
-                oldp = this->buffers.data[ibuf].iov_base;
-                this->buffers.data[ibuf].iov_base
-                  = reinterpret_cast<uint8_t *>(this->buffers.data[ibuf].iov_base) + this->pkt_ptrs[ipacket];
-            }
-
-            --this->special_pkt_iterator;
-            PROTO_TRACE("[" << static_cast<void const *>(*this->special_pkt_iterator) << "] ");
-
-            this->serialize_type2(
-                proto::buffer_category<desc_type_t<VarInfo>>{},
-                proto::is_reserializer<desc_type_t<VarInfo>>{},
-                *this->special_pkt_iterator,
-                val.to_proto_value(proto::utils::make_parameters(l1, l2, l3))
-            );
-            if (proto::is_reserializer<Val>::value) {
-                this->buffers.data[ibuf].iov_base = oldp;
-            }
-        }
-
-        template<class IBuf, class VarInfo, class Val>
-        std::enable_if_t<!proto::is_special_value<Val>::value>
-        serialize_special_pkt_(IBuf, VarInfo, Val const &)
-        {}
-
-        template<class T>
-        void serialize_type2(proto::tags::static_buffer, std::false_type, unsigned char * buf, T const & x)
-        {
-            policy.static_serialize(buf, x);
-            PROTO_TRACE(" [slen: " << proto::sizeof_<T>::value << "]\n");
-        }
-
-        template<class T>
-        void serialize_type2(proto::tags::static_buffer, std::true_type, unsigned char * buf, T const & x)
-        {
-            policy.static_reserialize(buf, x, array_view_u8{buf, proto::sizeof_<T>{}});
-            PROTO_TRACE(" [slen: " << proto::sizeof_<T>::value << "]\n");
-        }
-
-        template<class T>
-        void serialize_type2(proto::tags::limited_buffer, std::false_type, unsigned char * buf, T const & x)
-        {
-            std::size_t len = policy.limited_serialize(buf, x);
-            PROTO_TRACE(" [len: " << len << "]\n");
-        }
-
-        template<class T>
-        void serialize_type2(proto::tags::limited_buffer, std::true_type, unsigned char * buf, T const & x)
-        {
-            // TODO
-            //std::size_t len = policy.limited_reserialize(buf, x, array_view_u8{*this->special_pkt_iterator, proto::sizeof_<T>::value});
-            //PROTO_TRACE(" [len: " << len << "]\n");
-        }
-
-        template<class T>
-        void serialize_type2(proto::tags::dynamic_buffer, std::false_type, unsigned char * buf, T const & x) = delete;
-
-
-        template<class VarInfoByBuffers, class IsFirstPkts2, class... VarInfos, class... IsFirstPkts>
-        void serialize_without_special_pkt(
-            VarInfoByBuffers var_info_by_buffers,
-            IsFirstPkts2 is_first_pkt2,
-            std::false_type,
-            brigand::list<VarInfos...>,
-            brigand::list<IsFirstPkts...>,
-            Pkts const & ... pkts
-        ) {
-            constexpr std::size_t ibuf = brigand::size<var_info_list_by_buffer>::value - brigand::size<VarInfoByBuffers>::value - 1;
-            using first_var_info = brigand::front<brigand::list<VarInfos...>>;
-            (void)std::initializer_list<int>{(void((
-                this->serialize_not_dynamic<ibuf>(
-                    IsFirstPkts{},
-                    brigand::bool_<first_var_info::ipacket::value == VarInfos::ipacket::value>{},
-                    VarInfos{},
-                    larg<VarInfos::ivar::value>(arg<VarInfos::ipacket::value>(pkts...))
-                )
-            )), 1)...};
-
-            PROTO_TRACE(" [++piov]\n");
-            ++this->piov;
-            this->serialize(var_info_by_buffers, is_first_pkt2, pkts...);
-        }
-
-        template<std::size_t i>
-        void inc_size(std::true_type)
-        {
-            PROTO_TRACE(" [v *psize+=" << this->piov->iov_len << "]");
-            *this->psize += this->piov->iov_len;
-        }
-
-        template<std::size_t i>
-        void inc_size(std::false_type)
-        {
-            PROTO_TRACE(" [ b " << static_cast<void const *>(get<i>(this->buffer_tuple).buf) << "]");
-            PROTO_TRACE(" [ e " << this->piov->iov_base << "]");
-            PROTO_TRACE(" [r *psize+=" << std::size_t(this->iov_base() - get<i>(this->buffer_tuple).buf) << "]");
-            *this->psize += this->iov_base() - get<i>(this->buffer_tuple).buf;
-        }
-
-        template<std::size_t ibuf, class IsFirstPkt, class IsSamePkt, class VarInfo, class Val>
-        void serialize_not_dynamic(IsFirstPkt is_first_pkt, IsSamePkt is_same_pkt, VarInfo, Val const & val)
-        {
-            using is_special_value = proto::is_special_value<Val>;
-            print_if_not_special(is_special_value{}, val);
-            if (is_first_pkt) {
-                if (VarInfo::ipacket::value) {
-                    this->inc_size<ibuf>(proto::is_view_buffer<desc_type_t<VarInfo>>{});
-                    PROTO_TRACE(" [++psize]");
-                    *this->ppkt_ptrs = *this->psize;
-                    ++this->ppkt_ptrs;
-                    ++this->psize;
-                }
-
-                if (is_same_pkt || proto::is_view_buffer<var_to_desc_type<Val>>::value) {
-                    PROTO_TRACE(" [*psize=0]");
-                    *this->psize = 0u;
-                }
-                else {
-                    *this->psize = -*(this->psize - 1);
-                    PROTO_TRACE(" [*psize=" << *this->psize << "]");
-                }
-            }
-            // TODO check overflow (assert)
-            this->serialize_type(
-                typename std::conditional<
-                    is_special_value::value,
-                    special_op, proto::buffer_category<desc_type_t<VarInfo>>
-                >::type{},
-                val
+                : void()
             );
         }
 
-        template<class Val>
-        static void print_if_not_special(std::false_type, Val const & val)
-        {
-            PROTO_TRACE(name(val) << " = ");
-            PROTO_ENABLE_IF_TRACE(print(val));
-            (void)val;
-        }
-
-        template<class Val>
-        static void print_if_not_special(std::true_type, Val const &)
+        template<class Info, class Val>
+        void serialize_spe_value(Info, std::false_type, Val const &)
         {}
 
-        template<class Val>
-        void serialize_type(special_op, Val const & val)
+        template<class Info, class Val>
+        void serialize_spe_value(Info, std::true_type, Val const & val)
         {
-            static_assert(!proto::is_dynamic_buffer<var_to_desc_type<Val>>{}, "unimplemented");
-            static_assert(!proto::is_view_buffer<var_to_desc_type<Val>>{}, "unimplemented");
+          PROTO_TRACE(name(val) << " = ");
+          cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
+              this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
+                  return this->sizes[Info::ipacket+1];
+              }, val);
+          });
+          cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){
+              this->serialize_eval_sz<Info, proto::dsl::pkt_sz_with_self>([this]{
+                  return this->sizes[Info::ipacket];
+              }, val);
+          });
+          cifv(proto::is_reserializer<desc_type_t<Val>>{}, val, [this](auto const & val){
+              iovec & iov = this->buffers.data[Info::ibuf];
+              iovec tmpiov = iov;
+              if (keep_info_pkt_data_ptr<Info>{}) {
+                  auto p = reinterpret_cast<uint8_t *>(*--this->ppkt_data_ptrs);
+                  auto iov_base = reinterpret_cast<uint8_t *>(iov.iov_base);
+                  assert(p <= iov_base);
+                  iov.iov_base = p;
+                  iov.iov_len = iov_base - p;
+              }
 
-            // TODO is_pkt_sz + static_size -> serialize
+              void * buf = keep_info_special_pkt_ptr<Info>{}
+                ? *--this->pspecial_pkt
+                : this->buffers.data[Info::ibuf].iov_base;
 
-            *this->special_pkt_iterator = this->iov_base();
-            PROTO_TRACE(" [spep=" << static_cast<void const *>(*this->special_pkt_iterator) << "]");
-            ++this->special_pkt_iterator;
+              auto const & new_val = val.to_proto_value(proto::utils::make_parameters());
+              PROTO_ENABLE_IF_TRACE(Printer::print(new_val, 1));
 
-            PROTO_TRACE(name(val) << " [reserved: " << reserved_size(val) << "]\n");
-            if (proto::is_static_buffer<var_to_desc_type<Val>>{}
-             || proto::is_limited_buffer<var_to_desc_type<Val>>{}
-            ) {
-                this->piov->iov_base = this->iov_base() + reserved_size(val);
-            }
-            else {
-                // TODO only if pkt_sz before
-                this->piov->iov_len = reserved_size(val);
-            }
+              this->serialize_eval_data(
+                  Info{},
+                  proto::buffer_category<desc_type_t<Val>>{},
+                  reinterpret_cast<uint8_t *>(buf),
+                  //static_iovec_array<iovec, brigand::size<buffer_list>{} - Info::ibuf>{};
+                  iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - Info::ibuf)},
+                  new_val
+              );
+
+              if (keep_info_pkt_data_ptr<Info>{}) {
+                  iov = tmpiov;
+              }
+          });
+          PROTO_TRACE("\n");
         }
 
-        template<class Val>
-        void serialize_type(proto::tags::static_buffer, Val const & val)
+        template<class Info, class Sp, class Get, class Val>
+        void serialize_eval_sz(Get get, Val const & val)
         {
-            PROTO_ENABLE_IF_TRACE_PRE(std::size_t rsz = ) policy.static_serialize(this->iov_base(), val.x);
-            constexpr std::size_t sz = proto::sizeof_<desc_type_t<var_type_t<Val>>>::value;
-            PROTO_TRACE(" [slen: " << sz << "]\n");
-            PROTO_ENABLE_IF_TRACE(assert(rsz == sz));
-            this->piov->iov_base = this->iov_base() + sz;
+            auto get_val = proto::val<Sp, Get>{{}, get};
+            auto const & new_val = val.to_proto_value(proto::utils::make_parameters(get_val));
+            using new_val_type = std::remove_cv_t<std::remove_reference_t<decltype(new_val)>>;
+            PROTO_ENABLE_IF_TRACE(Printer::print(new_val, 1));
+
+            void * buf = keep_info_special_pkt_ptr<Info>{}
+              ? *--this->pspecial_pkt
+              : this->buffers.data[Info::ibuf].iov_base;
+
+            this->serialize_spe_type(
+                Info{},
+                proto::buffer_category<new_val_type>{},
+                reinterpret_cast<uint8_t *>(buf),
+                new_val
+            );
         }
 
-        template<class Val>
-        void serialize_type(proto::tags::limited_buffer, Val const & val)
-        {
-            std::size_t len = policy.limited_serialize(this->iov_base(), val.x);
-            PROTO_TRACE(" [len: " << len << "]\n");
-            assert(proto::sizeof_<desc_type_t<var_type_t<Val>>>::value >= len);
-            this->piov->iov_base = this->iov_base() + len;
+        template<class Info, class Val>
+        void serialize_spe_type(Info, proto::tags::static_buffer, uint8_t * p, Val const & val) {
+            this->policy.static_serialize(p, val);
         }
 
-        template<class Val>
-        void serialize_type(proto::tags::view_buffer, Val const & val)
-        {
-            auto av = policy.get_view_buffer(val.x);
-            PROTO_TRACE(" [view: 0x" << static_cast<void const *>(av.data()) << " | len: " << av.size() << "]\n");
-            this->piov->iov_base = const_cast<uint8_t *>(av.data());
-            this->piov->iov_len = av.size();
+        template<class Info, class Val>
+        void serialize_spe_type(Info, proto::tags::limited_buffer, uint8_t * p, Val const & val) {
+            this->policy.limited_serialize(p, val);
         }
 
-        template<class VarInfoByBuffers, class IsFirstPkts2, class VarInfo, class IsFirstPkt>
-        void serialize_without_special_pkt(
-            VarInfoByBuffers,
-            IsFirstPkts2,
-            std::true_type,
-            brigand::list<VarInfo>,
-            brigand::list<IsFirstPkt>,
+        template<class Info, class Val>
+        void serialize_eval_data(Info, proto::tags::static_buffer, uint8_t * p, iovec_array iovs, Val const & val) {
+            this->policy.static_reserialize(p, val, iovs);
+        }
+
+        template<class Info, class Val>
+        void serialize_eval_data(Info, proto::tags::limited_buffer, uint8_t * p, iovec_array iovs, Val const & val) {
+            this->policy.limited_reserialize(p, val, iovs);
+        }
+
+
+        template<class... Infos, class DInfos>
+        void serialize_(
+            brigand::list<Infos...>,
+            DInfos,
+            Pkts const & ... pkts
+        ) {
+            PROTO_UNPACK(this->serialize_value(
+                Infos{},
+                larg<Infos::ivar>(arg<Infos::ipacket>(pkts...))
+            ));
+
+            this->serialize_dyn(DInfos{}, pkts...);
+        }
+
+        template<class Info, class... Infos>
+        void serialize_dyn(
+            brigand::list<Info, Infos...>,
             Pkts const & ... pkts
         ) {
 #define PROTO_NIL
@@ -985,40 +1172,229 @@ struct Buffering2
 #else
 # define PROTO_ENABLE_IF_DEBUG(...)
 #endif
-            using var_info = brigand::front<VarInfo>;
+            auto const & val = larg<Info::ivar>(arg<Info::ipacket>(pkts...));
+            this->pre_serialize_value(Info{}, val);
             PROTO_ENABLE_IF_DEBUG(int dynamic_buf_ctxfunc_is_used = 0;)
-            [this](auto & val, auto f){
-                PROTO_TRACE(name(val) << " = ");
-                PROTO_ENABLE_IF_TRACE(print(val));
+            [this, &val](auto f){
                 this->policy.dynamic_serialize(f, val.x);
             }(
-                larg<var_info::ivar::value>(arg<var_info::ipacket::value>(pkts...)),
                 [this, PROTO_ENABLE_IF_DEBUG(&dynamic_buf_ctxfunc_is_used, PROTO_NIL) &pkts...]
-                (array_view_const_u8 av) {
+                (auto && av) {
                     PROTO_ENABLE_IF_DEBUG(++dynamic_buf_ctxfunc_is_used;)
-                    this->piov->iov_base = const_cast<uint8_t *>(av.data());
+                    this->piov->iov_base = const_cast<void*>(cvoidp(av.data()));
                     this->piov->iov_len = av.size();
-                    if (IsFirstPkt{}) {
-                        if (VarInfo::ipacket::value) {
-                            PROTO_TRACE(" [++psize]");
-                            ++this->psize;
-                        }
-                        PROTO_TRACE(" [*psize=0]");
-                        *this->psize = 0;
-                    }
-                    PROTO_TRACE(" [size: " << av.size() << "]");
-                    PROTO_TRACE(" [*psize+=this->piov->iov_len]");
-                    PROTO_TRACE("\n");
-
-                    *this->psize += this->piov->iov_len;
-                    ++this->piov;
-                    this->serialize(VarInfoByBuffers{}, IsFirstPkts2{}, pkts...);
+                    this->post_serialize_value(Info{});
+                    this->serialize(brigand::list<Infos...>{}, pkts...);
                 }
             );
             assert(dynamic_buf_ctxfunc_is_used == 1);
 #undef PROTO_ENABLE_IF_DEBUG
 #undef PROTO_NIL
         }
+
+        void serialize_dyn(
+            brigand::list<>,
+            Pkts const & ... pkts
+        ) {
+            this->serialize(brigand::list<>{}, pkts...);
+        }
+
+
+        template<class Info, class Val>
+        void pre_serialize_value(Info, Val const & val)
+        {
+            (void)val;
+            PROTO_TRACE(Info::i << ". ");
+            PROTO_TRACE(name(val));
+            PROTO_ENABLE_IF_TRACE(
+                cifv(brigand::bool_<!has_special_pkt<Val>{}>{}, val, [this](auto const & v) {
+                    PROTO_TRACE(" = ");
+                    PROTO_ENABLE_IF_TRACE(this->print(v));
+                })
+            );
+            PROTO_ENABLE_IF_TRACE(
+                cifv(has_special_pkt<Val>{}, val, [](auto const &) {
+                    PROTO_TRACE(" [spe] ");
+                })
+            );
+
+            using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
+            using is_size = is_size_<sizeof_packet>;
+
+            if (Info::is_begin_pkt) {
+                assert(std::size_t(this->psize - std::begin(this->sizes)) < this->sizes.size());
+                if (is_size{}) {
+                    cifv(is_size{}, sizeof_packet{}, [this](auto sz){
+                        *this->psize = sz;
+                    });
+                }
+                else if (Info::is_begin_buf) {
+                    *this->psize = 0;
+                }
+                else {
+                    *this->psize = -*(this->psize - 1);
+                }
+            }
+
+            if (keep_info_pkt_data_ptr<Info>{}) {
+                assert(std::size_t(this->ppkt_data_ptrs - std::begin(this->pkt_data_ptrs)) < this->pkt_data_ptrs.size());
+                *this->ppkt_data_ptrs = this->piov->iov_base;
+                PROTO_TRACE(" [spdata=" << cvoidp(*this->ppkt_data_ptrs) << "]");
+                ++this->ppkt_data_ptrs;
+            }
+
+            if (keep_info_special_pkt_ptr<Info>{}) {
+                assert(std::size_t(this->pspecial_pkt - std::begin(this->special_pkt_ptrs)) < this->special_pkt_ptrs.size());
+                *this->pspecial_pkt = this->piov->iov_base;
+                PROTO_TRACE(" [sp=" << cvoidp(*this->pspecial_pkt) << "]");
+                ++this->pspecial_pkt;
+            }
+
+            assert(std::size_t(this->piov - buffers.data.data()) < this->buffers.data.size());
+        }
+
+        template<class Info, class Val>
+        void serialize_value(Info info, Val const & val)
+        {
+            this->pre_serialize_value(info, val);
+            this->serialize_type(
+                info,
+                has_special_pkt<Val>{},
+                proto::buffer_category<desc_type_t<Info>>{},
+                val
+            );
+            PROTO_TRACE("\n");
+            this->post_serialize_value(info);
+        }
+
+        template<class Info>
+        void post_serialize_value(Info)
+        {
+            using is_view = proto::is_view_buffer<desc_type_t<Info>>;
+            using is_dyn = proto::is_dynamic_buffer<desc_type_t<Info>>;
+            if (is_view{} || is_dyn{}) {
+                *this->psize += this->piov->iov_len;
+            }
+
+            if (Info::is_end_pkt) {
+                using is_limited = proto::is_limited_buffer<desc_type_t<Info>>;
+                cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
+                using i = decltype(ibuf);
+                *this->psize += this->iov_base() - get<i::value>(this->buffer_tuple).buf;
+                });
+                ++this->psize;
+            }
+
+            if (Info::is_end_buf) {
+                ++this->piov;
+            }
+        }
+
+        template<class Info, class Val>
+        void serialize_type(
+            Info,
+            std::false_type,
+            proto::tags::static_buffer,
+            Val const & val
+        ) {
+            PROTO_ENABLE_IF_TRACE_PRE(std::size_t const rsz = )
+            policy.static_serialize(this->iov_base(), val.x);
+            constexpr std::size_t sz = proto::sizeof_<desc_type_t<Info>>::value;
+            PROTO_TRACE(" [slen: " << sz << "]");
+            PROTO_ENABLE_IF_TRACE(assert(rsz == sz));
+            this->piov->iov_base = this->iov_base() + sz;
+        }
+
+        template<class Info, class Val>
+        void serialize_type(
+            Info,
+            std::false_type,
+            proto::tags::limited_buffer,
+            Val const & val
+        ) {
+            std::size_t const len = policy.limited_serialize(this->iov_base(), val.x);
+            PROTO_TRACE(" [len: " << len << "]");
+            assert(proto::sizeof_<desc_type_t<Info>>::value >= len);
+            this->piov->iov_base = this->iov_base() + len;
+        }
+
+        template<class Info, class Val>
+        void serialize_type(
+            Info,
+            std::false_type,
+            proto::tags::view_buffer,
+            Val const & val
+        ) {
+            auto const av = policy.get_view_buffer(val.x);
+            auto * const data = static_cast<void const *>(av.data());
+            PROTO_TRACE(" [view: 0x" << data << " | len: " << av.size() << "]");
+            this->piov->iov_base = const_cast<void *>(data);
+            this->piov->iov_len = av.size();
+        }
+
+        template<class Info, class Val>
+        void serialize_type(
+            Info,
+            std::true_type,
+            proto::tags::view_buffer,
+            Val const & val
+        ) {
+            this->piov->iov_len = reserved_size(val);
+            PROTO_TRACE(" [reserved: " << reserved_size(val) << "]");
+        }
+
+        template<class Info, class Val, class BufCat>
+        void serialize_type(
+            Info info,
+            std::true_type,
+            BufCat,
+            Val const & val
+        ) {
+            using pkt_sz = brigand::at_c<accu_sizeof_by_packet, Info::ipacket>;
+            using pkt_sz2 = brigand::at_c<accu_sizeof_by_packet2, Info::ipacket>;
+
+            using is_pkt_sz = brigand::bool_<has_pkt_sz<Val>{} && is_size_<pkt_sz>{}>;
+            using is_pkt_sz2 = brigand::bool_<has_pkt_sz_with_self<Val>{} && is_size_<pkt_sz>{}>;
+
+            if (is_pkt_sz{}) {
+                this->serialize_type_reval_sz(
+                    info, val,
+                    is_pkt_sz{}, pkt_sz{}, proto::dsl::pkt_sz{}
+                );
+            }
+            else if (is_pkt_sz2{}) {
+                this->serialize_type_reval_sz(
+                    info, val,
+                    is_pkt_sz2{}, pkt_sz2{}, proto::dsl::pkt_sz_with_self{}
+                );
+            }
+            else {
+                auto const sz = reserved_size(val);
+                PROTO_TRACE(" [reserved: " << sz << "]");
+                this->piov->iov_base = this->iov_base() + sz;
+            }
+        }
+
+        template<class Info, class Val, class Sz, class Sp>
+        void serialize_type_reval_sz(
+            Info info, Val const & val, std::true_type, Sz, Sp
+        ) {
+            auto get_sz = []{ return Sz::value; };
+            auto szval = proto::val<Sp, decltype(get_sz)>{{}, get_sz};
+            this->serialize_type(
+                info,
+                std::false_type{},
+                proto::buffer_category<desc_type_t<Info>>{},
+                val.to_proto_value(proto::utils::make_parameters(szval))
+            );
+        }
+
+        template<class Info, class Val, class Sz, class Sp>
+        void serialize_type_reval_sz(
+            Info, Val const &, std::false_type, Sz, Sp
+        ) {
+        }
+
 
         template<class Var, class T>
         static auto name(proto::val<Var, T> const & val)
@@ -1092,8 +1468,8 @@ struct base_policy
         return val.static_serialize(p);
     }
 
-    template<class T>
-    static auto static_reserialize(uint8_t * p, T const & val, array_view_u8 av)
+    template<class T, class U>
+    static auto static_reserialize(uint8_t * p, T const & val, array_view<U> av)
     {
         return val.static_reserialize(p, av);
     }
@@ -1110,8 +1486,8 @@ struct base_policy
         return val.limited_serialize(p);
     }
 
-    template<class T>
-    static auto limited_reserialize(uint8_t * p, T const & val, array_view_u8 av)
+    template<class T, class U>
+    static auto limited_reserialize(uint8_t * p, T const & val, array_view<U> av)
     {
         return val.limited_reserialize(p, av);
     }

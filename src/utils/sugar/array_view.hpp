@@ -79,6 +79,12 @@ struct array_view
     constexpr type const * begin() const { return this->p; }
     constexpr type const * end() const { return this->p + this->sz; }
 
+    /*c++14 constexpr*/ type & front() { assert(this->size()); return *this->p; }
+    /*c++14 constexpr*/ type const & front() const { assert(this->size()); return *this->p; }
+
+    /*c++14 constexpr*/ type & back() { assert(this->size()); return *(this->p + this->sz - 1); }
+    /*c++14 constexpr*/ type const & back() const { assert(this->size()); return *(this->p + this->sz - 1); }
+
     /*c++14 constexpr*/ type & operator[](std::size_t i) { assert(i < this->size()); return this->p[i]; }
     /*c++14 constexpr*/ type const & operator[](std::size_t i) const { assert(i < this->size()); return this->p[i]; }
 
