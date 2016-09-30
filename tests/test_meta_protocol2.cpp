@@ -26,71 +26,7 @@ namespace XXX {
 #include "core/RDP/sec.hpp"
 #include "core/RDP/x224.hpp"
 
-// https://github.com/jonathanpoelen/falcon.parse_number
-#include <falcon/literals/integer_constant.hpp>
-using namespace falcon::literals::integer_constant_literals;
-
-namespace x224
-{
-    PROTO_VAR(proto::types::u8, version);
-    PROTO_VAR(proto::types::u8, unknown);
-    PROTO_VAR(proto::types::u8, LI);
-    PROTO_VAR(proto::types::enum_u8<decltype(X224::DT_TPDU)>, type);
-    PROTO_VAR(proto::types::enum_u8<decltype(X224::EOT_EOT)>, cat);
-
-    constexpr auto dt_tpdu_send = proto::desc(
-        version = 3_c,
-        unknown = 0_c,
-        proto::sz_with_self<proto::types::u16_be>{},
-        LI = 2_c,
-        type = X224::DT_TPDU,
-        cat = X224::EOT_EOT
-    );
-}
-
 #include "proto/iovec.hpp"
-
-namespace sec
-{
-    struct proto_signature
-    {
-        proto::types::value<CryptContext&> crypt;
-
-        using sizeof_ = proto::size_<8>;
-        using is_reserializer = std::true_type;
-
-        auto static_reserialize(uint8_t * p, array_view_u8 av) const
-        {
-            auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
-            this->crypt.val.sign(av.data(), av.size(), signature);
-            this->crypt.val.decrypt(av.data(), av.size());
-            return sizeof_{};
-        }
-
-        auto static_reserialize(uint8_t * p, iovec_array avs) const
-        {
-            // TODO
-            auto iov = avs.front();
-            auto av = array_view_u8{reinterpret_cast<uint8_t *>(iov.iov_base), iov.iov_len};
-            return this->static_reserialize(p, av);
-        }
-    };
-
-    inline std::ostream & operator <<(std::ostream & os, proto_signature const &)
-    {
-        return os << "proto_signature";
-    }
-
-    PROTO_VAR(proto::types::u32_le, flags);
-    PROTO_VAR(proto::types::value<CryptContext&>, crypt);
-
-    constexpr auto sec_send = proto::desc(
-        proto::if_true(flags),
-        proto::if_(proto::params[flags] & SEC::SEC_ENCRYPT)
-            [proto::creater<proto_signature>(crypt)]
-    );
-}
-
 
 void test_old();
 void test_new();
@@ -206,11 +142,11 @@ inline bool check_range(const_bytes_array p, const_bytes_array mem, char * messa
 
 void test_new()
 {
-    auto packet1 = x224::dt_tpdu_send();
+    auto packet1 = x224::dt_tpdu();
 
     CryptContext crypt;
-    auto packet2 = sec::sec_send(
-        sec::flags = uint32_t(~SEC::SEC_ENCRYPT),
+    auto packet2 = sec::sec(
+        sec::flags = decltype(SEC::SEC_ENCRYPT)(~SEC::SEC_ENCRYPT),
         sec::crypt = crypt
     );
 
@@ -263,7 +199,7 @@ struct lazy {
         p[1] = 15;
     }
 
-    void static_reserialize(uint8_t * p, iovec_array /*av*/) const
+    void static_reserialize(uint8_t * p, iovec_array /*av*/, std::size_t) const
     {
         p[0] = 15;
         p[1] = 15;
@@ -343,9 +279,9 @@ void other_test()
 //
 //
 // inline void test1(uint8_t * p, CryptContext & crypt, uint32_t c) {
-//     auto packet1 = x224::dt_tpdu_send();
-//     auto packet2 = sec::sec_send(
-//         sec::flags = c/*uint32_t(~SEC::SEC_ENCRYPT)*/,
+//     auto packet1 = x224::dt_tpdu();
+//     auto packet2 = sec::sec(
+//         sec::flags = c/*decltype(SEC::SEC_ENCRYPT)(~SEC::SEC_ENCRYPT)*/,
 //         sec::crypt = crypt
 //     );
 //     struct Policy : buffering2_policy_base {

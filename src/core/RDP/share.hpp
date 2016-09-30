@@ -657,3 +657,15 @@ struct FlowPDU_Send
 // -- MCS User ID of sending ASCE
 // }
 
+#include "proto/proto.hpp"
+namespace share
+{
+    PROTO_VAR(proto::types::enum_u16_le<decltype(PDUTYPE_DATAPDU)>, type);
+    PROTO_VAR(proto::types::u16_le, source);
+
+    constexpr auto control = proto::desc(
+        proto::sz_with_self<proto::types::u16_be>{},
+        proto::params[type] |= 10 /*versionHight*/ | 0 /*versionLow*/,
+        source
+    );
+}

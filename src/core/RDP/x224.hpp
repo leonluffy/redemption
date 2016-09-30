@@ -1466,3 +1466,25 @@ namespace X224
         }
     };
 } // end namespace X224
+
+
+#include "proto/proto.hpp"
+#include "falcon/literals/integer_constant.hpp"
+using namespace falcon::literals::integer_constant_literals;
+namespace x224
+{
+    PROTO_VAR(proto::types::u8, version);
+    PROTO_VAR(proto::types::u8, unknown);
+    PROTO_VAR(proto::types::u8, LI);
+    PROTO_VAR(proto::types::enum_u8<decltype(X224::DT_TPDU)>, type);
+    PROTO_VAR(proto::types::enum_u8<decltype(X224::EOT_EOT)>, cat);
+
+    constexpr auto dt_tpdu = proto::desc(
+        version = 3_c,
+        unknown = 0_c,
+        proto::sz_with_self<proto::types::u16_be>{},
+        LI = 2_c,
+        type = X224::DT_TPDU,
+        cat = X224::EOT_EOT
+    );
+}

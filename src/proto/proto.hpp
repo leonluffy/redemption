@@ -833,15 +833,15 @@ namespace proto
     { return x.limited_serialize(p); }
 
 
-    template<class T, class AV>
+    template<class T, class AV, class... Sz>
     std::enable_if_t<is_static_buffer<T>::value, std::size_t>
-    static_or_limited_reserialize(uint8_t * p, T const & x, AV av)
-    { return x.static_reserialize(p, av); }
+    static_or_limited_reserialize(uint8_t * p, T const & x, AV av, Sz... sz)
+    { return x.static_reserialize(p, av, sz...); }
 
-    template<class T, class AV>
+    template<class T, class AV, class... Sz>
     std::enable_if_t<!is_static_buffer<T>::value, std::size_t>
-    static_or_limited_reserialize(uint8_t * p, T const & x, AV av)
-    { return x.limited_reserialize(p, av); }
+    static_or_limited_reserialize(uint8_t * p, T const & x, AV av, Sz... sz)
+    { return x.limited_reserialize(p, av, sz...); }
 
 
     namespace detail
@@ -1153,6 +1153,7 @@ namespace proto
         }
 
         PROTO_LAZY_BINARY_OP(bitand);
+        PROTO_LAZY_BINARY_OP(bitor);
 
 #undef PROTO_LAZY_BINARY_OP
 
@@ -1203,6 +1204,11 @@ namespace proto
     template<class T, class U>
     dsl::and_eq_<dsl::param<T>, dsl::value<types::value<U>>>
     constexpr operator &= (dsl::param<T>, U && x)
+    { return {{}, {{x}}}; }
+
+    template<class T, class U>
+    dsl::bitor_<dsl::param<T>, dsl::value<types::value<U>>>
+    constexpr operator |= (dsl::param<T>, U && x)
     { return {{}, {{x}}}; }
 
     namespace dsl
@@ -1462,10 +1468,10 @@ namespace proto
                 return this->is_ok ? static_or_limited_serialize(p, this->val_ok) : 0u;
             }
 
-            template<class AV>
-            std::size_t limited_reserialize(uint8_t * p, AV av) const
+            template<class AV, class... Sz>
+            std::size_t limited_reserialize(uint8_t * p, AV av, Sz... sz) const
             {
-                return this->is_ok ? static_or_limited_reserialize(p, this->val_ok, av) : 0u;
+                return this->is_ok ? static_or_limited_reserialize(p, this->val_ok, av, sz...) : 0u;
             }
 
             array_view_const_u8 get_view_buffer() const

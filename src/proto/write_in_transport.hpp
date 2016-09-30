@@ -54,7 +54,7 @@ namespace detail
             stream = Stream(stream.get_data(), stream.get_offset() + av.size());
         }
 
-        proto_transport_policy(Transport & trans) : trans(trans) {}
+        proto_stream_policy(Stream & stream) : stream(stream) {}
         Stream & stream;
     };
 }
@@ -62,7 +62,10 @@ namespace detail
 template<class Transport, class... Pkts>
 void write_in_transport(Transport & trans, Pkts const & ... pkts)
 {
-    proto::apply(Buffering2<detail::proto_transport_policy<Transport>>{trans}, pkts...);
+    proto::apply(
+        Buffering2<detail::proto_transport_policy<Transport>>{trans},
+        pkts...
+    );
 }
 
 
@@ -70,7 +73,7 @@ template<class Stream, class... Pkts>
 void write_in_stream(Stream & stream, Pkts const & ... pkts)
 {
     proto::apply(
-        Buffering3<detail::proto_stream_policy<Stream>{
+        Buffering3<detail::proto_stream_policy<Stream>>{
             stream,
             {stream.get_current(), stream.tailroom()}
         },

@@ -1879,3 +1879,46 @@ enum {
 
 }
 
+#include "proto/proto.hpp"
+#include "proto/iovec.hpp"
+
+namespace sec
+{
+    struct proto_signature
+    {
+        proto::types::value<CryptContext&> crypt;
+
+        using sizeof_ = proto::size_<8>;
+        using is_reserializer = std::true_type;
+
+        auto static_reserialize(uint8_t * p, array_view_u8 av) const
+        {
+            auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
+            this->crypt.val.sign(av.data(), av.size(), signature);
+            this->crypt.val.decrypt(av.data(), av.size());
+            return sizeof_{};
+        }
+
+        auto static_reserialize(uint8_t * p, iovec_array avs, std::size_t total) const
+        {
+            auto & signature = reinterpret_cast<uint8_t(&)[proto_signature::sizeof_{}]>(*p);
+            this->crypt.val.sign(avs, total, signature);
+            this->crypt.val.decrypt(avs);
+            return sizeof_{};
+        }
+    };
+
+    inline std::ostream & operator <<(std::ostream & os, proto_signature const &)
+    {
+        return os << "proto_signature";
+    }
+
+    PROTO_VAR(proto::types::enum_u32_le<decltype(SEC::SEC_ENCRYPT)>, flags);
+    PROTO_VAR(proto::types::value<CryptContext&>, crypt);
+
+    constexpr auto sec = proto::desc(
+        proto::if_true(flags),
+        proto::if_(proto::params[flags] & SEC::SEC_ENCRYPT)
+            [proto::creater<proto_signature>(crypt)]
+    );
+}

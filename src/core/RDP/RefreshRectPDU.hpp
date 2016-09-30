@@ -27,6 +27,7 @@
 #include "core/RDP/sec.hpp"
 #include "core/RDP/gcc.hpp"
 #include "core/RDP/out_per_bstream.hpp"
+#include "proto/write_in_transport.hpp"
 
 namespace RDP {
 
@@ -188,39 +189,24 @@ struct RefreshRectPDU {
 
         this->sdata.emit_end();
 
-        write_packets(
+        write_in_transport(
             trans,
-            [this](StreamSize<65536+256>, OutStream & sctrl_header) {
-                ShareControl_Send(sctrl_header,
-                                  PDUTYPE_DATAPDU,
-                                  this->userId + GCC::MCS_USERCHANNEL_BASE,
-                                  this->buffer_stream.get_offset());
-
-                sctrl_header.out_copy_bytes(this->buffer_stream.get_data(),
-                                            this->buffer_stream.get_offset());
-            },
-            [this](StreamSize<256>, OutStream & sec_header, uint8_t * pkt_data, std::size_t pkt_size) {
-                SEC::Sec_Send sec(sec_header,
-                                  pkt_data,
-                                  pkt_size,
-                                  0,
-                                  this->encrypt,
-                                  this->encryptionLevel);
-                (void)sec;
-            },
-            [this](StreamSize<256>, OutStream & mcs_header, std::size_t pkt_size) {
-                MCS::SendDataRequest_Send mcs(static_cast<OutPerStream&>(mcs_header),
-                                              this->userId,
-                                              GCC::MCS_GLOBAL_CHANNEL,
-                                              1,
-                                              3,
-                                              pkt_size,
-                                              MCS::PER_ENCODING);
-                (void)mcs;
-            },
-            [this](StreamSize<256>, OutStream &x224_header, std::size_t pkt_size) {
-                X224::DT_TPDU_Send(x224_header, pkt_size);
-            }
+            x224::dt_tpdu(),
+            mcs::data_request(
+                mcs::initiator = this->userId,
+                mcs::channel_id = this->userId,
+                mcs::data_priority = mcs::DataPriority::high,
+                mcs::segmentation = mcs::Segmentation::end
+            ),
+            sec::sec(
+                sec::crypt = this->encrypt,
+                sec::flags = SEC::SEC_ENCRYPT
+            ),
+            share::control(
+                share::type = PDUTYPE_DATAPDU,
+                // TODO [proto] share::source = proto::checked_cast(this->userId + GCC::MCS_USERCHANNEL_BASE)
+                share::source = checked_cast<uint16_t>(this->userId + GCC::MCS_USERCHANNEL_BASE)
+              )
         );
     }
 };  // struct RefreshRectPDU

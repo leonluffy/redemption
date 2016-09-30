@@ -1058,13 +1058,19 @@ struct Buffering2
         void serialize_spe_value(Info, std::false_type, Val const &)
         {}
 
+        template<class Info>
+        std::size_t next_size_or_0() const
+        {
+            return Info::ipacket + 1 == sizeof...(Pkts) ? 0u : this->sizes[Info::ipacket+1];
+        }
+
         template<class Info, class Val>
         void serialize_spe_value(Info, std::true_type, Val const & val)
         {
           PROTO_TRACE(name(val) << " = ");
           cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
               this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
-                  return Info::ipacket + 1 == sizeof...(Pkts) ? 0u : this->sizes[Info::ipacket+1];
+                  return this->next_size_or_0<Info>();
               }, val);
           });
           cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){
@@ -1138,12 +1144,12 @@ struct Buffering2
 
         template<class Info, class Val>
         void serialize_eval_data(Info, proto::tags::static_buffer, uint8_t * p, iovec_array iovs, Val const & val) {
-            this->policy.static_reserialize(p, val, iovs);
+            this->policy.static_reserialize(p, val, iovs, next_size_or_0<Info>());
         }
 
         template<class Info, class Val>
         void serialize_eval_data(Info, proto::tags::limited_buffer, uint8_t * p, iovec_array iovs, Val const & val) {
-            this->policy.limited_reserialize(p, val, iovs);
+            this->policy.limited_reserialize(p, val, iovs, next_size_or_0<Info>());
         }
 
 
@@ -1468,10 +1474,10 @@ struct base_policy
         return val.static_serialize(p);
     }
 
-    template<class T, class U>
-    static auto static_reserialize(uint8_t * p, T const & val, array_view<U> av)
+    template<class T, class U, class... Sz>
+    static auto static_reserialize(uint8_t * p, T const & val, array_view<U> av, Sz... sz)
     {
-        return val.static_reserialize(p, av);
+        return val.static_reserialize(p, av, sz...);
     }
 
     template<class T>
@@ -1486,10 +1492,10 @@ struct base_policy
         return val.limited_serialize(p);
     }
 
-    template<class T, class U>
-    static auto limited_reserialize(uint8_t * p, T const & val, array_view<U> av)
+    template<class T, class U, class... Sz>
+    static auto limited_reserialize(uint8_t * p, T const & val, array_view<U> av, Sz... sz)
     {
-        return val.limited_reserialize(p, av);
+        return val.limited_reserialize(p, av, sz...);
     }
 
     template<class F, class T>

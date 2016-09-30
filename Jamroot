@@ -106,7 +106,7 @@ project redemption
 
     <conditional>@defines
 
-    <cxxflags>-std=c++11
+    <cxxflags>-std=c++14
 
     $(CXXFLAGS)
 

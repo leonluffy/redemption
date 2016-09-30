@@ -23,6 +23,7 @@
 
 #include "utils/crypto/ssl_lib.hpp"
 #include "utils/crypto/ssl_sign.hpp"
+#include "utils/sugar/array_view.hpp"
 #include "system/ssl_md5.hpp"
 #include "system/ssl_rc4.hpp"
 
@@ -99,29 +100,7 @@ struct CryptContext
     /* Decrypt data using RC4 */
     void decrypt(uint8_t * data, size_t data_size)
     {
-        ssllib ssl;
-
-        if (this->use_count == 4096) {
-            size_t keylen = (this->encryptionMethod==1)?8:16;
-
-            Sign sign(this->update_key, keylen);
-            sign.update(this->key, keylen);
-            sign.final(this->key, sizeof(key));
-
-            this->rc4.set_key(this->key, keylen);
-
-            // size, in, out
-            this->rc4.crypt(keylen, this->key, this->key);
-
-            if (this->encryptionMethod == 1){
-                ssl.sec_make_40bit(this->key);
-            }
-            this->rc4.set_key(this->key, keylen);
-            this->use_count = 0;
-        }
-        // size, in, out
-        this->rc4.crypt(data_size, data, data);
-        this->use_count++;
+        this->decrypt(data, data_size, data);
     }
 
     /* Decrypt data using RC4 */
@@ -152,6 +131,42 @@ struct CryptContext
         this->use_count++;
     }
 
+    /* Decrypt data using RC4 */
+    template<class T>
+    void decrypt(array_view<T> datas)
+    {
+        ssllib ssl;
+
+        if (this->use_count == 4096) {
+            size_t keylen = (this->encryptionMethod==1)?8:16;
+
+            Sign sign(this->update_key, keylen);
+            sign.update(this->key, keylen);
+            sign.final(this->key, sizeof(key));
+
+            this->rc4.set_key(this->key, keylen);
+
+            // size, in, out
+            this->rc4.crypt(keylen, this->key, this->key);
+
+            if (this->encryptionMethod == 1){
+                ssl.sec_make_40bit(this->key);
+            }
+            this->rc4.set_key(this->key, keylen);
+            this->use_count = 0;
+        }
+        // size, in, out
+        for (auto && data : datas) {
+            // TODO [proto] used fn::data(data) and fn::size(data)
+            this->rc4.crypt(
+                data.iov_len,
+                reinterpret_cast<uint8_t const*>(data.iov_base),
+                reinterpret_cast<uint8_t*>(data.iov_base)
+            );
+        }
+        this->use_count++;
+    }
+
     /* Generate a MAC hash (5.2.3.1), using a combination of SHA1 and MD5 */
     void sign(const uint8_t * data, size_t data_size, uint8_t (&signature)[8])
     {
@@ -165,6 +180,26 @@ struct CryptContext
         Sign sign(this->sign_key, (this->encryptionMethod==1)?8:16);
         sign.update(lenhdr, sizeof(lenhdr));
         sign.update(data, data_size);
+        sign.final(signature, 8);
+    }
+
+    /* Generate a MAC hash (5.2.3.1), using a combination of SHA1 and MD5 */
+    template<class T>
+    void sign(array_view<T> datas, size_t data_size, uint8_t (&signature)[8])
+    {
+        uint8_t lenhdr[] = {
+            static_cast<uint8_t>(data_size & 0xff),
+            static_cast<uint8_t>((data_size >> 8) & 0xff),
+            static_cast<uint8_t>((data_size >> 16) & 0xff),
+            static_cast<uint8_t>((data_size >> 24) & 0xff)
+        };
+
+        Sign sign(this->sign_key, (this->encryptionMethod==1)?8:16);
+        sign.update(lenhdr, sizeof(lenhdr));
+        for (auto && data : datas) {
+            // TODO [proto] used fn::data(data) and fn::size(data)
+            sign.update(reinterpret_cast<uint8_t const *>(data.iov_base), data.iov_len);
+        }
         sign.final(signature, 8);
     }
 };
