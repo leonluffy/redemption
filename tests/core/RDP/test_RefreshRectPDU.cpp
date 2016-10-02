@@ -26,8 +26,6 @@
 //#define LOGNULL
 #define LOGPRINT
 
-#define ENABLE_PROTO_TRACE
-
 #include "core/RDP/RefreshRectPDU.hpp"
 #include "transport/test_transport.hpp"
 

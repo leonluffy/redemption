@@ -114,9 +114,20 @@ namespace detail {
     template<std::size_t n>
     struct is_size_impl<proto::size_<n>> : std::true_type
     {};
+
+    template<class T>
+    struct is_limited_size_impl : std::false_type
+    {};
+
+    template<std::size_t n>
+    struct is_limited_size_impl<proto::limited_size<n>> : std::true_type
+    {};
 }
 template<class Sz>
 using is_size_ = typename detail::is_size_impl<Sz>::type;
+
+template<class Sz>
+using is_limited_size = typename detail::is_limited_size_impl<Sz>::type;
 
 template<class Val>
 using has_pkt_sz = typename std::is_same<
@@ -1327,7 +1338,7 @@ struct Buffering2
             );
 
             if (Info::is_begin_pkt) {
-                using sizeof_packet = typename Info::sz_self;
+                using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
                 using is_size = is_size_<sizeof_packet>;
                 assert(std::size_t(this->psize - std::begin(this->sizes)) < this->sizes.size());
                 if (is_size{}) {
@@ -1388,13 +1399,15 @@ struct Buffering2
             }
 
             if (Info::is_end_pkt) {
-                using is_limited = proto::is_limited_buffer<desc_type_t<Info>>;
+                using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
+                using is_limited = is_limited_size<sizeof_packet>;
                 cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
-                using i = decltype(ibuf);
-                auto const inc_sz = this->iov_base() - get<i::value>(this->buffer_tuple).buf;
-                PROTO_TRACE(" [*psz: +" << inc_sz << "] ");
-                *this->psize += inc_sz;
+                    using i = decltype(ibuf);
+                    auto const inc_sz = this->iov_base() - get<i::value>(this->buffer_tuple).buf;
+                    PROTO_TRACE(" [*psz: +" << inc_sz << "] ");
+                    *this->psize += inc_sz;
                 });
+                PROTO_TRACE(" [++psz] ");
                 ++this->psize;
             }
 

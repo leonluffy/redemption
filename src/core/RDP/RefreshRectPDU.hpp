@@ -207,7 +207,11 @@ struct RefreshRectPDU {
                 share::type = PDUTYPE_DATAPDU,
                 // TODO [proto] share::source = proto::checked_cast(this->userId + GCC::MCS_USERCHANNEL_BASE)
                 share::source = checked_cast<uint16_t>(this->userId + GCC::MCS_USERCHANNEL_BASE)
-            )
+            ),
+            proto::value(proto::types::bytes{{
+                this->buffer_stream.get_data(),
+                this->buffer_stream.get_offset()
+            }})
         );
     }
 };  // struct RefreshRectPDU

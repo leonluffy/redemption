@@ -38,7 +38,6 @@ namespace detail
                 memcpy(p, iov.iov_base, iov.iov_len);
                 p += iov.iov_len;
             }
-            hexdump(tmpbuf, p - tmpbuf);
             // TODO this->trans.write(iovs);
             this->trans.send(tmpbuf, p - tmpbuf);
         }
