@@ -31,7 +31,7 @@ using is_buffer_delimiter = brigand::bool_<
 >;
 
 template<class idx_var>
-using pair_is_buffer_delimiter = is_buffer_delimiter<typename idx_var::second_type::desc_type>;
+using pair_is_buffer_delimiter = is_buffer_delimiter<typename idx_var::second_type>;
 
 namespace detail {
     template<class T> struct arg_impl;
@@ -53,7 +53,7 @@ struct Buffering
     template<class... Val>
     void operator()(Val ... val) const {
         using iseq = brigand::range<size_t, 0, sizeof...(val)>;
-        using list = brigand::list<proto::var_type_t<Val>...>;
+        using list = brigand::list<proto::desc_type_t<Val>...>;
         using list_pair = brigand::transform<iseq, list, brigand::call<brigand::pair>>;
         using list_by_buffer = brigand::split_if<list_pair, brigand::call<pair_is_buffer_delimiter>>;
 
@@ -62,7 +62,8 @@ struct Buffering
             brigand::for_each<t_<decltype(g)>>([&val...](auto v) {
                 using pair_type = t_<decltype(v)>;
                 auto & value = arg<pair_type::first_type::value>(val...);
-                std::cout << value.name() << " = ";
+                // TODO std::cout << value.name() << " = ";
+                std::cout << "<name> = ";
                 print(value);
                 std::cout << ", ";
             });
@@ -72,11 +73,12 @@ struct Buffering
 
     template<class Var, class T>
     static void print(proto::val<Var, T> const & x)
-    { Printer{}.print(x.x, 1); }
+    { Printer{}.print(x.desc, 1); }
 
     template<class T>
-    static void print(T const & x)
-    { std::cout << x.name(); }
+    static void print(T const &)
+    // TODO { std::cout << x.name(); }
+    { std::cout << "<name>"; }
 };
 
 }

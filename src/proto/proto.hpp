@@ -84,21 +84,27 @@ namespace detail
     struct splitted_list<list<>>
     { using type = list<>; };
 
-    template<class Seq, class Pred, class I = index_if<Seq, Pred>>
+    template<class Seq, class Pred, std::size_t d = 0, class I = index_if<Seq, Pred>>
     struct split_if_impl
-    : append_impl<
-        typename splitted_list<front<split_at<Seq, I>>>::type,
-        list<list<front<front<pop_front<split_at<Seq, I>>>>>>,
-        typename split_if_impl<pop_front<front<pop_front<split_at<Seq, I>>>>, Pred>::type
-    >
-    {};
+    {
+        using splitted = split_at<Seq, size_t<(I::value + d)>>;
+        using right = front<pop_front<splitted>>;
+        using type = brigand::append<
+            typename splitted_list<front<splitted>>::type,
+            typename split_if_impl<
+                right,
+                Pred, 1,
+                index_if<pop_front<right>, Pred>
+            >::type
+        >;
+    };
 
-    template<class Seq, class Pred>
-    struct split_if_impl<Seq, Pred, no_such_type_>
+    template<class Seq, class Pred, std::size_t d>
+    struct split_if_impl<Seq, Pred, d, no_such_type_>
     { using type = list<Seq>; };
 
-    template<template<class...> class L, class Pred>
-    struct split_if_impl<L<>, Pred, no_such_type_>
+    template<template<class...> class L, class Pred, std::size_t d>
+    struct split_if_impl<L<>, Pred, d, no_such_type_>
     { using type = list<>; };
 }
 
@@ -116,15 +122,11 @@ namespace detail
 #include "utils/sugar/bytes_t.hpp"
 
 
-#define PROTO_VAR(t, v)                        \
-    constexpr struct v                         \
-    : ::proto::var<t, v>                       \
-    {                                          \
-        using ::proto::var<t, v>::operator = ; \
-                                               \
-        static constexpr char const *          \
-        name() noexcept { return #v; }         \
-    } v {}                                     \
+#define PROTO_VAR(t, v)           \
+    constexpr struct v            \
+    : ::proto::var<v, t> {        \
+      using var<v, t>::operator=; \
+    } v {}
 
 namespace proto
 {
@@ -528,88 +530,47 @@ namespace proto
     template<class T> using is_pkt_data = typename detail::is_pkt_data<T>::type;
 
 
-    template<class Var, class T>
+    template<class Typename, class Desc>
     struct val
     {
-        using var_type = Var;
-        using value_type = T;
+        using var_type = Typename;
+        using type_name = Typename;
+        using desc_type = Desc;
 
-        Var var;
-        T x;
+        Desc desc;
 
         template<class Params>
         constexpr val
-        to_proto_value(Params) const
+        to_proto_value(Params const &) const
         { return *this; }
-
-        decltype(auto) name() const noexcept
-        { return this->var.name(); }
     };
 
-    template<class Derived, class Desc, class T>
+    // for more readable errors
+    template<class Typename, class Desc, class T>
     constexpr auto make_val(T && x)
     { return Desc{std::forward<T>(x)}; }
 
 
-    template<class Desc, class Derived>
+    template<class Typename, class Desc>
     struct var
     {
+        using type_name = Typename;
         using desc_type = Desc;
-        using var_type = Derived;
-        using arguments = brigand::list<Derived>;
+        using arguments = brigand::list<Typename>;
 
         template<class U>
         constexpr auto operator = (U && x) const
-        // Clang bug
-        // {
-        //     return val<Derived, decltype(trace_adapt<Derived>(Desc{}, std::forward<U>(x)))>{
-        //         trace_adapt<Derived>(Desc{}, std::forward<U>(x))
-        //     };
-        // }
         { return impl(std::forward<U>(x)); }
 
         template<class Params>
         decltype(auto) to_proto_value(Params params) const noexcept
-        { return params.template get_proto_value<Derived>(); }
+        { return params.template get_proto_value<Typename>(); }
 
     private:
         template<class U>
         constexpr auto impl(U && x) const
-        -> val<Derived, decltype(make_val<Desc, Desc>(std::forward<U>(x)))>
-        { return {Derived{}, make_val<Desc, Desc>(std::forward<U>(x))}; }
-    };
-
-    template<class Desc, class Derived>
-    struct var<types::pkt_sz<Desc>, Derived>
-    {
-        using desc_type = types::pkt_sz<Desc>;
-        using var_type = Derived;
-
-        template<class Params>
-        Derived to_proto_value(Params) const noexcept
-        { return static_cast<Derived const &>(*this); }
-    };
-
-    template<class Desc, class Derived>
-    struct var<types::pkt_sz_with_self<Desc>, Derived>
-    {
-        using desc_type = types::pkt_sz_with_self<Desc>;
-        using var_type = Derived;
-
-        template<class Params>
-        Derived to_proto_value(Params) const noexcept
-        { return static_cast<Derived const &>(*this); }
-    };
-
-    template<class Desc, class Derived>
-    struct var<types::pkt_data<Desc>, Derived>
-    {
-        using desc_type = types::pkt_data<Desc>;
-        using var_type = Derived;
-
-        template<class Params>
-        Derived to_proto_value(Params) const noexcept
-        { return static_cast<Derived const &>(*this); }
+        -> val<Typename, decltype(make_val<Typename, Desc>(std::forward<U>(x)))>
+        { return {make_val<Typename, Desc>(std::forward<U>(x))}; }
     };
 
     template<class T>
@@ -652,53 +613,6 @@ namespace proto
         }
     }
 
-    template<class Desc, class CtxName>
-    struct named_var
-    : var<Desc, named_var<Desc, CtxName>>
-    {
-        using ::proto::var<Desc, named_var>::operator = ;
-
-        constexpr named_var(CtxName ctx_name) noexcept : ctx_name(ctx_name) {}
-
-        constexpr auto name() const noexcept
-        { return this->ctx_name.name(); }
-
-        CtxName ctx_name;
-    };
-
-    struct ctx_unamed
-    {
-        constexpr char const * name() const noexcept { return "<unamed>"; }
-    };
-
-    struct ctx_c_str_name
-    {
-        char const * s;
-
-        constexpr char const * name() const noexcept { return s; }
-    };
-
-    template<class... Vars>
-    struct ctx_vars_name
-    {
-        char s[cexp::fold(cexp::strlen(Vars::name())...) + 4 + sizeof...(Vars)];
-
-        constexpr ctx_vars_name()
-        : s{}
-        {
-            char * p = s;
-            *p++ = '{';
-            (void)std::initializer_list<int>{
-                (void(p += cexp::strcpy(&(p[0] = ' ') + 1, Vars::name()) + 1), 1)...
-            };
-            *p++ = ' ';
-            *p++ = '}';
-            //*p = 0;
-        }
-
-        constexpr char const * name() const noexcept { return s; }
-    };
-
 
     template<class T, class = void>
     struct get_arguments
@@ -734,6 +648,87 @@ namespace proto
         >::value
     )>;
 
+
+    namespace dsl
+    {
+        struct pkt_sz {};
+        struct pkt_sz_with_self {};
+        struct pkt_data {};
+    }
+
+    template<class Sp, class Desc>
+    struct special
+    {
+        using desc_type = Desc;
+        using arguments = brigand::list<>;
+
+        using sizeof_ = proto::sizeof_<desc_type>;
+        using buffer_category = proto::buffer_category<desc_type>;
+        using is_reserializer = proto::is_reserializer<desc_type>;
+
+        struct lazy
+        {
+            using desc_type = Desc;
+            using arguments = brigand::list<Sp>;
+            using sizeof_ = typename Desc::sizeof_;
+
+            template<class Params>
+            constexpr val<Sp, Desc> to_proto_value(Params p) const
+            {
+                return {checked_cast<typename Desc::type>(
+                  p.get_proto_value(Sp{}).desc()
+                )};
+            }
+
+            std::size_t reserved_size() const
+            {
+                return sizeof_::value;
+            }
+        };
+
+        template<class Params>
+        constexpr val<Sp, lazy> to_proto_value(Params) const
+        {
+            return {};
+        }
+    };
+
+    template<class Desc>
+    using sz = special<dsl::pkt_sz, Desc>;
+
+    template<class Desc>
+    using sz_with_self = special<dsl::pkt_sz_with_self, Desc>;
+
+    template<class Desc>
+    using data = special<dsl::pkt_data, Desc>;
+
+    namespace types {
+        using ::proto::sz;
+        using ::proto::sz_with_self;
+        using ::proto::data;
+    }
+
+    namespace detail
+    {
+        template<> struct is_special_value_impl<dsl::pkt_sz> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::pkt_sz_with_self> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::pkt_data> : std::true_type {};
+
+        template<class T> struct is_special_sz_impl : std::false_type {};
+        template<> struct is_special_sz_impl<dsl::pkt_sz> : std::true_type {};
+        template<> struct is_special_sz_impl<dsl::pkt_sz_with_self> : std::true_type {};
+
+        template<class T> struct is_special_data_impl : std::false_type {};
+        template<> struct is_special_data_impl<dsl::pkt_data> : std::true_type {};
+    }
+
+    template<class T>
+    using has_special_sz = brigand::any<
+        get_arguments_t<T>,
+        brigand::call<detail::is_special_sz_impl>
+    >;
+
+
     // TODO deprecated
     template<class T>
     struct value_wrapper
@@ -741,44 +736,45 @@ namespace proto
         T x;
     };
 
+    // TODO deprecated ?
     template<class Var, class T>
     constexpr T get_value(val<Var, T> v)
-    { return v.x; }
+    { return v.desc; }
 
     template<class T>
     constexpr T get_value(T v)
     { return v; }
 
 
-    template<class T, class CtxName, class... Vars>
+    template<class Typename, class Desc, class... Vars>
     struct lazy_creator
     {
-        using var_type = lazy_creator;
-        using desc_type = T;
+        using type_name = Typename;
+        using desc_type = Desc;
         using arguments = brigand::append<get_arguments_t<Vars>...>;
-        using is_reserializer = proto::is_reserializer<T>;
 
-        CtxName ctx_name;
+        using sizeof_ = proto::sizeof_<desc_type>;
+        using buffer_category = proto::buffer_category<desc_type>;
+        using is_reserializer = proto::is_reserializer<desc_type>;
+
         // TODO tuple
         inherits<Vars...> values;
 
         template<class Params>
-        constexpr T
+        constexpr Desc
         to_proto_value(Params params) const
         {
-            return T{get_value(static_cast<Vars const &>(this->values).to_proto_value(params))...};
+            return Desc{get_value(static_cast<Vars const &>(this->values).to_proto_value(params))...};
         }
-
-        constexpr decltype(auto) name() const noexcept
-        { return this->ctx_name.name(); }
     };
 
-    template<class T, class CtxName, class... Vars>
+    template<class Typename, class Desc, class... Vars>
     struct creator
     {
+        using type_name = Typename;
+        using desc_type = Desc;
         using arguments = brigand::append<get_arguments_t<Vars>...>;
 
-        CtxName ctx_name;
         // TODO tuple
         inherits<Vars...> values;
 
@@ -787,37 +783,21 @@ namespace proto
         to_proto_value(Params params) const
         {
             return this->to_proto_value_(
-                static_cast<Vars const &>(this->values).to_proto_value(params)...
+                static_cast<Vars const &>(this->values).to_proto_value(params).desc...
             );
         }
 
     private:
         template<class... V>
         constexpr
-        std::enable_if_t<
-            !is_reserializer<T>::value and !brigand::any<brigand::list<is_special_value<V>...>>::value,
-            val<named_var<T, CtxName>, T>
+        std::conditional_t<
+            brigand::any<brigand::list<has_special_sz<V>...>>::value,
+            val<Typename, lazy_creator<Typename, Desc, V...>>,
+            val<Typename, Desc>
         >
         to_proto_value_(V && ... values) const
         {
-            return {
-                named_var<T, CtxName>{this->ctx_name},
-                T{std::move(values.x)...}
-            };
-        }
-
-        template<class... V>
-        constexpr
-        std::enable_if_t<
-            is_reserializer<T>::value or brigand::any<brigand::list<is_special_value<V>...>>::value,
-            lazy_creator<T, CtxName, V...>
-        >
-        to_proto_value_(V && ... values) const
-        {
-            return {
-                this->ctx_name,
-                {std::move(values)...}
-            };
+            return {{std::move(values)...}};
         }
     };
 
@@ -870,23 +850,26 @@ namespace proto
         template<class Sz1, class Sz2>
         using add_size = typename add_size_impl<Sz1, Sz2>::type;
 
-        template<std::size_t... Ints, class... Ts>
-        struct compose_impl<std::integer_sequence<std::size_t, Ints...>, Ts...>
+        template<std::size_t... Ints, class... Desc>
+        struct compose_impl<
+            std::integer_sequence<std::size_t, Ints...>,
+            Desc...
+        >
         {
             using sizeof_ = brigand::fold<
-                brigand::list<proto::sizeof_<Ts>...>,
-                size_<0>,
+                brigand::pop_front<brigand::list<proto::sizeof_<Desc>...>>,
+                proto::sizeof_<brigand::front<brigand::list<Desc...>>>,
                 brigand::call<add_size>
             >;
 
-            constexpr compose_impl(Ts... v) : values{v...} {}
+            constexpr compose_impl(Desc... d) : descs{d...} {}
 
             std::size_t limited_serialize(uint8_t * p) const { return serialize(p); }
 
             std::size_t static_serialize(uint8_t * p) const { return serialize(p); }
 
         private:
-            inherits<indexed_value<Ints, Ts>...> values;
+            inherits<indexed_value<Ints, Desc>...> descs;
 
             std::size_t serialize(uint8_t * p) const
             {
@@ -894,7 +877,7 @@ namespace proto
                 (void)std::initializer_list<int>{
                     ((sz += static_or_limited_serialize(
                         p + sz,
-                        static_cast<indexed_value<Ints, Ts> const &>(this->values).x
+                        static_cast<indexed_value<Ints, Desc> const &>(this->descs).x
                     )), 1)...
                 };
                 return sz;
@@ -920,35 +903,38 @@ namespace proto
     {
         namespace detail
         {
-            template<class T>
+            template<class Val>
             struct ref
-            { T & x; };
+            { Val & x; };
 
-            template<class Var, class T>
-            constexpr val<Var, T>
-            ref_to_val(ref<val<Var, T>> r)
+            template<class Typename, class Desc>
+            constexpr val<Typename, Desc>
+            ref_to_val(ref<val<Typename, Desc>> r)
             { return r.x; }
         }
 
-        template<class... Ts>
+        template<class... Values>
         struct parameters
         {
-            parameters(Ts & ... x) : refs{x...}
+            parameters(Values & ... values) : refs{values...}
             {}
 
-            template<class T>
-            constexpr decltype(auto) operator[](T const &) const noexcept
-            { return detail::ref_to_val<T>(refs).x; }
+            template<class Typename>
+            constexpr decltype(auto)
+            operator[](Typename const &) const noexcept
+            { return detail::ref_to_val<Typename>(refs).desc; }
 
-            template<class T>
-            constexpr decltype(auto) get_proto_value(T const &) const noexcept
-            { return detail::ref_to_val<T>(refs); }
+            template<class Typename>
+            constexpr decltype(auto)
+            get_proto_value(Typename const &) const noexcept
+            { return detail::ref_to_val<Typename>(refs); }
 
-            template<class T>
-            constexpr decltype(auto) get_proto_value() const noexcept
-            { return detail::ref_to_val<T>(refs); }
+            template<class Typename>
+            constexpr decltype(auto)
+            get_proto_value() const noexcept
+            { return detail::ref_to_val<Typename>(refs); }
 
-            proto::inherits<detail::ref<Ts>...> refs;
+            proto::inherits<detail::ref<Values>...> refs;
         };
 
         template<class... Ts>
@@ -984,30 +970,21 @@ namespace proto
     /// \brief make a proto::packet
     template<class Desc>
     constexpr auto
-    value(Desc const & value)
+    value(Desc const & desc)
     {
-        using value_type = val<named_var<Desc, ctx_unamed>, Desc>;
-        return packet<value_type>{value_type{{ctx_unamed{}}, value}};
+        using value_type = val<void, Desc>;
+        return packet<value_type>{value_type{desc}};
     }
 
-    /// \brief make a proto::packet
-    template<class Desc>
-    constexpr auto
-    value(char const * s, Desc const & value)
-    {
-        using value_type = val<named_var<Desc, ctx_c_str_name>, Desc>;
-        return packet<value_type>{value_type{{{s}}, value}};
-    }
+    // TODO value<Typename, Desc>()
 
-    // TODO values
+    // TODO values(...)
 
 
     template<class... Ts>
     struct packet_description
     {
         using arguments = brigand::append<get_arguments_t<Ts>...>;
-        // TODO deprecated
-        using lazy_arguments = brigand::list<>;
 
         inherits<Ts...> values;
 
@@ -1024,10 +1001,6 @@ namespace proto
             Val
         >;
 
-        constexpr packet_description(Ts... a)
-        : packet_description{lazy_arguments{}, a...}
-        {}
-
         template<class... Val>
         constexpr auto
         operator()(Val... values) const &
@@ -1036,16 +1009,6 @@ namespace proto
         }
 
     private:
-        template<class... Lazy>
-        constexpr packet_description(brigand::list<Lazy...>, Ts... a)
-        : values{a...}
-        , lazy_arguments{static_cast<Lazy>(this->values)...}
-        {}
-
-        constexpr packet_description(brigand::list<>, Ts... a)
-        : values{a...}
-        {}
-
         template<class... Val>
         constexpr auto
         ordering_parameter(utils::parameters<Val...> params) const
@@ -1057,41 +1020,55 @@ namespace proto
     };
 
 
-    template<class T, class... Desc>
+    template<class Desc, class... Val>
     constexpr auto
-    creater(Desc... d)
+    creater(Val... v)
     {
-        return creator<T, ctx_vars_name<Desc...>, Desc...>{{}, {d...}};
+        return creator<Desc, Desc, Val...>{{v...}};
     }
 
-    template<class T, class... Desc>
+    template<class Typename, class Desc, class... Val>
     constexpr auto
-    creater(char const * name, Desc... d)
+    creater(Val... v)
     {
-        return creator<T, ctx_c_str_name, Desc...>{{name}, {d...}};
+        return creator<Typename, Desc, Val...>{{v...}};
     }
 
-    template<class... Desc>
-    constexpr auto
-    composer(Desc... d)
+    namespace detail
     {
-        using subtype = compose_t<desc_type_t<var_type_t<Desc>>...>;
-        return creator<subtype, ctx_vars_name<Desc...>, Desc...>{{}, {d...}};
+        template<template<class> class Tpl, class T, class = void>
+        struct get_or_impl
+        { using type = T; };
+
+        template<template<class> class Tpl, class T>
+        struct get_or_impl<Tpl, T, void_t<Tpl<T>>>
+        { using type = Tpl<T>; };
     }
 
-    template<class... Desc>
+    template<template<class> class Tpl, class T>
+    using get_or = typename detail::get_or_impl<Tpl, T>::type;
+
+    template<class... Val>
     constexpr auto
-    composer(char const * name, Desc... d)
+    composer(Val... v)
     {
-        using subtype = compose_t<desc_type_t<var_type_t<Desc>>...>;
-        return creator<subtype, ctx_c_str_name, Desc...>{{name}, {d...}};
+        using subtype = compose_t<get_or<desc_type_t, Val>...>;
+        return creator<subtype, subtype, Val...>{{v...}};
+    }
+
+    template<class Typename, class... Val>
+    constexpr auto
+    composer(Val... v)
+    {
+        using subtype = compose_t<get_or<desc_type_t, Val>...>;
+        return creator<Typename, subtype, Val...>{{v...}};
     }
 
     template<class... Desc>
     constexpr auto
     desc(Desc... d)
     {
-        return packet_description<Desc...>{d...};
+        return packet_description<Desc...>{{d...}};
     }
 
     template<class T> struct is_proto_packet : std::false_type {};
@@ -1117,16 +1094,31 @@ namespace proto
 
     namespace dsl
     {
-        template<class T>
+        // TODO proto::value<void, T>
+        template<class Desc>
         struct value
         {
+            using desc_type = Desc;
+
             template<class Params>
             constexpr value to_proto_value(Params) const
             {
                 return *this;
             }
 
-            T x;
+            Desc desc;
+        };
+
+        template<class Typename>
+        struct param
+        {
+            using arguments = brigand::list<Typename>;
+
+            template<class Params>
+            constexpr decltype(auto) to_proto_value(Params p) const
+            {
+                return p.template get_proto_value<Typename>();
+            }
         };
 
 #define PROTO_LAZY_BINARY_OP(op)                                  \
@@ -1143,157 +1135,64 @@ namespace proto
             to_proto_value(Params p) const                        \
             {                                                     \
                 auto val =                                        \
-                    x.to_proto_value(p).x.val                     \
-                    op y.to_proto_value(p).x.val;                 \
+                    x.to_proto_value(p).desc.val                  \
+                    op y.to_proto_value(p).desc.val;              \
                 return value<types::value<decltype(val)>>{{val}}; \
             }                                                     \
                                                                   \
             T x;                                                  \
             U y;                                                  \
-        }
+        };                                                        \
+        template<class T, class U>                                \
+        op##_<param<T>, value<types::value<U>>>                   \
+        constexpr operator op (param<T>, U && x)                  \
+        { return {{}, {{x}}}; }
 
-        PROTO_LAZY_BINARY_OP(bitand);
-        PROTO_LAZY_BINARY_OP(bitor);
-
-#undef PROTO_LAZY_BINARY_OP
-
-#define PROTO_LAZY_BINARY_OP(op)                        \
-        template<class T, class U>                      \
-        struct op##_                                    \
-        {                                               \
-            using arguments = brigand::append<          \
-                get_arguments_t<T>,                     \
-                get_arguments_t<U>                      \
-            >;                                          \
-                                                        \
-            template<class Params>                      \
-            constexpr auto                              \
-            to_proto_value(Params p) const              \
-            {                                           \
-                auto ret = x.to_proto_value(p);         \
-                ret.x.val op y.to_proto_value(p).x.val; \
-                return ret;                             \
-            }                                           \
-                                                        \
-            T x;                                        \
-            U y;                                        \
-        }
-
-        PROTO_LAZY_BINARY_OP(and_eq);
+        PROTO_LAZY_BINARY_OP(bitand)
+        PROTO_LAZY_BINARY_OP(bitor)
 
 #undef PROTO_LAZY_BINARY_OP
 
-        template<class Var>
-        struct param
-        {
-            using arguments = brigand::list<Var>;
+#define PROTO_LAZY_BINARY_OP(op)                              \
+        template<class T, class U>                            \
+        struct op##_                                          \
+        {                                                     \
+            using arguments = brigand::append<                \
+                get_arguments_t<T>,                           \
+                get_arguments_t<U>                            \
+            >;                                                \
+                                                              \
+            template<class Params>                            \
+            constexpr auto                                    \
+            to_proto_value(Params p) const                    \
+            {                                                 \
+                auto ret = x.to_proto_value(p);               \
+                ret.desc.val op y.to_proto_value(p).desc.val; \
+                return ret;                                   \
+            }                                                 \
+                                                              \
+            T x;                                              \
+            U y;                                              \
+        };                                                    \
+        template<class T, class U>                            \
+        op##_<param<T>, value<types::value<U>>>               \
+        constexpr operator op (param<T>, U && x)              \
+        { return {{}, {{x}}}; }
 
-            template<class Params>
-            constexpr decltype(auto) to_proto_value(Params p) const
-            {
-                return p.get_proto_value(Var{});
-            }
-        };
+        PROTO_LAZY_BINARY_OP(and_eq)
+        PROTO_LAZY_BINARY_OP(or_eq)
+
+#undef PROTO_LAZY_BINARY_OP
     }
-
-    template<class T, class U>
-    dsl::bitand_<dsl::param<T>, dsl::value<types::value<U>>>
-    constexpr operator & (dsl::param<T>, U && x)
-    { return {{}, {{x}}}; }
-
-    template<class T, class U>
-    dsl::and_eq_<dsl::param<T>, dsl::value<types::value<U>>>
-    constexpr operator &= (dsl::param<T>, U && x)
-    { return {{}, {{x}}}; }
-
-    template<class T, class U>
-    dsl::bitor_<dsl::param<T>, dsl::value<types::value<U>>>
-    constexpr operator |= (dsl::param<T>, U && x)
-    { return {{}, {{x}}}; }
-
-    namespace dsl
-    {
-        struct pkt_sz {};
-        struct pkt_sz_with_self {};
-        struct pkt_data {};
-    }
-
-    template<class Sp, class Desc>
-    struct special
-    {
-        using arguments = brigand::list<>;
-
-        constexpr static char const * name() {
-            return std::is_same<Sp, dsl::pkt_sz>{} ? "proto::sz" : "proto::sz_with_self";
-        }
-
-        struct lazy
-        {
-            using var_type = lazy;
-            using desc_type = Desc;
-            using arguments = brigand::list<Sp>;
-
-            template<class Params>
-            constexpr Desc to_proto_value(Params p) const
-            {
-                return Desc{checked_cast<typename Desc::type>(p.get_proto_value(Sp{}).x())};
-            }
-
-            static char const * name() noexcept {
-                return std::is_same<Sp, dsl::pkt_sz>{} ? "pkt_sz" : "pkt_sz_with_self";
-            }
-        };
-
-        template<class Params>
-        constexpr lazy to_proto_value(Params) const
-        {
-            return {};
-        }
-    };
-
-    template<class Desc>
-    using sz = special<dsl::pkt_sz, Desc>;
-
-    template<class Desc>
-    using sz_with_self = special<dsl::pkt_sz_with_self, Desc>;
-
-    template<class Desc>
-    using data = special<dsl::pkt_data, Desc>;
-
-
-    namespace types {
-        using ::proto::sz;
-        using ::proto::sz_with_self;
-        using ::proto::data;
-    }
-
-    namespace detail
-    {
-        template<> struct is_special_value_impl<dsl::pkt_sz> : std::true_type {};
-        template<> struct is_special_value_impl<dsl::pkt_sz_with_self> : std::true_type {};
-        template<> struct is_special_value_impl<dsl::pkt_data> : std::true_type {};
-
-        template<class T> struct is_special_sz_impl : std::false_type {};
-        template<> struct is_special_sz_impl<dsl::pkt_sz> : std::true_type {};
-        template<> struct is_special_sz_impl<dsl::pkt_sz_with_self> : std::true_type {};
-
-        template<class T> struct is_special_data_impl : std::false_type {};
-        template<> struct is_special_data_impl<dsl::pkt_data> : std::true_type {};
-    }
-
-    template<class T>
-    using has_special_sz = brigand::any<
-        get_arguments_t<T>,
-        brigand::call<detail::is_special_sz_impl>
-    >;
 
 
     constexpr struct params_
     {
         constexpr params_() noexcept {}
 
-        template<class Desc, class Derived>
-        constexpr dsl::param<Derived> operator[](var<Desc, Derived>) const noexcept
+        template<class Typename, class Desc>
+        constexpr dsl::param<Typename>
+        operator[](var<Typename, Desc>) const noexcept
         {
             return {};
         }
@@ -1349,9 +1248,9 @@ namespace proto
         struct if_else_act
         {
             using arguments = brigand::append<
-                get_arguments_t<Cond>,
-                get_arguments_t<Var>,
-                get_arguments_t<VarElse>
+                proto::get_arguments_t<Cond>,
+                proto::get_arguments_t<Var>,
+                proto::get_arguments_t<VarElse>
             >;
 
             template<class Params>
@@ -1364,8 +1263,8 @@ namespace proto
                 using proto_val_else = decltype(value_else);
 
                 using is_same = std::is_same<
-                    typename proto_val::value_type,
-                    typename proto_val_else::value_type
+                    desc_type_t<proto_val>,
+                    desc_type_t<proto_val_else>
                 >;
 
                 static_assert(!is_special_value<decltype(cond.to_proto_value(params))>::value, "unimplemented special value with if_else");
@@ -1374,7 +1273,7 @@ namespace proto
 
                 return to_proto_value_(
                     typename is_same::type{},
-                    bool(cond.to_proto_value(params).x.val),
+                    bool(cond.to_proto_value(params).desc.val),
                     value,
                     value_else
                 );
@@ -1387,91 +1286,61 @@ namespace proto
         private:
             template<class Value>
             constexpr auto to_proto_value_(
-                std::true_type, bool test, Value & value, Value & value_else
+                std::true_type, bool test,
+                Value & value, Value & value_else
             ) const {
                 return test ? std::move(value) : std::move(value_else);
             }
 
             template<class Value, class ValueElse>
             constexpr auto to_proto_value_(
-                std::true_type, bool test, Value & value, ValueElse & value_else
+                std::true_type, bool test,
+                Value & value, ValueElse & value_else
             ) const {
-                auto ctx_name = get_ctx_name(value, value_else);
-                using new_var_type = named_var<Value, decltype(ctx_name)>;
-                return val<new_var_type, Value>{
-                    ctx_name,
-                    {test ? std::move(value.x) : std::move(value_else.x)}
+                return val<void, Value>{
+                    test ? std::move(value.desc) : std::move(value_else.desc)
                 };
             }
 
             template<class Value, class ValueElse>
             constexpr auto to_proto_value_(
-                std::false_type, bool test, Value & value, ValueElse & value_else
+                std::false_type, bool test,
+                Value & value, ValueElse & value_else
             ) const {
-                using proto_val = decltype(value);
-                using proto_val_else = decltype(value_else);
-
                 using new_value_type = if_else<
-                    typename proto_val::value_type,
-                    typename proto_val_else::value_type
+                    desc_type_t<Value>,
+                    desc_type_t<ValueElse>
                 >;
 
-                auto ctx_name = get_ctx_name(value, value_else);
-                using new_var_type = named_var<new_value_type, decltype(ctx_name)>;
-                return val<new_var_type, new_value_type>{
-                    ctx_name,
-                    {test, std::move(value.x), std::move(value_else.x)}
+                return val<void, new_value_type>{
+                    test, std::move(value.desc), std::move(value_else.desc)
                 };
-            }
-
-            template<class Value, class ValueElse>
-            static constexpr auto
-            get_ctx_name(Value & value, ValueElse & value_else)
-            {
-                return get_ctx_name_(
-                    typename std::is_same<typename Value::var_type, typename ValueElse::var_type>::type{},
-                    value, value_else
-                );
-            }
-
-            template<class Value, class ValueElse>
-            static constexpr auto
-            get_ctx_name_(std::true_type, Value & value, ValueElse &)
-            {
-                return value.var;
-            }
-
-            template<class Value, class ValueElse>
-            static constexpr ctx_vars_name<typename Value::var_type, typename ValueElse::var_type>
-            get_ctx_name_(std::false_type, Value &, ValueElse &)
-            {
-                return {};
             }
         };
 
-        template<class Val>
+        template<class Desc>
         struct only_if_true
         {
-            using sizeof_ = proto::common_size<proto::sizeof_<Val>, limited_size<0>>;
+            using sizeof_ = proto::common_size<proto::sizeof_<Desc>, proto::limited_size<0>>;
             using buffer_category = typename std::conditional_t<
-                is_view_buffer<Val>::value,
-                proto::detail::buffer_category_impl<Val>,
+                proto::is_view_buffer<Desc>::value,
+                proto::detail::buffer_category_impl<Desc>,
                 proto::detail::common_buffer_impl<
-                    tags::limited_buffer,
-                    proto::buffer_category<Val>
+                    proto::tags::limited_buffer,
+                    proto::buffer_category<Desc>
                 >
             >::type;
-            using is_reserializer = proto::is_reserializer<Val>;
+            using is_reserializer = proto::is_reserializer<Desc>;
 
             std::size_t limited_serialize(uint8_t * p) const
             {
-                return this->is_ok ? static_or_limited_serialize(p, this->val_ok) : 0u;
+                return this->is_ok ? proto::static_or_limited_serialize(p, this->val_ok) : 0u;
             }
 
             template<class AV, class... Sz>
             std::size_t limited_reserialize(uint8_t * p, AV av, Sz... sz) const
             {
-                return this->is_ok ? static_or_limited_reserialize(p, this->val_ok, av, sz...) : 0u;
+                return this->is_ok ? proto::static_or_limited_reserialize(p, this->val_ok, av, sz...) : 0u;
             }
 
             array_view_const_u8 get_view_buffer() const
@@ -1485,53 +1354,60 @@ namespace proto
                 return (this->is_ok) ? this->val_ok.dynamic_serialize(f) : f();
             }
 
+            std::size_t reserved_size() const
+            {
+                static_assert(proto::is_static_buffer<Desc>{}, "unimplemented");
+                return this->is_ok ? proto::sizeof_<Desc>::value : 0u;
+            }
+
             bool is_ok;
-            Val val_ok;
+            Desc val_ok;
         };
 
-        template<class Var>
+        template<class Val>
         struct lazy_only_if_true
         {
-            using var_type = lazy_only_if_true;
-            using desc_type = only_if_true<desc_type_t<Var>>;
-            using arguments = get_arguments_t<Var>;
-            using is_reserializer = proto::is_reserializer<desc_type_t<Var>>;
+            using desc_type = only_if_true<proto::desc_type_t<Val>>;
+            using arguments = proto::get_arguments_t<Val>;
+
+            using sizeof_ = proto::sizeof_<desc_type>;
+            using buffer_category = proto::buffer_category<desc_type>;
+            using is_reserializer = proto::is_reserializer<desc_type>;
 
             bool is_ok;
-            Var var;
+            Val var;
 
             template<class Params>
             constexpr auto
             to_proto_value(Params params) const
             {
-                return only_if_true<decltype(this->var.to_proto_value(params))>{
+                return proto::val<void, desc_type>{
                     this->is_ok,
-                    this->var.to_proto_value(params)
+                    this->var.to_proto_value(params).desc
                 };
             }
 
             std::size_t reserved_size() const
             {
-                static_assert(proto::is_static_buffer<desc_type_t<Var>>{}, "unimplemented");
-                return this->is_ok ? proto::sizeof_<desc_type_t<Var>>::value : 0u;
+                static_assert(proto::is_static_buffer<desc_type_t<Val>>{}, "unimplemented");
+                return this->is_ok ? proto::sizeof_<desc_type_t<Val>>::value : 0u;
             }
-
-            static constexpr char const * name() noexcept
-            { return "<unimplemented name>"; }
         };
 
         template<class Cond, class Var>
         struct if_act
         {
-            using arguments = brigand::append<get_arguments_t<Cond>, get_arguments_t<Var>>;
+            using arguments = brigand::append<
+                proto::get_arguments_t<Cond>,
+                proto::get_arguments_t<Var>
+            >;
 
             template<class Params>
             constexpr auto to_proto_value(Params params) const
             {
                 return this->to_proto_value_(
-                    this->else_.cond.to_proto_value(params),
-                    this->else_.var.to_proto_value(params),
-                    1
+                    this->else_.cond.to_proto_value(params).desc,
+                    this->else_.var.to_proto_value(params).desc
                 );
             }
 
@@ -1548,30 +1424,27 @@ namespace proto
             } else_;
 
         private:
-            template<class ValueCond, class Value, class D = std::enable_if_t<
-                (!is_special_value<Value>::value and !is_special_value<ValueCond>::value),
-                char
-            >>
-            constexpr auto to_proto_value_(ValueCond cond, Value value, D) const
+            template<class DescCond, class Desc>
+            constexpr std::enable_if_t<
+                !proto::has_special_sz<Desc>::value and
+                !proto::has_special_sz<DescCond>::value,
+                proto::val<void, only_if_true<Desc>>
+            >
+            to_proto_value_(DescCond const & cond, Desc && value) const
             {
-                using new_value_type = only_if_true<typename Value::value_type>;
-                using context_name_type = typename Value::var_type;
-                using new_var_type = named_var<new_value_type, context_name_type>;
-                return val<new_var_type, new_value_type>{
-                    {value.var},
-                    {bool(cond.x.val), value.x}
-                };
+                return {{bool(cond.val), std::move(value)}};
             }
 
-            template<class ValueCond, class Value>
+            template<class DescCond, class Desc>
             constexpr std::enable_if_t<
-                (is_special_value<Value>::value or is_special_value<ValueCond>::value),
-                lazy_only_if_true<Value>
+                proto::has_special_sz<Desc>::value or
+                proto::has_special_sz<DescCond>::value,
+                proto::val<void, lazy_only_if_true<Desc>>
             >
-            to_proto_value_(ValueCond cond, Value value, int) const
+            to_proto_value_(DescCond cond, Desc && value) const
             {
-                static_assert(!is_special_value<ValueCond>::value, "unimplemented");
-                return {bool(cond.x.val), value};
+                static_assert(!proto::has_special_sz<DescCond>::value, "unimplemented");
+                return {bool(cond.val), std::move(value)};
             }
         };
 
@@ -1597,6 +1470,6 @@ namespace proto
     template<class Var>
     constexpr auto if_true(Var v)
     {
-        return if_(dsl::param<Var>{})[v];
+        return if_(params[v])[v];
     }
 }

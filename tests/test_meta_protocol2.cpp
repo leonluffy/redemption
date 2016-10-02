@@ -6,6 +6,9 @@
 #define LOGPRINT
 // TODO
 #define ENABLE_PROTO_TRACE
+#if defined(ENABLE_PROTO_TRACE) && defined(NDEBUG)
+# undef ENABLE_PROTO_TRACE
+#endif
 
 #include <iostream>
 #include "proto/proto.hpp"
@@ -19,7 +22,9 @@ namespace XXX {
     PROTO_VAR(proto::types::u16_encoding, f);
 
     constexpr auto desc = proto::desc(
-        a, b, c, d, e, f, proto::sz<proto::types::u8>{}, proto::sz_with_self<proto::types::u8>{}
+        a, b, c, d, e, f,
+        proto::sz<proto::types::u8>{},
+        proto::sz_with_self<proto::types::u8>{}
     );
 }
 
@@ -139,6 +144,13 @@ inline bool check_range(const_bytes_array p, const_bytes_array mem, char * messa
         }                                        \
     }
 
+inline array_view_const_u8 iov2av(iovec const iov)
+{
+    return array_view_const_u8{
+        reinterpret_cast<uint8_t const *>(iov.iov_base),
+        iov.iov_len
+    };
+}
 
 void test_new()
 {
@@ -154,7 +166,7 @@ void test_new()
         void send(iovec_array iovs) const {
             BOOST_CHECK_EQUAL(iovs.size(), 1);
             CHECK_RANGE(
-                make_array_view(reinterpret_cast<uint8_t const *>(iovs[0].iov_base), iovs[0].iov_len),
+                iov2av(iovs[0]),
                 cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
             );
             log_policy::send(iovs);
@@ -208,6 +220,24 @@ struct lazy {
     friend std::ostream & operator<<(std::ostream & os, lazy const & x)
     { return os << "lazy {a=" << int(x.a.val) << "}"; }
 };
+
+struct lazy2 {
+    proto::types::u8 a;
+    proto::types::u8 b;
+
+    using sizeof_ = proto::size_<2>;
+
+    void static_serialize(uint8_t * p) const
+    {
+        p[0] = 15;
+        p[1] = 15;
+    }
+
+    friend std::ostream & operator<<(std::ostream & os, lazy2 const & x)
+    { return os << "lazy {a=" << int(x.a.val) << "}"; }
+};
+
+
 void other_test()
 {
     PROTO_VAR(proto::types::u8, a);
@@ -232,6 +262,7 @@ void other_test()
 
         , proto::sz<proto::types::u8>{}
         , proto::creater<lazy>(a)
+        , proto::creater<lazy2>(a, b)
         , proto::if_(proto::params[a])
             [proto::sz<proto::types::u8>{}]
     );
@@ -256,14 +287,41 @@ void other_test()
         proto::value(proto::types::u8{2_c})
     );
 
-//     auto ctor = proto::creater<lazy>(a, proto::sz<proto::types::u8>{});
-//     auto ctor = proto::if_(proto::params[a])[proto::sz<proto::types::u8>{}];
-//     auto v1 = a = 1_c;
-//     auto lvalue = ctor.to_proto_value(proto::utils::make_parameters(v1));
-//     struct lazy_sz { std::size_t operator()() const { return 3; }; };
-//     auto lsz = proto::val<proto::dsl::pkt_sz, lazy_sz>{};
-//     auto value = lvalue.to_proto_value(proto::utils::make_parameters(lsz));
-//     value = 1;
+    std::cout << "\n\n";
+
+    PROTO_VAR(proto::types::u16_encoding, c);
+    auto b2 = proto::desc(proto::sz<proto::types::u16_encoding>{});
+    auto b3 = proto::desc(c);
+
+    struct PolicyLL : log_policy {
+        void send(iovec_array iovs) const {
+            log_policy::send(iovs);
+            BOOST_REQUIRE_EQUAL(iovs.size(), 2);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
+            BOOST_CHECK_EQUAL(iovs[1].iov_len, 2);
+            CHECK_RANGE(
+                iov2av(iovs[0]),
+                cstr_array_view("\x02")
+            );
+            CHECK_RANGE(
+                iov2av(iovs[1]),
+                cstr_array_view("\x03\x02")
+            );
+            this->used = true;
+        }
+
+        PolicyLL(bool & used) : used(used) {}
+        bool & used;
+    };
+
+    bool used = false;
+    proto::apply(
+        Buffering2<PolicyLL>{used},
+        b2(),
+        b3(c = 3_c),
+        proto::value(proto::types::u8{2_c})
+    );
+    BOOST_CHECK(used);
 }
 
 // #include <chrono>
@@ -281,7 +339,7 @@ void other_test()
 // inline void test1(uint8_t * p, CryptContext & crypt, uint32_t c) {
 //     auto packet1 = x224::dt_tpdu();
 //     auto packet2 = sec::sec(
-//         sec::flags = c/*decltype(SEC::SEC_ENCRYPT)(~SEC::SEC_ENCRYPT)*/,
+//         sec::flags = decltype(SEC::SEC_ENCRYPT)(c),
 //         sec::crypt = crypt
 //     );
 //     struct Policy : buffering2_policy_base {
@@ -316,8 +374,8 @@ void other_test()
 // //         clobber();
 // //         clobber();
 // }
-
-#include "openssl_tls.hpp"
+//
+// #include "openssl_tls.hpp"
 
 void bench()
 {

@@ -25,19 +25,21 @@
 
 struct Printer
 {
-    template<class var, class T>
-    void operator()(proto::val<var, T> const & x) const
+    template<class var, class Desc>
+    void operator()(proto::val<var, Desc> const & x) const
     {
-        std::cout << x.var.name() << " = ";
-        print(x.x, 1);
-        print_buffer_cat<typename var::desc_type>();
+        std::cout << "<name> = <lazy>";
+        // TODO std::cout << x.var.name() << " = ";
+        print(x.desc, 1);
+        print_buffer_cat<Desc>();
     }
 
     template<class T>
-    void operator()(T const & x) const
+    void operator()(T const &) const
     {
-        std::cout << x.name() << " = <lazy>";
-        print_buffer_cat<typename T::desc_type>();
+        std::cout << "<name> = <lazy>";
+        // TODO std::cout << x.name() << " = <lazy>";
+        print_buffer_cat<proto::desc_type_t<T>>();
     }
 
     template<class Desc>
@@ -87,8 +89,15 @@ struct Printer
     }
 
     template<class T>
-    static void print(T const & x, char)
+    static auto print(T const & x, int)
+    -> decltype(void(std::cout << x))
     {
         std::cout << x;
+    }
+
+    template<class T>
+    static void print(T const &, char)
+    {
+        std::cout << "<???>";
     }
 };

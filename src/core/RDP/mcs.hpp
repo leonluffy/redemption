@@ -3002,8 +3002,8 @@ namespace MCS
 #include "proto/proto.hpp"
 namespace mcs
 {
-    enum class DataPriority { top = 00, high = 01, medium = 10, low = 11 };
-    enum class Segmentation { begin = 00, end = 11 };
+    enum class DataPriority { top = 0, high = 0b01, medium = 0b10, low = 0b11 };
+    enum class Segmentation { begin = 0, end = 0b11 };
 
     PROTO_VAR(proto::types::u16_be, initiator);
     PROTO_VAR(proto::types::u16_be, channel_id);
@@ -3019,7 +3019,7 @@ namespace mcs
 
             using desc_type = proto::types::u8;
 
-            using sizeof_ = desc_type::sizeof_;
+            using sizeof_ = proto::sizeof_<desc_type>;
 
             sizeof_ static_serialize(uint8_t * p) const
             {
@@ -3031,7 +3031,7 @@ namespace mcs
     }
 
     constexpr auto data_request = proto::desc(
-        proto::value(proto::types::u8{uint8_t(MCS::MCSPDU_SendDataRequest << 2)}),
+        proto::val<void, proto::types::u8>{{uint8_t(MCS::MCSPDU_SendDataRequest << 2)}},
         initiator,
         channel_id,
         // TODO [proto] proto::cast<uint8_t>((proto::cast<uint8_t>(data_priority) << 6) | (proto::cast<uint8_t>(segmentation) << 4))

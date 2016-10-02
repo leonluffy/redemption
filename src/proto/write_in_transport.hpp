@@ -29,15 +29,16 @@ namespace detail
     template<class Transport>
     struct proto_transport_policy : buffering2_policy_base
     {
-        void send(iovec_array iovs)
+        void send(iovec_array iovs) const
         {
             unsigned char tmpbuf[1024*64];
             unsigned char * p = tmpbuf;
             for (auto iov : iovs) {
-                assert(tmpbuf + sizeof(tmpbuf) - p >= iov.iov_len);
+                assert(std::size_t(tmpbuf + sizeof(tmpbuf) - p) >= iov.iov_len);
                 memcpy(p, iov.iov_base, iov.iov_len);
                 p += iov.iov_len;
             }
+            hexdump(tmpbuf, p - tmpbuf);
             // TODO this->trans.write(iovs);
             this->trans.send(tmpbuf, p - tmpbuf);
         }
@@ -49,7 +50,7 @@ namespace detail
     template<class Stream>
     struct proto_stream_policy : buffering2_policy_base
     {
-        void send(array_view_u8 av)
+        void send(array_view_u8 av) const
         {
             stream = Stream(stream.get_data(), stream.get_offset() + av.size());
         }

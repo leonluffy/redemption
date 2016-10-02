@@ -194,19 +194,20 @@ struct RefreshRectPDU {
             x224::dt_tpdu(),
             mcs::data_request(
                 mcs::initiator = this->userId,
-                mcs::channel_id = this->userId,
+                mcs::channel_id = GCC::MCS_GLOBAL_CHANNEL,
                 mcs::data_priority = mcs::DataPriority::high,
                 mcs::segmentation = mcs::Segmentation::end
             ),
             sec::sec(
                 sec::crypt = this->encrypt,
-                sec::flags = SEC::SEC_ENCRYPT
+                // TODO [proto] proto::override(this->encryptionLevel ? SEC::SEC_ENCRYPT : 0)
+                sec::flags = this->encryptionLevel ? SEC::SEC_ENCRYPT : sec::flags::desc_type::type{}
             ),
             share::control(
                 share::type = PDUTYPE_DATAPDU,
                 // TODO [proto] share::source = proto::checked_cast(this->userId + GCC::MCS_USERCHANNEL_BASE)
                 share::source = checked_cast<uint16_t>(this->userId + GCC::MCS_USERCHANNEL_BASE)
-              )
+            )
         );
     }
 };  // struct RefreshRectPDU
