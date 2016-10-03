@@ -1305,28 +1305,92 @@ namespace proto
         using param = expr<Typename, true, void, void>;
 
 
-#define PROTO_DSL_OPERATOR(mut, op_class, op)                   \
-        template<class Op, bool Mut, class T, class U, class V> \
-        expr<op_class, mut, expr<Op, Mut, T, U>, value<V>>      \
-        constexpr operator op (expr<Op, Mut, T, U> xexpr, V y)  \
-        { return {xexpr, {{y}}}; }                              \
-                                                                \
-        template<class V, class Op, bool Mut, class T, class U> \
-        expr<op_class, mut, value<V>, expr<Op, Mut, T, U>>      \
-        constexpr operator op (V x, expr<Op, Mut, T, U> yexpr)  \
-        { return {{{x}}, yexpr}; }                              \
-                                                                \
-        template<                                               \
-            class Op, bool Mut, class T, class U,               \
-            class Op2, bool Mut2, class T2, class U2            \
-        > expr<                                                 \
-            op_class, mut,                                      \
-            expr<Op, Mut, T, U>,                                \
-            expr<Op2, Mut2, T2, U2>                             \
-        > constexpr operator op (                               \
-            expr<Op, Mut, T, U> expr1,                          \
-            expr<Op2, Mut2, T2, U2> expr2                       \
-        ) { return {expr1, expr2}; }
+        struct lshift {
+            template<class T, class U>
+            constexpr auto operator()(T x, U y) const
+            { return x << y; }
+        };
+    }
+
+#define PROTO_DSL_OPERATOR(mut, op_class, op)                         \
+    namespace dsl {                                                   \
+        template<class Op, bool Mut, class T, class U, class V>       \
+        std::enable_if_t<                                             \
+            (std::is_integral<V>::value or std::is_enum<V>::value),   \
+            expr<op_class, mut, expr<Op, Mut, T, U>, value<V>>        \
+        > constexpr operator op (expr<Op, Mut, T, U> xexpr, V y)      \
+        { return {xexpr, {{y}}}; }                                    \
+                                                                      \
+        template<class V, class Op, bool Mut, class T, class U>       \
+        std::enable_if_t<                                             \
+            (std::is_integral<V>::value or std::is_enum<V>::value),   \
+            expr<op_class, mut, value<V>, expr<Op, Mut, T, U>>        \
+        > constexpr operator op (V x, expr<Op, Mut, T, U> yexpr)      \
+        { return {{{x}}, yexpr}; }                                    \
+                                                                      \
+        template<                                                     \
+            class Op, bool Mut, class T, class U,                     \
+            class Op2, bool Mut2, class T2, class U2                  \
+        > expr<                                                       \
+            op_class, mut,                                            \
+            expr<Op, Mut, T, U>,                                      \
+            expr<Op2, Mut2, T2, U2>                                   \
+        > constexpr operator op (                                     \
+            expr<Op, Mut, T, U> expr1,                                \
+            expr<Op2, Mut2, T2, U2> expr2                             \
+        ) { return {expr1, expr2}; }                                  \
+                                                                      \
+        template<                                                     \
+            class Op, bool Mut, class T, class U,                     \
+            class Typename, class Desc                                \
+        > expr<                                                       \
+            op_class, mut,                                            \
+            expr<Op, Mut, T, U>,                                      \
+            param<Typename>                                           \
+        > constexpr operator op (                                     \
+            expr<Op, Mut, T, U> xexpr,                                \
+            var<Typename, Desc>                                       \
+        ) { return {xexpr, {}}; }                                     \
+                                                                      \
+        template<                                                     \
+            class Typename, class Desc,                               \
+            class Op, bool Mut, class T, class U                      \
+        > expr<                                                       \
+            op_class, mut,                                            \
+            param<Typename>,                                          \
+            expr<Op, Mut, T, U>                                       \
+        > constexpr operator op (                                     \
+            var<Typename, Desc>,                                      \
+            expr<Op, Mut, T, U> yexpr                                 \
+        ) { return {{}, yexpr}; }                                     \
+    }                                                                 \
+                                                                      \
+    template<class Typename, class Desc, class V>                     \
+    std::enable_if_t<                                                 \
+        (std::is_integral<V>::value or std::is_enum<V>::value),       \
+        dsl::expr<op_class, mut, dsl::param<Typename>, dsl::value<V>> \
+    > constexpr operator op (var<Typename, Desc>, V y)                \
+    { return {{}, {{y}}}; }                                           \
+                                                                      \
+    template<class V, class Typename, class Desc>                     \
+    std::enable_if_t<                                                 \
+        (std::is_integral<V>::value or std::is_enum<V>::value),       \
+        dsl::expr<op_class, mut, dsl::value<V>, dsl::param<Typename>> \
+    > constexpr operator op (V x, var<Typename, Desc>)                \
+    { return {{{x}}, {}}; }                                           \
+                                                                      \
+    template<                                                         \
+        class Typename1, class Desc1,                                 \
+        class Typename2, class Desc2                                  \
+    > dsl::expr<                                                      \
+        op_class, mut,                                                \
+        dsl::param<Typename1>,                                        \
+        dsl::param<Typename2>                                         \
+    > constexpr operator op (                                         \
+        var<Typename1, Desc1>,                                        \
+        var<Typename2, Desc2>                                         \
+    ) { return {}; }
+
 
 #define PROTO_DSL_OPERATORS(op_class, op, op_eq) \
     PROTO_DSL_OPERATOR(false, op_class, op)      \
@@ -1334,17 +1398,9 @@ namespace proto
 
         PROTO_DSL_OPERATORS(std::bit_and<>, bitand, and_eq)
         PROTO_DSL_OPERATORS(std::bit_or<>, bitor, or_eq)
-
-        struct lshift {
-            template<class T, class U>
-            constexpr auto operator()(T x, U y) const
-            { return x << y; }
-        };
-        PROTO_DSL_OPERATORS(lshift, << , <<= )
+        PROTO_DSL_OPERATORS(::proto::dsl::lshift, << , <<= )
 
 #undef PROTO_DSL_OPERATORS
-    }
-
 
     constexpr struct params_
     {
@@ -1630,6 +1686,6 @@ namespace proto
     template<class Var>
     constexpr auto if_true(Var v)
     {
-        return if_(params[v])[v];
+        return if_(v)[v];
     }
 }

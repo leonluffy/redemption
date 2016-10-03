@@ -3015,7 +3015,7 @@ namespace mcs
         initiator,
         channel_id,
         proto::retype<proto::types::u8>
-            ((proto::params[data_priority] << 6) | (proto::params[segmentation] << 4)),
+            ((data_priority << 6) | (segmentation << 4)),
         proto::sz<proto::types::u16_encoding>{}
     );
 }

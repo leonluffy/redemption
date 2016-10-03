@@ -243,15 +243,15 @@ void other_test()
     PROTO_VAR(proto::types::u8, a);
     PROTO_VAR(proto::types::u8, b);
     constexpr auto bl = proto::desc(
-        proto::if_(proto::params[a])
+        proto::if_(a)
             [proto::composer(a, b)]
-      , proto::if_(proto::params[a])
-            [proto::params[a]]
+      , proto::if_(a)
+            [a]
 
-      , proto::if_(proto::params[a])
-            [proto::params[b] &= 1]
+      , proto::if_(a)
+            [b &= 1]
         .else_
-            [proto::params[b] &= 1]
+            [b &= 1]
 
 //         proto::if_(proto::params[a])
 //             [proto::params[b] &= 1]
@@ -263,11 +263,13 @@ void other_test()
         , proto::sz<proto::types::u8>{}
         , proto::creater<lazy>(a)
         , proto::creater<lazy2>(a, b)
-        , proto::if_(proto::params[a])
+        , proto::if_(a)
             [proto::sz<proto::types::u8>{}]
-        , proto::params[a] |= proto::params[a] | proto::params[a]
         , proto::retype<proto::types::u8>
-            (proto::params[a] | proto::params[a])
+            (a | a)
+        , a |= a | a
+        //, proto::params[a] |= proto::params[a] | proto::params[a]
+        //, a |= proto::params[b]
     );
 
     uint8_t data[1024];
