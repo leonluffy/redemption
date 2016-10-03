@@ -551,15 +551,69 @@ namespace proto
     { return Desc{std::forward<T>(x)}; }
 
     template<class T>
-    struct override_impl
+    struct unsafe_cast_impl
     {
-        static_assert(std::is_integral<T>::value, "");
+        static_assert(std::is_integral<T>{} or std::is_enum<T>{}, "");
         T value_;
     };
 
     template<class T>
-    override_impl<std::decay_t<T>> override(T v)
+    unsafe_cast_impl<std::decay_t<T>> unsafe_cast(T v)
     { return {v}; }
+
+    template<class T>
+    struct safe_cast_impl
+    {
+        static_assert(std::is_integral<T>{} or std::is_enum<T>{}, "");
+        T value_;
+    };
+
+    template<class T>
+    safe_cast_impl<std::decay_t<T>> cast(T v)
+    { return {v}; }
+
+    namespace detail
+    {
+        template<class T, bool = std::is_enum<T>::value>
+        struct integral_type_impl
+        {
+            using type = T;
+        };
+
+        template<class T>
+        struct integral_type_impl<T, true>
+        {
+            using type = std::underlying_type_t<T>;
+        };
+    }
+
+    template<class T>
+    using integral_type = typename detail::integral_type_impl<T>::type;
+
+    namespace detail
+    {
+        template<class T, class Desc, class = void, bool = std::is_enum<T>::value>
+        struct is_enum_to_int
+        : std::false_type
+        {};
+
+        template<class T, class Desc>
+        struct is_enum_to_int<T, Desc, void_t<typename Desc::type>, true>
+        : std::is_integral<typename Desc::type>
+        {};
+    }
+
+    template<class T, class Desc>
+    using is_enum_to_int = typename detail::is_enum_to_int<std::decay_t<T>, Desc>::type;
+
+
+    template<class T, class True, class False>
+    constexpr auto cifv(std::true_type, T && v, True && f, False &&)
+    { return f(std::forward<T>(v)); }
+
+    template<class T, class True, class False>
+    constexpr auto cifv(std::false_type, T && v, True &&, False && f)
+    { return f(std::forward<T>(v)); }
 
 
     template<class Typename, class Desc>
@@ -570,18 +624,35 @@ namespace proto
         using arguments = brigand::list<Typename>;
 
         template<class U>
-        constexpr auto operator = (U && x) const
-        { return impl(std::forward<U>(x)); }
+        constexpr auto operator = (U && v) const
+        { return this->lax_impl(is_enum_to_int<U, desc_type>{}, std::forward<U>(v)); }
 
         template<class U>
-        constexpr auto operator = (override_impl<U> over) const
-        { return impl(static_cast<typename desc_type::type>(over.value_)); }
+        constexpr auto operator = (unsafe_cast_impl<U> o) const
+        { return impl(static_cast<typename desc_type::type>(o.value_)); }
+
+        template<class U>
+        constexpr auto operator = (safe_cast_impl<U> o) const
+        {
+            using type = typename desc_type::type;
+            using scr = integral_type<U>;
+            using dst = integral_type<type>;
+            return impl(static_cast<type>(checked_cast<dst>(static_cast<scr>(o.value_))));
+        }
 
         template<class Params>
         decltype(auto) to_proto_value(Params params) const noexcept
         { return params.template get_proto_value<Typename>(); }
 
     private:
+        template<class U>
+        constexpr auto lax_impl(std::true_type, U v) const
+        { return *this = safe_cast_impl<U>{v}; }
+
+        template<class U>
+        constexpr auto lax_impl(std::false_type, U && v) const
+        { return impl(std::forward<U>(v)); }
+
         template<class U>
         constexpr auto impl(U && x) const
         -> val<Typename, decltype(make_val<Typename, Desc>(std::forward<U>(x)))>

@@ -34,8 +34,11 @@ template <class Dst, class Src>
     static_assert(std::is_integral<Dst>::value, "Dst must be an integral.");
 #ifndef NDEBUG
     using dst_limits = std::numeric_limits<Dst>;
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wsign-compare"
     assert(dst_limits::max() >= value);
     assert(dst_limits::min() <= value);
+# pragma GCC diagnostic pop
 # endif
     return static_cast<Dst>(value);
 }
