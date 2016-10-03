@@ -265,7 +265,9 @@ void other_test()
         , proto::creater<lazy2>(a, b)
         , proto::if_(proto::params[a])
             [proto::sz<proto::types::u8>{}]
+        , proto::params[a] |= proto::params[a] | proto::params[a]
     );
+
     uint8_t data[1024];
     struct Policy3 : log_policy {
         void send(array_view_u8 av) const {

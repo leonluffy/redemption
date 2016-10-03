@@ -26,6 +26,7 @@
 
 #include <limits>
 #include <utility>
+#include <functional> // plus, bit_and, etc
 #include <cstdint>
 
 // (standalone version): https://github.com/edouarda/brigand
@@ -558,7 +559,7 @@ namespace proto
     };
 
     template<class T>
-    unsafe_cast_impl<std::decay_t<T>> unsafe_cast(T v)
+    constexpr unsafe_cast_impl<std::decay_t<T>> unsafe_cast(T v)
     { return {v}; }
 
     template<class T>
@@ -569,7 +570,7 @@ namespace proto
     };
 
     template<class T>
-    safe_cast_impl<std::decay_t<T>> cast(T v)
+    constexpr safe_cast_impl<std::decay_t<T>> cast(T v)
     { return {v}; }
 
     namespace detail
@@ -1180,14 +1181,43 @@ namespace proto
 
     namespace dsl
     {
-        // TODO proto::value<void, T>
+        // TODO proto::expr<Typename, Op, Mut, T, U>
+        template<class Op, bool MutableOperator, class T, class U>
+        struct expr
+        {
+            using arguments = brigand::append<
+                get_arguments_t<T>,
+                get_arguments_t<U>
+            >;
+
+            template<class Params>
+            constexpr auto
+            to_proto_value(Params p) const
+            {
+                auto ret = this->x_.to_proto_value(p);
+                using desc_type = desc_type_t<decltype(ret)>;
+                using type = typename desc_type::type;
+                using dst = integral_type<type>;
+                ret.desc.val = static_cast<type>(
+                    checked_cast<dst>(Op{}(
+                        ret.desc.val,
+                        this->y_.to_proto_value(p).desc.val
+                    ))
+                );
+                return ret;
+            }
+
+            T x_;
+            U y_;
+        };
+
         template<class Desc>
-        struct value
+        struct expr<void, false, Desc, void>
         {
             using desc_type = Desc;
 
             template<class Params>
-            constexpr value to_proto_value(Params) const
+            constexpr expr to_proto_value(Params) const
             {
                 return *this;
             }
@@ -1195,8 +1225,46 @@ namespace proto
             Desc desc;
         };
 
+        template<class T>
+        using value = expr<void, false, types::value<T>, void>;
+
+        template<class Op, class T, class U>
+        struct expr<Op, false, T, U>
+        {
+            using arguments = brigand::append<
+                get_arguments_t<T>,
+                get_arguments_t<U>
+            >;
+
+            template<class Params>
+            constexpr auto
+            to_proto_value(Params p) const
+            {
+                auto val = Op{}(
+                    this->x_.to_proto_value(p).desc.val,
+                    this->y_.to_proto_value(p).desc.val
+                );
+                return to_value(val);
+                //return value<decltype(val)>{{val}};
+            }
+
+            T x_;
+            U y_;
+
+        private:
+            template<class V>
+            static constexpr
+            value<V> to_value(value<V> v)
+            { return v; }
+
+            template<class V>
+            static constexpr
+            value<V> to_value(V v)
+            { return {{v}}; }
+        };
+
         template<class Typename>
-        struct param
+        struct expr<Typename, true, void, void>
         {
             using arguments = brigand::list<Typename>;
 
@@ -1207,68 +1275,41 @@ namespace proto
             }
         };
 
-#define PROTO_LAZY_BINARY_OP(op)                                  \
-        template<class T, class U>                                \
-        struct op##_                                              \
-        {                                                         \
-            using arguments = brigand::append<                    \
-                get_arguments_t<T>,                               \
-                get_arguments_t<U>                                \
-            >;                                                    \
+        template<class Typename>
+        using param = expr<Typename, true, void, void>;
+
+
+#define PROTO_DSL_OPERATOR(mut, op_class, op)                     \
+        template<class Op, bool Mut, class T, class U, class V>   \
+        expr<std::op_class<>, mut, expr<Op, Mut, T, U>, value<V>> \
+        constexpr operator op (expr<Op, Mut, T, U> xexpr, V y)    \
+        { return {xexpr, {{y}}}; }                                \
                                                                   \
-            template<class Params>                                \
-            constexpr auto                                        \
-            to_proto_value(Params p) const                        \
-            {                                                     \
-                auto val =                                        \
-                    x.to_proto_value(p).desc.val                  \
-                    op y.to_proto_value(p).desc.val;              \
-                return value<types::value<decltype(val)>>{{val}}; \
-            }                                                     \
+        template<class V, class Op, bool Mut, class T, class U>   \
+        expr<std::op_class<>, mut, value<V>, expr<Op, Mut, T, U>> \
+        constexpr operator op (V x, expr<Op, Mut, T, U> yexpr)    \
+        { return {{{x}}, yexpr}; }                                \
                                                                   \
-            T x;                                                  \
-            U y;                                                  \
-        };                                                        \
-        template<class T, class U>                                \
-        op##_<param<T>, value<types::value<U>>>                   \
-        constexpr operator op (param<T>, U && x)                  \
-        { return {{}, {{x}}}; }
+        template<                                                 \
+            class Op, bool Mut, class T, class U,                 \
+            class Op2, bool Mut2, class T2, class U2              \
+        > expr<                                                   \
+            std::op_class<>, mut,                                 \
+            expr<Op, Mut, T, U>,                                  \
+            expr<Op2, Mut2, T2, U2>                               \
+        > constexpr operator op (                                 \
+            expr<Op, Mut, T, U> expr1,                            \
+            expr<Op2, Mut2, T2, U2> expr2                         \
+        ) { return {expr1, expr2}; }
 
-        PROTO_LAZY_BINARY_OP(bitand)
-        PROTO_LAZY_BINARY_OP(bitor)
+#define PROTO_DSL_OPERATORS(op_class, op, op_eq) \
+    PROTO_DSL_OPERATOR(false, op_class, op)      \
+    PROTO_DSL_OPERATOR(true , op_class, op_eq)
 
-#undef PROTO_LAZY_BINARY_OP
+        PROTO_DSL_OPERATORS(bit_and, bitand, and_eq)
+        PROTO_DSL_OPERATORS(bit_or, bitor, or_eq)
 
-#define PROTO_LAZY_BINARY_OP(op)                              \
-        template<class T, class U>                            \
-        struct op##_                                          \
-        {                                                     \
-            using arguments = brigand::append<                \
-                get_arguments_t<T>,                           \
-                get_arguments_t<U>                            \
-            >;                                                \
-                                                              \
-            template<class Params>                            \
-            constexpr auto                                    \
-            to_proto_value(Params p) const                    \
-            {                                                 \
-                auto ret = x.to_proto_value(p);               \
-                ret.desc.val op y.to_proto_value(p).desc.val; \
-                return ret;                                   \
-            }                                                 \
-                                                              \
-            T x;                                              \
-            U y;                                              \
-        };                                                    \
-        template<class T, class U>                            \
-        op##_<param<T>, value<types::value<U>>>               \
-        constexpr operator op (param<T>, U && x)              \
-        { return {{}, {{x}}}; }
-
-        PROTO_LAZY_BINARY_OP(and_eq)
-        PROTO_LAZY_BINARY_OP(or_eq)
-
-#undef PROTO_LAZY_BINARY_OP
+#undef PROTO_DSL_OPERATORS
     }
 
 
