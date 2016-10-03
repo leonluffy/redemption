@@ -550,6 +550,17 @@ namespace proto
     constexpr auto make_val(T && x)
     { return Desc{std::forward<T>(x)}; }
 
+    template<class T>
+    struct override_impl
+    {
+        static_assert(std::is_integral<T>::value, "");
+        T value_;
+    };
+
+    template<class T>
+    override_impl<std::decay_t<T>> override(T v)
+    { return {v}; }
+
 
     template<class Typename, class Desc>
     struct var
@@ -561,6 +572,10 @@ namespace proto
         template<class U>
         constexpr auto operator = (U && x) const
         { return impl(std::forward<U>(x)); }
+
+        template<class U>
+        constexpr auto operator = (override_impl<U> over) const
+        { return impl(static_cast<typename desc_type::type>(over.value_)); }
 
         template<class Params>
         decltype(auto) to_proto_value(Params params) const noexcept

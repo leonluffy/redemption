@@ -200,8 +200,7 @@ struct RefreshRectPDU {
             ),
             sec::sec(
                 sec::crypt = this->encrypt,
-                // TODO [proto] proto::override(this->encryptionLevel ? SEC::SEC_ENCRYPT : 0)
-                sec::flags = this->encryptionLevel ? SEC::SEC_ENCRYPT : sec::flags::desc_type::type{}
+                sec::flags = proto::override(this->encryptionLevel ? SEC::SEC_ENCRYPT : 0)
             ),
             share::control(
                 share::type = PDUTYPE_DATAPDU,
