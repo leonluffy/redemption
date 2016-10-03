@@ -3010,32 +3010,12 @@ namespace mcs
     PROTO_VAR(proto::types::enum_u8<DataPriority>, data_priority);
     PROTO_VAR(proto::types::enum_u8<Segmentation>, segmentation);
 
-    namespace detail_
-    {
-        struct data_priority_and_segmentation
-        {
-            proto::types::enum_u8<DataPriority> data_priority;
-            proto::types::enum_u8<Segmentation> segmentation;
-
-            using desc_type = proto::types::u8;
-
-            using sizeof_ = proto::sizeof_<desc_type>;
-
-            sizeof_ static_serialize(uint8_t * p) const
-            {
-                return desc_type{static_cast<uint8_t>(
-                    (static_cast<uint8_t>(data_priority.val) << 6) | (static_cast<uint8_t>(segmentation.val) << 4)
-                )}.static_serialize(p);
-            }
-        };
-    }
-
     constexpr auto data_request = proto::desc(
         proto::val<void, proto::types::u8>{{uint8_t(MCS::MCSPDU_SendDataRequest << 2)}},
         initiator,
         channel_id,
-        // TODO [proto] proto::cast<uint8_t>((proto::cast<uint8_t>(data_priority) << 6) | (proto::cast<uint8_t>(segmentation) << 4))
-        proto::creater<detail_::data_priority_and_segmentation>(data_priority, segmentation),
+        proto::retype<proto::types::u8>
+            ((proto::params[data_priority] << 6) | (proto::params[segmentation] << 4)),
         proto::sz<proto::types::u16_encoding>{}
     );
 }

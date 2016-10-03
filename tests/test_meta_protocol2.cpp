@@ -266,6 +266,8 @@ void other_test()
         , proto::if_(proto::params[a])
             [proto::sz<proto::types::u8>{}]
         , proto::params[a] |= proto::params[a] | proto::params[a]
+        , proto::retype<proto::types::u8>
+            (proto::params[a] | proto::params[a])
     );
 
     uint8_t data[1024];

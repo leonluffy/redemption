@@ -1179,6 +1179,32 @@ namespace proto
     { f(detail::get_if_packet(pkts)...); }
 
 
+    template<class Desc, class Expr>
+    struct retype_impl
+    {
+        using arguments = get_arguments_t<Expr>;
+
+        template<class Params>
+        constexpr auto
+        to_proto_value(Params p) const
+        {
+            using type = typename Desc::type;
+            using dst = integral_type<type>;
+            return val<arguments, Desc>{{
+                static_cast<type>(
+                    checked_cast<dst>(this->expr_.to_proto_value(p).desc.val)
+                )
+            }};
+        }
+
+        Expr expr_;
+    };
+
+    template<class Desc, class Expr>
+    constexpr retype_impl<Desc, Expr> retype(Expr expr)
+    { return {expr}; }
+
+
     namespace dsl
     {
         // TODO proto::expr<Typename, Op, Mut, T, U>
@@ -1279,35 +1305,42 @@ namespace proto
         using param = expr<Typename, true, void, void>;
 
 
-#define PROTO_DSL_OPERATOR(mut, op_class, op)                     \
-        template<class Op, bool Mut, class T, class U, class V>   \
-        expr<std::op_class<>, mut, expr<Op, Mut, T, U>, value<V>> \
-        constexpr operator op (expr<Op, Mut, T, U> xexpr, V y)    \
-        { return {xexpr, {{y}}}; }                                \
-                                                                  \
-        template<class V, class Op, bool Mut, class T, class U>   \
-        expr<std::op_class<>, mut, value<V>, expr<Op, Mut, T, U>> \
-        constexpr operator op (V x, expr<Op, Mut, T, U> yexpr)    \
-        { return {{{x}}, yexpr}; }                                \
-                                                                  \
-        template<                                                 \
-            class Op, bool Mut, class T, class U,                 \
-            class Op2, bool Mut2, class T2, class U2              \
-        > expr<                                                   \
-            std::op_class<>, mut,                                 \
-            expr<Op, Mut, T, U>,                                  \
-            expr<Op2, Mut2, T2, U2>                               \
-        > constexpr operator op (                                 \
-            expr<Op, Mut, T, U> expr1,                            \
-            expr<Op2, Mut2, T2, U2> expr2                         \
+#define PROTO_DSL_OPERATOR(mut, op_class, op)                   \
+        template<class Op, bool Mut, class T, class U, class V> \
+        expr<op_class, mut, expr<Op, Mut, T, U>, value<V>>      \
+        constexpr operator op (expr<Op, Mut, T, U> xexpr, V y)  \
+        { return {xexpr, {{y}}}; }                              \
+                                                                \
+        template<class V, class Op, bool Mut, class T, class U> \
+        expr<op_class, mut, value<V>, expr<Op, Mut, T, U>>      \
+        constexpr operator op (V x, expr<Op, Mut, T, U> yexpr)  \
+        { return {{{x}}, yexpr}; }                              \
+                                                                \
+        template<                                               \
+            class Op, bool Mut, class T, class U,               \
+            class Op2, bool Mut2, class T2, class U2            \
+        > expr<                                                 \
+            op_class, mut,                                      \
+            expr<Op, Mut, T, U>,                                \
+            expr<Op2, Mut2, T2, U2>                             \
+        > constexpr operator op (                               \
+            expr<Op, Mut, T, U> expr1,                          \
+            expr<Op2, Mut2, T2, U2> expr2                       \
         ) { return {expr1, expr2}; }
 
 #define PROTO_DSL_OPERATORS(op_class, op, op_eq) \
     PROTO_DSL_OPERATOR(false, op_class, op)      \
     PROTO_DSL_OPERATOR(true , op_class, op_eq)
 
-        PROTO_DSL_OPERATORS(bit_and, bitand, and_eq)
-        PROTO_DSL_OPERATORS(bit_or, bitor, or_eq)
+        PROTO_DSL_OPERATORS(std::bit_and<>, bitand, and_eq)
+        PROTO_DSL_OPERATORS(std::bit_or<>, bitor, or_eq)
+
+        struct lshift {
+            template<class T, class U>
+            constexpr auto operator()(T x, U y) const
+            { return x << y; }
+        };
+        PROTO_DSL_OPERATORS(lshift, << , <<= )
 
 #undef PROTO_DSL_OPERATORS
     }
