@@ -3005,13 +3005,23 @@ namespace mcs
     enum class DataPriority { top = 0, high = 0b01, medium = 0b10, low = 0b11 };
     enum class Segmentation { begin = 0, end = 0b11 };
 
+    PROTO_VAR(proto::types::u8, type);
     PROTO_VAR(proto::types::u16_be, initiator);
     PROTO_VAR(proto::types::u16_be, channel_id);
     PROTO_VAR(proto::types::enum_u8<DataPriority>, data_priority);
     PROTO_VAR(proto::types::enum_u8<Segmentation>, segmentation);
 
     constexpr auto data_request = proto::desc(
-        proto::val<void, proto::types::u8>{{uint8_t(MCS::MCSPDU_SendDataRequest << 2)}},
+        type = proto::cast(MCS::MCSPDU_SendDataRequest << 2),
+        initiator,
+        channel_id,
+        proto::retype<proto::types::u8>
+            ((data_priority << 6) | (segmentation << 4)),
+        proto::sz<proto::types::u16_encoding>{}
+    );
+
+    constexpr auto data_indication = proto::desc(
+        type = proto::cast(MCS::MCSPDU_SendDataIndication << 2),
         initiator,
         channel_id,
         proto::retype<proto::types::u8>
