@@ -118,6 +118,26 @@ namespace detail
     using split_if = typename detail::split_if_impl<L, Pred>::type;
 }
 
+// brigand::unique
+namespace brigand
+{
+namespace detail
+{
+    template<class L, class T>
+    using push_back_if_unique = std::conditional_t<
+        brigand::none<L, brigand::bind<std::is_same, brigand::_1, brigand::pin<T>>>::value,
+        brigand::push_back<L, T>,
+        L
+    >;
+}
+    template<class L>
+    using unique = brigand::fold<
+        L,
+        brigand::list<>,
+        brigand::call<detail::push_back_if_unique>
+    >;
+}
+
 
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/bytes_t.hpp"
@@ -1793,5 +1813,76 @@ namespace proto
     constexpr auto if_true(Var v)
     {
         return if_<Deps>(v)[v];
+    }
+
+
+    template<class T>
+    struct named_dep
+    {};
+
+    template<class Ch, class Tr>
+    std::basic_ostream<Ch, Tr> &
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<brigand::list<>> const &)
+    { return out << "<unamed>"; }
+
+    namespace detail
+    {
+        struct view_name
+        {
+            array_view_const_char av;
+
+            template<class Ch, class Tr>
+            friend std::basic_ostream<Ch, Tr> &
+            operator<<(std::basic_ostream<Ch, Tr> & out, view_name const & av_name)
+            { return out.write(av_name.av.data(), av_name.av.size()); }
+        };
+
+        template<class T>
+        constexpr view_name n()
+        {
+            constexpr std::size_t len = sizeof(__PRETTY_FUNCTION__);
+#ifdef __clang__
+            constexpr std::size_t begin_skip = 49;
+#else
+            constexpr std::size_t begin_skip = 64;
+#endif
+            constexpr std::size_t end_skip = 2;
+            static_assert(begin_skip + end_skip < len, "");
+            return {{__PRETTY_FUNCTION__ + begin_skip, len - begin_skip - end_skip}};
+        }
+    }
+
+    template<class Ch, class Tr, class T>
+    std::basic_ostream<Ch, Tr> &
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<T> const &)
+    { return out << detail::n<T>(); }
+
+    template<class Ch, class Tr, class Desc>
+    std::basic_ostream<Ch, Tr> &
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<special<dsl::pkt_sz, Desc>> const &)
+    { return out << named_dep<dsl::pkt_sz>{}; }
+
+    template<class Ch, class Tr, class Desc>
+    std::basic_ostream<Ch, Tr> &
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<special<dsl::pkt_sz_with_self, Desc>> const &)
+    { return out << named_dep<dsl::pkt_sz_with_self>{}; }
+
+    namespace detail
+    {
+        template<class Ch, class Tr, class T, class... Ts>
+        void named_dep_out(std::basic_ostream<Ch, Tr> & out, brigand::list<T, Ts...>)
+        {
+            out << "{ " << named_dep<T>{};
+            std::initializer_list<int>{(void(out << " " << named_dep<Ts>{}), 1)...};
+            out << " }";
+        }
+    }
+
+    template<class Ch, class Tr, class... Ts>
+    std::basic_ostream<Ch, Tr> &
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<brigand::list<Ts...>> const &)
+    {
+        detail::named_dep_out(out, brigand::unique<brigand::list<Ts...>>{});
+        return out;
     }
 }

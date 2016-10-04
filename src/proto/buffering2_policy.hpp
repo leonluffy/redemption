@@ -1534,25 +1534,12 @@ struct Buffering2
         }
 
 
-        template<class Var, class T>
-        static auto name(proto::val<Var, T> const & /*val*/)
-        //TODO { return val.var.name(); }
-        { return "<name>"; }
-
-        template<class T, class Derived>
-        static char const * name(proto::var<proto::types::pkt_sz<T>, Derived>)
-        //TODO { return Derived::name(); }
-        { return "<name>"; }
-
-        template<class T, class Derived>
-        static char const * name(proto::var<proto::types::pkt_sz_with_self<T>, Derived>)
-        //TODO { return Derived::name(); }
-        { return "<name>"; }
-
         template<class T>
-        static auto name(T const & /*val*/)
-        // TODO { return val.name(); }
-        { return "<name>"; }
+        static auto name(T const &)
+        {
+            using deps = proto::get_dependencies<T>;
+            return proto::named_dep<deps>{};
+        }
 
 
         template<class Var, class T>

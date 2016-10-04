@@ -25,10 +25,10 @@
 
 struct Printer
 {
-    template<class var, class Desc>
-    void operator()(proto::val<var, Desc> const & x) const
+    template<class Deps, class Desc>
+    void operator()(proto::val<Deps, Desc> const & x) const
     {
-        std::cout << "<name> = <lazy>";
+        std::cout << proto::named_dep<proto::get_dependencies<Deps>>{} << " = ";
         // TODO std::cout << x.var.name() << " = ";
         print(x.desc, 1);
         print_buffer_cat<Desc>();
@@ -37,7 +37,7 @@ struct Printer
     template<class T>
     void operator()(T const &) const
     {
-        std::cout << "<name> = <lazy>";
+        std::cout << proto::named_dep<proto::get_dependencies<T>>{} << " = <lazy>";
         // TODO std::cout << x.name() << " = <lazy>";
         print_buffer_cat<proto::desc_type_t<T>>();
     }

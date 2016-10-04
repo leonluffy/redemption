@@ -63,7 +63,8 @@ struct Buffering
                 using pair_type = t_<decltype(v)>;
                 auto & value = arg<pair_type::first_type::value>(val...);
                 // TODO std::cout << value.name() << " = ";
-                std::cout << "<name> = ";
+                using deps = proto::get_dependencies<std::decay_t<decltype(value)>>;
+                std::cout << proto::named_dep<deps>{} << " = ";
                 print(value);
                 std::cout << ", ";
             });
