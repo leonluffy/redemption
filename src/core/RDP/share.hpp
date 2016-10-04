@@ -665,7 +665,7 @@ namespace share
 
     constexpr auto control = proto::desc(
         proto::sz_with_self<proto::types::u16_le>{},
-        proto::params[type] |= 0x10 /*versionHight*/ | 0 /*versionLow*/,
+        type |= 0x10 /*versionHight*/ | 0 /*versionLow*/,
         source
     );
 }

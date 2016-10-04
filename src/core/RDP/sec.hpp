@@ -1918,7 +1918,7 @@ namespace sec
 
     constexpr auto sec = proto::desc(
         proto::if_true(flags),
-        proto::if_(proto::params[flags] & SEC::SEC_ENCRYPT)
+        proto::if_(flags & SEC::SEC_ENCRYPT)
             [proto::creater<proto_signature>(crypt)]
     );
 }
