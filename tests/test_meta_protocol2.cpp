@@ -282,7 +282,13 @@ void other_test()
     proto::apply(
         Buffering3<Policy3>{{}, array_view_u8{data}},
         bl(a = 1_c, b = 3_c),
-        proto::value(proto::types::u8{2_c})
+        proto::value(proto::types::u8{2_c}),
+        proto::hook<class hook>([](auto...){}),
+        proto::values(
+            proto::types::u8{3_c},
+            proto::types::u8{4_c},
+            proto::types::bytes{cstr_array_view("")}
+        )
     );
 
     std::cout << "\n\n";

@@ -20,12 +20,34 @@
 
 #pragma once
 
-#include <sys/uio.h>
-#include "utils/sugar/array_view.hpp"
+#include "proto/iovec.hpp"
+#include "utils/log.hpp"
 
-using iovec_array = array_view<iovec const>;
+#include <memory>
 
-inline iovec_array as_iovec_array(iovec const & iov) { return {&iov, 1u}; }
-inline iovec_array as_iovec_array(iovec & iov) { return {&iov, 1u}; }
-inline iovec_array as_iovec_array(iovec && iov) = delete;
-inline iovec_array as_iovec_array(iovec_array iovs) { return iovs; }
+// TODO PERF this implementation is very bad
+inline void hexdump_d(iovec_array iovs, std::size_t n)
+{
+    auto arr = std::make_unique<uint8_t[]>(n);
+    auto p = arr.get();
+    for (auto const & iov : iovs) {
+        memcpy(p, iov.iov_base, iov.iov_len);
+        p = reinterpret_cast<uint8_t*>(p) + iov.iov_len;
+    }
+    hexdump_d(arr.get(), n);
+}
+
+inline void hexdump_d(iovec_array iovs)
+{
+    std::size_t n = 0;
+    for (auto const & iov : iovs) {
+        n += iov.iov_len;
+    }
+    hexdump_d(iovs, n);
+}
+
+template<class T>
+inline void hexdump_d(array_view<T> av)
+{
+    hexdump_d(av.data(), av.size());
+}

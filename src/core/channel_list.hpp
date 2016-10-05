@@ -31,6 +31,9 @@
 #include "core/RDP/sec.hpp"
 #include "core/RDP/x224.hpp"
 
+#include "proto/write_in_transport.hpp"
+#include "proto/hexdump.hpp"
+
 namespace CHANNELS {
     enum {
         MAX_STATIC_VIRTUAL_CHANNELS = 30 // 30 static virtual channels
@@ -360,20 +363,20 @@ namespace CHANNELS {
         void send_to_server( Transport & trans, CryptContext & crypt_context, int encryptionLevel
                            , uint16_t userId, uint16_t channelId, uint32_t length, uint32_t flags
                            , const uint8_t * chunk, size_t chunk_size) {
-            this->send_<false, MCS::SendDataRequest_Send>(
+            this->send_<false>(
                 trans, crypt_context, encryptionLevel,
                 userId, channelId, length, flags,
-                chunk, chunk_size
+                chunk, chunk_size, mcs::data_request
             );
         }
 
         void send_to_client( Transport & trans, CryptContext & crypt_context, int encryptionLevel
                            , uint16_t userId, uint16_t channelId, uint32_t length, uint32_t flags
                            , const uint8_t * chunk, size_t chunk_size) {
-            this->send_<true, MCS::SendDataIndication_Send>(
+            this->send_<true>(
                 trans, crypt_context, encryptionLevel,
                 userId, channelId, length, flags,
-                chunk, chunk_size
+                chunk, chunk_size, mcs::data_indication
             );
         }
 
@@ -382,29 +385,32 @@ namespace CHANNELS {
         void send_(
           Transport & trans, CryptContext & crypt_context, int encryptionLevel
         , uint16_t userId, uint16_t channelId, uint32_t length, uint32_t flags
-        , const uint8_t * chunk, size_t chunk_size) {
-            write_packets(
+        , const uint8_t * chunk, size_t chunk_size, MCS_SendData mcs_packet
+        ) {
+            write_in_transport(
                 trans,
-                [&](StreamSize<65536-1024>, OutStream & stream) {
-                    stream.out_uint32_le(length);
-                    stream.out_uint32_le(flags);
-                    stream.out_copy_bytes(chunk, chunk_size);
-
-                    if (enable_verbose && (((this->verbose & 128) != 0) || ((this->verbose & 16) != 0))) {
+                x224::dt_tpdu(),
+                mcs_packet(
+                    mcs::initiator = userId,
+                    mcs::channel_id = channelId,
+                    mcs::data_priority = mcs::DataPriority::high,
+                    mcs::segmentation = mcs::Segmentation::end
+                ),
+                sec::sec(
+                    sec::crypt = crypt_context,
+                    sec::flags = proto::cast(encryptionLevel ? SEC::SEC_ENCRYPT : 0)
+                ),
+                proto::hook([this, channelId](auto... args){
+                    if (enable_verbose && (this->verbose & (128 | 16))) {
                         LOG(LOG_INFO, "Sec clear payload to send (channelId=%d):", channelId);
-                        hexdump_d(stream.get_data(), stream.get_offset());
+                        hexdump_d(args...);
                     }
-                },
-                [&](StreamSize<256>, OutStream & sec_header, uint8_t * packet_data, std::size_t packet_size) {
-                    SEC::Sec_Send(sec_header, packet_data, packet_size, 0, crypt_context, encryptionLevel);
-
-                },
-                [&](StreamSize<256>, OutStream & mcs_header, std::size_t packet_size) {
-                    MCS_SendData(static_cast<OutPerStream&>(mcs_header), userId, channelId, 1, 3, packet_size, MCS::PER_ENCODING);
-                },
-                [&](StreamSize<256>, OutStream & x224_header, std::size_t packet_size) {
-                    X224::DT_TPDU_Send(x224_header, packet_size);
-                }
+                }),
+                proto::values(
+                    proto::types::u32_le{{length}},
+                    proto::types::u32_le{{flags}},
+                    proto::types::bytes{{chunk, chunk_size}}
+                )
             );
         }
     };  // struct VirtualChannelPDU

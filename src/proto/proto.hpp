@@ -1130,6 +1130,24 @@ namespace proto
         return packet<Deps, value_type>{value_type{desc}};
     }
 
+    namespace detail
+    {
+        template<class... I, class... Desc>
+        constexpr auto
+        values_impl(brigand::list<I...>, Desc const & ... desc)
+        {
+            return packet<void, val<I, Desc>...>{{val<I, Desc>{desc}...}};
+        }
+    }
+
+    template<class... Desc>
+    constexpr auto
+    values(Desc const & ... desc)
+    {
+        static_assert(sizeof...(desc), "");
+        return detail::values_impl(brigand::range<std::size_t, 0, sizeof...(Desc)>{}, desc...);
+    }
+
     // TODO value<Deps, Desc>()
 
     // TODO values(...)
@@ -1271,14 +1289,7 @@ namespace proto
         return creator<Deps, subtype, Val...>{{v...}};
     }
 
-    template<class... Desc>
-    constexpr auto
-    desc(Desc... d)
-    {
-        return packet_description<void, Desc...>{{d...}};
-    }
-
-    template<class Deps, class... Desc>
+    template<class Deps = void, class... Desc>
     constexpr auto
     desc(Desc... d)
     {
