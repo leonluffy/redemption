@@ -328,6 +328,80 @@ void other_test()
         proto::value(proto::types::u8{2_c})
     );
     BOOST_CHECK(used);
+
+    proto::apply(
+        Buffering2<PolicyLL>{used},
+        b2(),
+        b3(c = 3_c),
+        proto::hook<class hook>([](array_view_u8 av){
+            using voidp = void*;
+            std::cout << " [hook av{0x" << voidp(av.data()) << ", " << av.size() << "}] [data:";
+            for (auto byte : av) {
+                std::cout << " " << int(byte);
+            }
+            std::cout << "]";
+            if (av.size() != 1) {
+                std::cout << std::endl;
+            }
+            BOOST_CHECK_EQUAL(av.size(), 1);
+        }, [](auto iovs, std::size_t total){
+            std::cout << " [hook iovs.sz: " << iovs.size() << " total: " << total << "]" << std::endl;
+            BOOST_CHECK(false);
+        }),
+        proto::value(proto::types::u8{2_c})
+    );
+
+    struct Policy2 : log_policy
+    {
+        void send(iovec_array iovs) const {
+            log_policy::send(iovs);
+            BOOST_REQUIRE_EQUAL(iovs.size(), 3);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
+            BOOST_CHECK_EQUAL(iovs[1].iov_len, 2);
+            BOOST_CHECK_EQUAL(iovs[2].iov_len, 3);
+            CHECK_RANGE(
+                iov2av(iovs[0]),
+                cstr_array_view("\x05")
+            );
+            CHECK_RANGE(
+                iov2av(iovs[1]),
+                cstr_array_view("\x03\x02")
+            );
+            CHECK_RANGE(
+                iov2av(iovs[2]),
+                cstr_array_view("abc")
+            );
+            this->used = true;
+        }
+
+        Policy2(bool & used) : used(used) {}
+        bool & used;
+    };
+    proto::apply(
+        Buffering2<Policy2>{used},
+        b2(),
+        b3(c = 3_c),
+        proto::hook<class hook>([](array_view_u8 av){
+            BOOST_CHECK(false);
+            using voidp = void*;
+            std::cout << " [hook av{0x" << voidp(av.data()) << ", " << av.size() << "}] [data:";
+            BOOST_CHECK(false);
+        }, [](iovec_array iovs, std::size_t total){
+            std::cout << " [hook.sz: " << iovs.size() << "}] [data:";
+            for (auto iov : iovs) {
+                for (auto byte : array_view_u8{static_cast<uint8_t *>(iov.iov_base), iov.iov_len}) {
+                    std::cout << " " << int(byte);
+                }
+            }
+            std::cout << "]";
+            if (iovs.size() != 2) {
+                std::cout << std::endl;
+            }
+            BOOST_CHECK_EQUAL(iovs.size(), 2);
+        }),
+        proto::value(proto::types::u8{2_c}),
+        proto::value(proto::types::bytes{{"abc", 3}})
+    );
 }
 
 // #include <chrono>

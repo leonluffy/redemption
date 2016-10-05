@@ -665,6 +665,14 @@ namespace proto
     constexpr auto cifv(std::false_type, T && v, True &&, False && f)
     { return f(std::forward<T>(v)); }
 
+    template<class True, class False>
+    constexpr True && select(std::true_type, True && r, False &&)
+    { return r; }
+
+    template<class True, class False>
+    constexpr False && select(std::false_type, True &&, False && r)
+    { return r; }
+
 
     template<class Dep, class Desc>
     struct var
@@ -1125,6 +1133,57 @@ namespace proto
     // TODO value<Deps, Desc>()
 
     // TODO values(...)
+
+
+    template<class F, class FF = void>
+    struct hook_impl
+    {
+        using sizeof_ = size_<0>;
+        using is_reserializer = std::true_type;
+
+        template<class... T>
+        sizeof_ static_reserialize(uint8_t *, T... args) const
+        {
+            auto cond = brigand::bool_<sizeof...(args) == 1>{};
+            select(cond, this->f, this->ff)(args...);
+            return sizeof_{};
+        }
+
+        F f;
+        FF ff;
+    };
+
+    template<class F>
+    struct hook_impl<F, void>
+    {
+        using sizeof_ = size_<0>;
+        using is_reserializer = std::true_type;
+
+        template<class... T>
+        sizeof_ static_reserialize(uint8_t *, T... args) const
+        {
+            this->f(args...);
+            return sizeof_{};
+        }
+
+        F f;
+    };
+
+    template<class F, class... FF>
+    auto hook(F f, FF ... ff)
+    {
+        using desc_type = hook_impl<F, FF...>;
+        using value_type = val<void, desc_type>;
+        return packet<F, value_type>{value_type{f, ff...}};
+    }
+
+    template<class Deps, class F, class... FF>
+    auto hook(F f, FF ... ff)
+    {
+        using desc_type = hook_impl<F, FF...>;
+        using value_type = val<Deps, desc_type>;
+        return packet<Deps, value_type>{value_type{f, ff...}};
+    }
 
 
     template<class Deps, class... Ts>

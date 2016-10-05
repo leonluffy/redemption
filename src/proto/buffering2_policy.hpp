@@ -772,11 +772,19 @@ using to_is_last_list = brigand::push_back<
 >;
 
 template<class T, class F>
+void cifv(std::true_type, T && v, F && f)
+{ f(std::forward<T>(v)); }
+
+template<class T, class F>
 void cifv(std::false_type, T &&, F &&)
 {}
 
-template<class T, class F>
-void cifv(std::true_type, T && v, F && f)
+template<class T, class F, class FElse>
+void cifv(std::true_type, T && v, F && f, FElse &&)
+{ f(std::forward<T>(v)); }
+
+template<class T, class F, class FElse>
+void cifv(std::false_type, T && v, F &&, FElse && f)
 { f(std::forward<T>(v)); }
 
 #ifdef IN_IDE_PARSER
@@ -1083,7 +1091,6 @@ struct Buffering2
 
             PROTO_TRACE("\nsizes: ");
             PROTO_ENABLE_IF_TRACE(for (auto sz : this->sizes) PROTO_TRACE(sz << " "));
-            PROTO_TRACE("\n\n");
 
             this->buffers.reset_ptr(this->buffer_tuple);
 
@@ -1094,6 +1101,13 @@ struct Buffering2
                     this->sizes[i] += this->sizes[i+1];
                 }
             }
+
+            PROTO_TRACE("\nsizes: ");
+            PROTO_ENABLE_IF_TRACE(for (auto sz : this->sizes) PROTO_TRACE(sz << " "));
+
+            PROTO_TRACE("\nbuf.size[]: ");
+            PROTO_ENABLE_IF_TRACE(for (auto iov : this->buffers.data) PROTO_TRACE(iov.iov_len << " "));
+            PROTO_TRACE("\n\n");
 
             this->serialize_spe(brigand::reverse<val_infos>{}, pkts...);
 
@@ -1129,6 +1143,7 @@ struct Buffering2
         template<class Info, class Val>
         void serialize_spe_value(Info, std::true_type, Val const & val)
         {
+            PROTO_TRACE("i" << Info::i << ".b" << Info::ibuf << ".p" << Info::ipacket << ". ");
             PROTO_TRACE(name(val) << " = ");
 
             using pkt_sz = typename Info::sz;
@@ -1166,55 +1181,68 @@ struct Buffering2
 
                 using buf_cat = proto::buffer_category<desc_type_t<Val>>;
 
-                uint8_t * p;
-                if (keep_info_pkt_data_ptr<Info>{}) {
-                    p = static_cast<uint8_t *>(*--this->ppkt_data_ptrs);
+                cifv(
+                    brigand::bool_<Info::ipacket + 1 == sizeof...(Pkts)>{},
+                    brigand::size_t<Info::ipacket>{},
+                    [&](auto){
+                        PROTO_TRACE(" [data: {null, 0}]");
+                        this->reserializer(buf_cat{}, buf, new_val.desc, array_view_u8{});
+                    },
+                    [&](auto ipkt){
+                        using next_ipkt = brigand::size_t<
+                            Info::i
+                          + brigand::size<brigand::at<desc_list_by_packet, decltype(ipkt)>>::value
+                          - Info::ivar
+                        >;
+                        using next_info = brigand::at<val_infos, next_ipkt>;
+                        using keep_pkt_data = keep_info_pkt_data_ptr<next_info>;
+                        PROTO_TRACE(" [ikeep_ptr: " << next_ipkt{} << "]");
+                        PROTO_TRACE(" [keep_ptr: " << keep_pkt_data{} << "]");
+
+                        uint8_t * p;
+                        if (keep_pkt_data{}) {
+                            assert(std::begin(pkt_data_ptrs) != this->ppkt_data_ptrs);
+                            p = static_cast<uint8_t *>(*--this->ppkt_data_ptrs);
+                        }
+
+                        if (next_info::ibuf == brigand::size<buffer_list>::value - 1) {
+                            auto iov_base = static_cast<uint8_t *>(iov.iov_base);
+                            this->reserializer(
+                                buf_cat{},
+                                buf,
+                                new_val.desc,
+                                keep_pkt_data{}
+                                ? array_view_u8{p, std::size_t(iov.iov_len - (p - iov_base))}
+                                : array_view_u8{iov_base, iov.iov_len}
+                            );
+                        }
+                        else {
+                            iovec tmpiov = iov;
+                            if (keep_pkt_data{}) {
 #ifndef NDEBUG
-                    auto iov_base = static_cast<uint8_t *>(iov.iov_base);
-                    assert(p <= iov_base);
-                    assert(iov.iov_len > std::size_t(iov_base - p));
+                                auto iov_base = static_cast<uint8_t *>(iov.iov_base);
+                                assert(iov_base <= p);
+                                assert(iov.iov_len >= std::size_t(p - iov_base));
 #endif
-                }
+                                iov.iov_len -= p - iov_base;
+                                iov.iov_base = p;
+                            }
 
-                if (Info::ibuf == brigand::size<buffer_list>::value - 1) {
-                    auto iov_base = static_cast<uint8_t *>(iov.iov_base);
-                    if (!keep_info_pkt_data_ptr<Info>{}) {
-                        p = iov_base;
-                    }
-                    this->reserializer(
-                        buf_cat{},
-                        buf,
-                        new_val.desc,
-                        keep_info_pkt_data_ptr<Info>{}
-                        ? [&]{
-                            return array_view_u8{
-                                p,
-                                std::size_t(iov.iov_len - (iov_base - p))
-                            };
-                        }()
-                        : array_view_u8{iov_base, iov.iov_len}
-                    );
-                }
-                else {
-                    iovec tmpiov = iov;
-                    if (keep_info_pkt_data_ptr<Info>{}) {
-                        iov.iov_base = p;
-                        iov.iov_len -= static_cast<uint8_t *>(iov.iov_base) - p;
-                    }
+                            this->reserializer(
+                                buf_cat{},
+                                buf,
+                                new_val.desc,
+                                //static_iovec_array<iovec, brigand::size<buffer_list>{} - next_info::ibuf>{};
+                                iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - next_info::ibuf)},
+                                this->sizes[next_info::ipacket+1]
+                            );
 
-                    this->reserializer(
-                        buf_cat{},
-                        buf,
-                        new_val.desc,
-                        //static_iovec_array<iovec, brigand::size<buffer_list>{} - Info::ibuf>{};
-                        iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - Info::ibuf)},
-                        this->next_size_or_0<Info>()
-                    );
-
-                    if (keep_info_pkt_data_ptr<Info>{}) {
-                        iov = tmpiov;
+                            if (keep_pkt_data{}) {
+                                iov = tmpiov;
+                            }
+                        }
                     }
-                }
+                );
             });
             PROTO_TRACE("\n");
         }
@@ -1323,7 +1351,7 @@ struct Buffering2
         void pre_serialize_value(Info, Val const & val)
         {
             (void)val;
-            PROTO_TRACE(Info::i << "." << Info::ibuf << ". ");
+            PROTO_TRACE("i" << Info::i << ".b" << Info::ibuf << ".p" << Info::ipacket << ". ");
             PROTO_TRACE(name(val));
             PROTO_ENABLE_IF_TRACE(
                 cifv(brigand::bool_<!has_special_pkt<Val>{}>{}, val, [this](auto const & v) {
