@@ -363,7 +363,7 @@ exe rdpclientcli
         snappy
         krb5
         gssglue
-    :   
+    :
         $(EXE_DEPENDENCIES)
     ;
 
@@ -467,7 +467,7 @@ unit-test test_send_wrm_chunk : tests/capture/test_send_wrm_chunk.cpp : $(TEST_D
 #transparentchunk.hpp
 unit-test test_transparentchunk : tests/capture/test_transparentchunk.cpp : $(TEST_DEPENDENCIES) ;
 #transparentplayer.hpp
-unit-test test_transparentplayer : tests/capture/test_transparentplayer.cpp : $(TEST_DEPENDENCIES) ;
+unit-test test_transparentplayer : tests/capture/test_transparentplayer.cpp : $(TEST_DEPENDENCIES) <library>crypto ;
 #transparentrecorder.hpp
 unit-test test_transparentrecorder : tests/capture/test_transparentrecorder.cpp : $(TEST_DEPENDENCIES) ;
 #utils/match_finder.hpp
@@ -642,8 +642,8 @@ unit-test test_virchan : tests/core/RDP/capabilities/test_virchan.cpp : $(TEST_D
 
 unit-test test_protect_graphics : tests/utils/test_protect_graphics.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png ;
 unit-test test_server : tests/core/test_server.cpp : $(TEST_DEPENDENCIES) ;
-unit-test test_session : tests/core/test_session.cpp : $(TEST_DEPENDENCIES) : <library>png ;
-unit-test test_session_server : tests/core/test_session_server.cpp : $(TEST_DEPENDENCIES) : <library>png ;
+unit-test test_session : tests/core/test_session.cpp : $(TEST_DEPENDENCIES) : <library>png <library>crypto ;
+unit-test test_session_server : tests/core/test_session_server.cpp : $(TEST_DEPENDENCIES) : <library>png <library>crypto ;
 unit-test test_wait_obj : tests/core/test_wait_obj.cpp : $(TEST_DEPENDENCIES) ;
 unit-test test_front : tests/front/test_front.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>openssl <library>snappy <library>d3des <library>krb5 <library>gssglue <library>png <library>d3des <library>dl <library>crypto ;
 
@@ -765,26 +765,26 @@ unit-test test_flat_interactive_target : tests/mod/internal/widget2/test_flat_in
 unit-test test_mod_api : tests/mod/test_mod_api.cpp : $(TEST_DEPENDENCIES) ;
 unit-test test_null : tests/mod/null/test_null.cpp : $(TEST_DEPENDENCIES) ;
 unit-test test_rdp_orders : tests/mod/rdp/test_rdp_orders.cpp : $(TEST_DEPENDENCIES) ;
-unit-test test_rdpdr_asynchronous_task : tests/mod/rdp/channels/test_rdpdr_asynchronous_task.cpp : $(TEST_DEPENDENCIES) ;
-unit-test test_cliprdr_channel : tests/mod/rdp/channels/test_cliprdr_channel.cpp : $(TEST_DEPENDENCIES) <library>png ;
-unit-test test_rdpdr_channel : tests/mod/rdp/channels/test_rdpdr_channel.cpp : $(TEST_DEPENDENCIES) <library>png ;
-unit-test test_vnc : tests/mod/vnc/test_vnc.cpp : $(TEST_DEPENDENCIES) <library>png ;
+unit-test test_rdpdr_asynchronous_task : tests/mod/rdp/channels/test_rdpdr_asynchronous_task.cpp : $(TEST_DEPENDENCIES) <library>crypto ;
+unit-test test_cliprdr_channel : tests/mod/rdp/channels/test_cliprdr_channel.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
+unit-test test_rdpdr_channel : tests/mod/rdp/channels/test_rdpdr_channel.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
+unit-test test_vnc : tests/mod/vnc/test_vnc.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
 unit-test test_xup : tests/mod/xup/test_xup.cpp : $(TEST_DEPENDENCIES) ;
 ## @}
 
 ## Mod internal tests
 ## @{
-unit-test test_flat_dialog_mod : tests/mod/internal/test_flat_dialog_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png ;
-unit-test test_flat_login_mod : tests/mod/internal/test_flat_login_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png ;
-unit-test test_flat_wab_close_mod : tests/mod/internal/test_flat_wab_close_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png ;
-unit-test test_widget_test_mod : tests/mod/internal/test_widget_test_mod.cpp : $(TEST_DEPENDENCIES) <library>png ;
+unit-test test_flat_dialog_mod : tests/mod/internal/test_flat_dialog_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png <library>crypto ;
+unit-test test_flat_login_mod : tests/mod/internal/test_flat_login_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png <library>crypto ;
+unit-test test_flat_wab_close_mod : tests/mod/internal/test_flat_wab_close_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png <library>crypto ;
+unit-test test_widget_test_mod : tests/mod/internal/test_widget_test_mod.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
 unit-test test_interactive_target_mod : tests/mod/internal/test_interactive_target_mod.cpp : $(TEST_DEPENDENCIES) <library>bitmap <library>png <library>crypto ;
 
-unit-test test_bouncer2_mod : tests/mod/internal/test_bouncer2_mod.cpp : $(TEST_DEPENDENCIES) <library>png ;
-unit-test test_test_card_mod : tests/mod/internal/test_test_card_mod.cpp : $(TEST_DEPENDENCIES) <library>png ;
+unit-test test_bouncer2_mod : tests/mod/internal/test_bouncer2_mod.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
+unit-test test_test_card_mod : tests/mod/internal/test_test_card_mod.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
 
-unit-test test_replay_mod : tests/mod/internal/test_replay_mod.cpp : $(TEST_DEPENDENCIES) <library>png ;
-unit-test test_internal_mod : tests/mod/internal/test_internal_mod.cpp : $(TEST_DEPENDENCIES) ;
+unit-test test_replay_mod : tests/mod/internal/test_replay_mod.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
+unit-test test_internal_mod : tests/mod/internal/test_internal_mod.cpp : $(TEST_DEPENDENCIES) <library>crypto ;
 
 unit-test test_copy_paste : tests/mod/internal/test_copy_paste.cpp : $(TEST_DEPENDENCIES) <library>png <library>crypto ;
 ## @}
