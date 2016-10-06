@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cinttypes>
 
 #include "transport/transport.hpp"
 #include "utils/stream.hpp"
@@ -264,7 +265,7 @@ private:
             while (differs < available_len && data[differs] == this->data.get()[this->current+differs]) {
                 ++differs;
             }
-            LOG(LOG_ERR, "=============== Common Part =======");
+            LOG(LOG_ERR, "=============== Common Part (%" PRIu32 ") =======", differs);
             hexdump_c(data, differs);
             LOG(LOG_ERR, "=============== Expected ==========");
             hexdump_c(this->data.get() + this->current + differs, available_len - differs);

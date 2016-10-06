@@ -1105,7 +1105,7 @@ struct Buffering2
             PROTO_TRACE("\nsizes: ");
             PROTO_ENABLE_IF_TRACE(for (auto sz : this->sizes) PROTO_TRACE(sz << " "));
 
-            PROTO_TRACE("\nbuf.size[]: ");
+            PROTO_TRACE("\nbuf.iov.len: ");
             PROTO_ENABLE_IF_TRACE(for (auto iov : this->buffers.data) PROTO_TRACE(iov.iov_len << " "));
             PROTO_TRACE("\n\n");
 
@@ -1226,12 +1226,15 @@ struct Buffering2
                                 iov.iov_base = p;
                             }
 
+                            constexpr std::size_t iov_count = brigand::size<buffer_list>{} - next_info::ibuf;
+                            PROTO_TRACE(" [iov_count: " << iov_count << "]");
+                            PROTO_TRACE(" [total: " << this->sizes[next_info::ipacket] << "]");
                             this->reserializer(
                                 buf_cat{},
                                 buf,
                                 new_val.desc,
                                 //static_iovec_array<iovec, brigand::size<buffer_list>{} - next_info::ibuf>{};
-                                iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - next_info::ibuf)},
+                                iovec_array{&iov, iov_count},
                                 this->sizes[next_info::ipacket]
                             );
 
@@ -1373,13 +1376,20 @@ struct Buffering2
                         *this->psize = sz;
                     });
                 }
-                else if (Info::is_begin_buf) {
-                    PROTO_TRACE(" [*psz: 0] ");
-                    *this->psize = 0;
-                }
                 else {
-                    PROTO_TRACE(" [*psz: " << -*(this->psize - 1) << "] ");
-                    *this->psize = -*(this->psize - 1);
+                    cifv(
+                        brigand::bool_<Info::is_begin_buf>{},
+                        brigand::size_t<Info::ibuf>{},
+                        [this](auto){
+                            PROTO_TRACE(" [*psz: 0] ");
+                            *this->psize = 0;
+                        },
+                        [this](auto ibuf){
+                            using i = decltype(ibuf);
+                            PROTO_TRACE(" [*psz: -" << (this->iov_base() - get<i::value>(this->buffer_tuple).buf) << "] ");
+                            *this->psize = -(this->iov_base() - get<i::value>(this->buffer_tuple).buf);
+                        }
+                    );
                 }
             }
 
@@ -1424,15 +1434,19 @@ struct Buffering2
                 *this->psize += this->piov->iov_len;
             }
 
-            if (Info::is_end_pkt) {
+            if (Info::is_end_pkt || Info::is_end_buf) {
                 using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
-                using is_limited = is_limited_size<sizeof_packet>;
+                using is_size = is_size_<sizeof_packet>;
+                using is_limited = brigand::bool_<!is_size{} && !is_view{} && !is_dyn{}>;
                 cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
                     using i = decltype(ibuf);
                     auto const inc_sz = this->iov_base() - get<i::value>(this->buffer_tuple).buf;
                     PROTO_TRACE(" [*psz: +" << inc_sz << "] ");
                     *this->psize += inc_sz;
                 });
+            }
+
+            if (Info::is_end_pkt) {
                 PROTO_TRACE(" [++psz] ");
                 ++this->psize;
             }

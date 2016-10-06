@@ -31,6 +31,7 @@ inline void hexdump_d(iovec_array iovs, std::size_t n)
     auto arr = std::make_unique<uint8_t[]>(n);
     auto p = arr.get();
     for (auto const & iov : iovs) {
+        assert(p - arr.get() + iov.iov_len <= n);
         memcpy(p, iov.iov_base, iov.iov_len);
         p += iov.iov_len;
     }

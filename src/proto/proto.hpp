@@ -328,7 +328,7 @@ namespace proto
                 assert(!(val & 0x8000));
                 return (val <= 127)
                     ? u8{uint8_t(val)}.static_serialize(p)
-                    : u16_be{val}.static_serialize(p);
+                    : u16_be{uint16_t(val|0x8000)}.static_serialize(p);
             }
         };
         template<class E> using enum_u16_encoding = enum_<E, u16_encoding>;
