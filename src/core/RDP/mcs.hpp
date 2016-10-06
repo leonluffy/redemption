@@ -3008,7 +3008,9 @@ namespace mcs
     PROTO_VAR(proto::types::u8, type);
     PROTO_VAR(proto::types::u16_be, initiator);
     PROTO_VAR(proto::types::u16_be, channel_id);
+    // NOTE always 1 ?
     PROTO_VAR(proto::types::enum_u8<DataPriority>, data_priority);
+    // NOTE always 3 ?
     PROTO_VAR(proto::types::enum_u8<Segmentation>, segmentation);
 
     constexpr auto data_request = proto::desc(
@@ -3028,4 +3030,51 @@ namespace mcs
             ((data_priority << 6) | (segmentation << 4)),
         proto::sz<proto::types::u16_encoding>{}
     );
+
+
+    PROTO_VAR(proto::types::enum_u8<decltype(MCS::RT_SUCCESSFUL)>, result);
+    PROTO_VAR(proto::types::u16_be, requested);
+
+    // with channel_id
+    constexpr auto channel_join_confirm = proto::desc(
+        type = proto::cast((MCS::MCSPDU_ChannelJoinConfirm << 2) | 2),
+        result,
+        initiator,
+        requested,
+        channel_id
+    );
+
+    // with initiator
+    constexpr auto attach_user_confirm = proto::desc(
+        type = proto::cast((MCS::MCSPDU_AttachUserConfirm << 2) | 2),
+        result,
+        initiator
+    );
+
+    PROTO_VAR(proto::types::u8, reason);
+
+//     constexpr auto disconnect_provider_ultimatum = proto::desc(
+//         type = proto::cast((MCS::MCSPDU_DisconnectProviderUltimatum << 10) | (reason << 7))
+//     );
+//
+//
+//     //    DisconnectProviderUltimatum ::= [APPLICATION 8] IMPLICIT SEQUENCE
+// //    {
+// //        reason          Reason
+// //    }
+//
+//     struct DisconnectProviderUltimatum_Send
+//     {
+//         DisconnectProviderUltimatum_Send(OutStream & stream, uint8_t reason, int encoding)
+//         {
+//             if (encoding != PER_ENCODING){
+//                 LOG(LOG_ERR, "DisconnectProviderUltimatum PER_ENCODING mandatory");
+//                 throw Error(ERR_MCS);
+//             }
+//             uint16_t data = ( (MCS::MCSPDU_DisconnectProviderUltimatum << 10)
+//                             | (reason << 7)
+//                             );
+//             stream.out_uint16_be(data);
+//         }
+//     };
 }

@@ -109,6 +109,8 @@
 
 #include "gdi/clip_from_cmd.hpp"
 
+#include "proto/write_in_transport.hpp"
+
 #include <memory>
 
 
@@ -499,34 +501,6 @@ private:
             X224::DT_TPDU_Send(x224_header, sz);
         }
     };
-
-    /// \param fn  Fn(MCS::ChannelJoinRequest_Recv &)
-    template<class Fn>
-    void channel_join_request_transmission(Fn fn) {
-        constexpr size_t array_size = 256;
-        uint8_t array[array_size];
-        uint8_t * end = array;
-        X224::RecvFactory fx224(this->trans, &end, array_size);
-        REDASSERT(fx224.type == X224::DT_TPDU);
-        InStream x224_data(array, end - array);
-        X224::DT_TPDU_Recv x224(x224_data);
-        MCS::ChannelJoinRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
-
-        fn(mcs);
-
-        write_packets(
-            this->trans,
-            [&mcs](StreamSize<256>, OutStream & mcs_cjcf_data) {
-                MCS::ChannelJoinConfirm_Send(
-                    mcs_cjcf_data, MCS::RT_SUCCESSFUL,
-                    mcs.initiator, mcs.channelId,
-                    true, mcs.channelId,
-                    MCS::PER_ENCODING
-                );
-            },
-            write_x224_dt_tpdu_fn{}
-        );
-    }
 
     static gdi::GraphicApi & null_gd() {
         static gdi::BlackoutGraphic gd;
@@ -1700,37 +1674,63 @@ public:
                 LOG(LOG_INFO, "Front::incoming::Send MCS::AttachUserConfirm userid=%u", this->userid);
             }
 
-            write_packets(
+            write_in_transport(
                 this->trans,
-                [this](StreamSize<256>, OutStream & mcs_data) {
-                    MCS::AttachUserConfirm_Send(mcs_data, MCS::RT_SUCCESSFUL, true, this->userid, MCS::PER_ENCODING);
-                },
-                write_x224_dt_tpdu_fn{}
+                x224::dt_tpdu(),
+                mcs::attach_user_confirm(
+                    mcs::result = MCS::RT_SUCCESSFUL,
+                    mcs::initiator = this->userid
+                )
             );
 
-            this->channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
-                this->userid = mcs.initiator;
-            });
-            this->channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
-                if (mcs.initiator != this->userid) {
-                    LOG(LOG_ERR, "MCS error bad userid, expecting %u got %u", this->userid, mcs.initiator);
+            auto channel_join_request_transmission = [this](auto fn){
+                constexpr size_t array_size = 256;
+                uint8_t array[array_size];
+                uint8_t * end = array;
+                X224::RecvFactory fx224(this->trans, &end, array_size);
+                REDASSERT(fx224.type == X224::DT_TPDU);
+                InStream x224_data(array, end - array);
+                X224::DT_TPDU_Recv x224(x224_data);
+                MCS::ChannelJoinRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
+
+                if (!fn(mcs)) {
+                    LOG(LOG_ERR, "MCS error bad userid, expecting %" PRIu16 " got %" PRIu16,
+                        this->userid, mcs.initiator);
                     throw Error(ERR_MCS_BAD_USERID);
                 }
+
+                write_in_transport(
+                    this->trans,
+                    x224::dt_tpdu(),
+                    mcs::channel_join_confirm(
+                        mcs::result = MCS::RT_SUCCESSFUL,
+                        mcs::initiator = mcs.initiator,
+                        mcs::channel_id = mcs.channelId,
+                        mcs::requested = mcs.channelId
+                    )
+                );
+            };
+
+            channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
+                this->userid = mcs.initiator;
+                return std::true_type{};
+            });
+            channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
+                return (mcs.initiator == this->userid);
             });
 
             for (size_t i = 0 ; i < this->channel_list.size(); ++i) {
-                this->channel_join_request_transmission([this,i](MCS::ChannelJoinRequest_Recv & mcs) {
+                channel_join_request_transmission([this,i](MCS::ChannelJoinRequest_Recv & mcs) {
                     if (this->verbose & 16) {
                         LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16 " -> cjcf", i, mcs.channelId);
                     }
 
-                    if (mcs.initiator != this->userid) {
-                        LOG(LOG_ERR, "MCS error bad userid, expecting %" PRIu16 " got %" PRIu16,
-                            this->userid, mcs.initiator);
-                        throw Error(ERR_MCS_BAD_USERID);
+                    if (mcs.initiator == this->userid) {
+                        this->channel_list.set_chanid(i, mcs.channelId);
+                        return true;
                     }
 
-                    this->channel_list.set_chanid(i, mcs.channelId);
+                    return false;
                 });
             }
 
@@ -1878,32 +1878,34 @@ public:
                     LOG(LOG_INFO, "Front::incoming::licencing send_media_lic_response");
                 }
 
-                this->send_data_indication(
-                    GCC::MCS_GLOBAL_CHANNEL,
-                    [this](StreamSize<24>, OutStream & sec_header) {
-                        /* mce */
-                        /* some compilers need unsigned char to avoid warnings */
-                        uint8_t lic3[] = {
-                            0xff, 0x03, 0x10, 0x00,
-                            0x07, 0x00, 0x00, 0x00,
-                            0x02, 0x00, 0x00, 0x00,
-                            0xf3, 0x99, 0x00, 0x00
-                        };
-                        static_assert(sizeof(lic3) == 16, "");
+                /* some compilers need unsigned char to avoid warnings */
+                uint8_t lic3[] = {
+                    0xff, 0x03, 0x10, 0x00,
+                    0x07, 0x00, 0x00, 0x00,
+                    0x02, 0x00, 0x00, 0x00,
+                    0xf3, 0x99, 0x00, 0x00
+                };
+                static_assert(sizeof(lic3) == 16, "");
 
-                        SEC::Sec_Send sec(
-                            sec_header, lic3, sizeof(lic3),
-                            SEC::SEC_LICENSE_PKT | 0x00100200, this->encrypt, 0
-                        );
-                        (void)sec;
+                if ((this->verbose & (128 | 2)) == (128 | 2)) {
+                    LOG(LOG_INFO, "Sec clear payload to send:");
+                    hexdump_d(lic3, sizeof(lic3));
+                }
 
-                        sec_header.out_copy_bytes(lic3, sizeof(lic3));
-
-                        if ((this->verbose & (128 | 2)) == (128 | 2)) {
-                            LOG(LOG_INFO, "Sec clear payload to send:");
-                            hexdump_d(lic3, sizeof(lic3));
-                        }
-                    }
+                write_in_transport(
+                    this->trans,
+                    x224::dt_tpdu(),
+                    mcs::data_indication(
+                        mcs::initiator = this->userid,
+                        mcs::channel_id = GCC::MCS_GLOBAL_CHANNEL,
+                        mcs::data_priority = mcs::DataPriority::high,
+                        mcs::segmentation = mcs::Segmentation::end
+                    ),
+                    sec::sec(
+                        sec::crypt = this->encrypt,
+                        sec::flags = proto::cast(SEC::SEC_LICENSE_PKT | SEC::SEC_LICENSE_ENCRYPT_CS | 0x00100000)
+                    ),
+                    proto::value(proto::types::bytes{lic3})
                 );
 
                 // proceed with capabilities exchange
@@ -1934,80 +1936,78 @@ public:
                     LOG(LOG_INFO, "Front::incoming::licencing send_lic_initial");
                 }
 
-                this->send_data_indication(
-                    GCC::MCS_GLOBAL_CHANNEL,
-                    [this](StreamSize<314+8+4>, OutStream & sec_header) {
-                        /* some compilers need unsigned char to avoid warnings */
-                        static const uint8_t lic1[] = {
-                            // SEC_RANDOM ?
-                            0x7b, 0x3c, 0x31, 0xa6, 0xae, 0xe8, 0x74, 0xf6,
-                            0xb4, 0xa5, 0x03, 0x90, 0xe7, 0xc2, 0xc7, 0x39,
-                            0xba, 0x53, 0x1c, 0x30, 0x54, 0x6e, 0x90, 0x05,
-                            0xd0, 0x05, 0xce, 0x44, 0x18, 0x91, 0x83, 0x81,
-                            //
-                            0x00, 0x00, 0x04, 0x00, 0x2c, 0x00, 0x00, 0x00,
-                            0x4d, 0x00, 0x69, 0x00, 0x63, 0x00, 0x72, 0x00,
-                            0x6f, 0x00, 0x73, 0x00, 0x6f, 0x00, 0x66, 0x00,
-                            0x74, 0x00, 0x20, 0x00, 0x43, 0x00, 0x6f, 0x00,
-                            0x72, 0x00, 0x70, 0x00, 0x6f, 0x00, 0x72, 0x00,
-                            0x61, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6f, 0x00,
-                            0x6e, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
-                            0x32, 0x00, 0x33, 0x00, 0x36, 0x00, 0x00, 0x00,
-                            0x0d, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x03, 0x00, 0xb8, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x06, 0x00, 0x5c, 0x00, 0x52, 0x53, 0x41, 0x31,
-                            0x48, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
-                            0x3f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
-                            0x01, 0xc7, 0xc9, 0xf7, 0x8e, 0x5a, 0x38, 0xe4,
-                            0x29, 0xc3, 0x00, 0x95, 0x2d, 0xdd, 0x4c, 0x3e,
-                            0x50, 0x45, 0x0b, 0x0d, 0x9e, 0x2a, 0x5d, 0x18,
-                            0x63, 0x64, 0xc4, 0x2c, 0xf7, 0x8f, 0x29, 0xd5,
-                            0x3f, 0xc5, 0x35, 0x22, 0x34, 0xff, 0xad, 0x3a,
-                            0xe6, 0xe3, 0x95, 0x06, 0xae, 0x55, 0x82, 0xe3,
-                            0xc8, 0xc7, 0xb4, 0xa8, 0x47, 0xc8, 0x50, 0x71,
-                            0x74, 0x29, 0x53, 0x89, 0x6d, 0x9c, 0xed, 0x70,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                            0x08, 0x00, 0x48, 0x00, 0xa8, 0xf4, 0x31, 0xb9,
-                            0xab, 0x4b, 0xe6, 0xb4, 0xf4, 0x39, 0x89, 0xd6,
-                            0xb1, 0xda, 0xf6, 0x1e, 0xec, 0xb1, 0xf0, 0x54,
-                            0x3b, 0x5e, 0x3e, 0x6a, 0x71, 0xb4, 0xf7, 0x75,
-                            0xc8, 0x16, 0x2f, 0x24, 0x00, 0xde, 0xe9, 0x82,
-                            0x99, 0x5f, 0x33, 0x0b, 0xa9, 0xa6, 0x94, 0xaf,
-                            0xcb, 0x11, 0xc3, 0xf2, 0xdb, 0x09, 0x42, 0x68,
-                            0x29, 0x56, 0x58, 0x01, 0x56, 0xdb, 0x59, 0x03,
-                            0x69, 0xdb, 0x7d, 0x37, 0x00, 0x00, 0x00, 0x00,
-                            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x0e, 0x00, 0x0e, 0x00, 0x6d, 0x69, 0x63, 0x72,
-                            0x6f, 0x73, 0x6f, 0x66, 0x74, 0x2e, 0x63, 0x6f,
-                            0x6d, 0x00
-                        };
-                        static_assert(sizeof(lic1) == 314, "");
+                /* some compilers need unsigned char to avoid warnings */
+                static const uint8_t lic1[] = {
+                    // SEC_RANDOM ?
+                    0x7b, 0x3c, 0x31, 0xa6, 0xae, 0xe8, 0x74, 0xf6,
+                    0xb4, 0xa5, 0x03, 0x90, 0xe7, 0xc2, 0xc7, 0x39,
+                    0xba, 0x53, 0x1c, 0x30, 0x54, 0x6e, 0x90, 0x05,
+                    0xd0, 0x05, 0xce, 0x44, 0x18, 0x91, 0x83, 0x81,
+                    //
+                    0x00, 0x00, 0x04, 0x00, 0x2c, 0x00, 0x00, 0x00,
+                    0x4d, 0x00, 0x69, 0x00, 0x63, 0x00, 0x72, 0x00,
+                    0x6f, 0x00, 0x73, 0x00, 0x6f, 0x00, 0x66, 0x00,
+                    0x74, 0x00, 0x20, 0x00, 0x43, 0x00, 0x6f, 0x00,
+                    0x72, 0x00, 0x70, 0x00, 0x6f, 0x00, 0x72, 0x00,
+                    0x61, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6f, 0x00,
+                    0x6e, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+                    0x32, 0x00, 0x33, 0x00, 0x36, 0x00, 0x00, 0x00,
+                    0x0d, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+                    0x03, 0x00, 0xb8, 0x00, 0x01, 0x00, 0x00, 0x00,
+                    0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                    0x06, 0x00, 0x5c, 0x00, 0x52, 0x53, 0x41, 0x31,
+                    0x48, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+                    0x3f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+                    0x01, 0xc7, 0xc9, 0xf7, 0x8e, 0x5a, 0x38, 0xe4,
+                    0x29, 0xc3, 0x00, 0x95, 0x2d, 0xdd, 0x4c, 0x3e,
+                    0x50, 0x45, 0x0b, 0x0d, 0x9e, 0x2a, 0x5d, 0x18,
+                    0x63, 0x64, 0xc4, 0x2c, 0xf7, 0x8f, 0x29, 0xd5,
+                    0x3f, 0xc5, 0x35, 0x22, 0x34, 0xff, 0xad, 0x3a,
+                    0xe6, 0xe3, 0x95, 0x06, 0xae, 0x55, 0x82, 0xe3,
+                    0xc8, 0xc7, 0xb4, 0xa8, 0x47, 0xc8, 0x50, 0x71,
+                    0x74, 0x29, 0x53, 0x89, 0x6d, 0x9c, 0xed, 0x70,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x08, 0x00, 0x48, 0x00, 0xa8, 0xf4, 0x31, 0xb9,
+                    0xab, 0x4b, 0xe6, 0xb4, 0xf4, 0x39, 0x89, 0xd6,
+                    0xb1, 0xda, 0xf6, 0x1e, 0xec, 0xb1, 0xf0, 0x54,
+                    0x3b, 0x5e, 0x3e, 0x6a, 0x71, 0xb4, 0xf7, 0x75,
+                    0xc8, 0x16, 0x2f, 0x24, 0x00, 0xde, 0xe9, 0x82,
+                    0x99, 0x5f, 0x33, 0x0b, 0xa9, 0xa6, 0x94, 0xaf,
+                    0xcb, 0x11, 0xc3, 0xf2, 0xdb, 0x09, 0x42, 0x68,
+                    0x29, 0x56, 0x58, 0x01, 0x56, 0xdb, 0x59, 0x03,
+                    0x69, 0xdb, 0x7d, 0x37, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                    0x0e, 0x00, 0x0e, 0x00, 0x6d, 0x69, 0x63, 0x72,
+                    0x6f, 0x73, 0x6f, 0x66, 0x74, 0x2e, 0x63, 0x6f,
+                    0x6d, 0x00
+                };
+                static_assert(sizeof(lic1) == 314, "");
 
-                        OutReservedStreamHelper hstream(sec_header.get_data(), 8, sec_header.get_capacity());
-                        OutStream & stream = hstream.get_data_stream();
-
-                        stream.out_uint8(LIC::LICENSE_REQUEST);
-                        stream.out_uint8(2); // preamble flags : PREAMBLE_VERSION_2_0 (RDP 4.0)
-                        stream.out_uint16_le(318); // wMsgSize = 318 including preamble
-
-                        stream.out_copy_bytes(lic1, sizeof(lic1));
-
+                write_in_transport(
+                    this->trans,
+                    x224::dt_tpdu(),
+                    mcs::data_indication(
+                        mcs::initiator = this->userid,
+                        mcs::channel_id = GCC::MCS_GLOBAL_CHANNEL,
+                        mcs::data_priority = mcs::DataPriority::high,
+                        mcs::segmentation = mcs::Segmentation::end
+                    ),
+                    sec::sec(
+                        sec::crypt = this->encrypt,
+                        sec::flags = SEC::SEC_LICENSE_PKT
+                    ),
+                    proto::hook([this](auto... args){
                         if ((this->verbose & (128 | 2)) == (128 | 2)) {
                             LOG(LOG_INFO, "Sec clear payload to send:");
-                            hexdump_d(stream.get_data(), stream.get_offset());
+                            hexdump_d(args...);
                         }
-
-                        StaticOutStream<8> tmp_sec_header;
-                        SEC::Sec_Send sec(
-                            tmp_sec_header, stream.get_data(), stream.get_offset(),
-                            SEC::SEC_LICENSE_PKT, this->encrypt, 0
-                        );
-                        (void)sec;
-
-                        auto packet = hstream.copy_to_head(tmp_sec_header);
-                        sec_header = OutStream(packet.data(), packet.size(), packet.size());
-                    }
+                    }),
+                    proto::values(
+                        proto::types::u8{{LIC::LICENSE_REQUEST}},
+                        proto::types::u8{{2_c}}, // preamble flags : PREAMBLE_VERSION_2_0 (RDP 4.0)
+                        proto::types::u16_le{{318_c}}, // wMsgSize = 318 including preamble
+                        proto::types::bytes{lic1}
+                    )
                 );
 
                 if (this->verbose & 2) {
@@ -2532,54 +2532,39 @@ public:
         }
     }
 
-    void send_valid_client_license_data() {
-        this->send_data_indication(
-            GCC::MCS_GLOBAL_CHANNEL,
-            [this](StreamSize<24>, OutStream & sec_header) {
-                // Valid Client License Data (LICENSE_VALID_CLIENT_DATA)
-
-                /* some compilers need unsigned char to avoid warnings */
-                uint8_t lic2[16] = {
-                    0xff,                   // bMsgType : ERROR_ALERT
-                    0x02,                   // NOT EXTENDED_ERROR_MSG_SUPPORTED, PREAMBLE_VERSION_2_0
-                    0x10, 0x00,             // wMsgSize: 16 bytes including preamble
-                    0x07, 0x00, 0x00, 0x00, // dwErrorCode : STATUS_VALID_CLIENT
-                    0x02, 0x00, 0x00, 0x00, // dwStateTransition ST_NO_TRANSITION
-                    0x28, 0x14,             // wBlobType : ignored because wBlobLen is 0
-                    0x00, 0x00              // wBlobLen  : 0
-                };
-                SEC::Sec_Send sec(
-                    sec_header, lic2, sizeof(lic2),
-                    SEC::SEC_LICENSE_PKT | 0x00100000, this->encrypt, 0
-                );
-                (void)sec;
-
-                if ((this->verbose & (128 | 2)) == (128 | 2)) {
-                    LOG(LOG_INFO, "Sec clear payload to send:");
-                    hexdump_d(lic2, sizeof(lic2));
-                }
-
-                sec_header.out_copy_bytes(lic2, sizeof(lic2));
-            }
-        );
-    }
-
-    template<class DataWriter>
-    void send_data_indication(uint16_t channelId, DataWriter data_writer)
+    void send_valid_client_license_data()
     {
-        write_packets(
+        /* some compilers need unsigned char to avoid warnings */
+        uint8_t lic2[] = {
+            0xff,                   // bMsgType : ERROR_ALERT
+            0x02,                   // NOT EXTENDED_ERROR_MSG_SUPPORTED, PREAMBLE_VERSION_2_0
+            0x10, 0x00,             // wMsgSize: 16 bytes including preamble
+            0x07, 0x00, 0x00, 0x00, // dwErrorCode : STATUS_VALID_CLIENT
+            0x02, 0x00, 0x00, 0x00, // dwStateTransition ST_NO_TRANSITION
+            0x28, 0x14,             // wBlobType : ignored because wBlobLen is 0
+            0x00, 0x00              // wBlobLen  : 0
+        };
+        static_assert(sizeof(lic2) == 16, "");
+
+        if ((this->verbose & (128 | 2)) == (128 | 2)) {
+            LOG(LOG_INFO, "Sec clear payload to send:");
+            hexdump_d(lic2, sizeof(lic2));
+        }
+
+        write_in_transport(
             this->trans,
-            data_writer,
-            [channelId, this](StreamSize<256>, OutStream & mcs_header, std::size_t packet_sz) {
-                MCS::SendDataIndication_Send mcs(
-                    static_cast<OutPerStream&>(mcs_header),
-                    this->userid, channelId,
-                    1, 3, packet_sz,
-                    MCS::PER_ENCODING
-                );
-                (void)mcs;
-            },
-            write_x224_dt_tpdu_fn{}
+            x224::dt_tpdu(),
+            mcs::data_indication(
+                mcs::initiator = this->userid,
+                mcs::channel_id = GCC::MCS_GLOBAL_CHANNEL,
+                mcs::data_priority = mcs::DataPriority::high,
+                mcs::segmentation = mcs::Segmentation::end
+            ),
+            sec::sec(
+                sec::crypt = this->encrypt,
+                sec::flags = proto::cast(SEC::SEC_LICENSE_PKT | 0x00100000)
+            ),
+            proto::value(proto::types::bytes{lic2})
         );
     }
 

@@ -1219,11 +1219,9 @@ struct Buffering2
                         else {
                             iovec tmpiov = iov;
                             if (keep_pkt_data{}) {
-#ifndef NDEBUG
                                 auto iov_base = static_cast<uint8_t *>(iov.iov_base);
                                 assert(iov_base <= p);
                                 assert(iov.iov_len >= std::size_t(p - iov_base));
-#endif
                                 iov.iov_len -= p - iov_base;
                                 iov.iov_base = p;
                             }
@@ -1234,7 +1232,7 @@ struct Buffering2
                                 new_val.desc,
                                 //static_iovec_array<iovec, brigand::size<buffer_list>{} - next_info::ibuf>{};
                                 iovec_array{&iov, std::size_t(brigand::size<buffer_list>{} - next_info::ibuf)},
-                                this->sizes[next_info::ipacket+1]
+                                this->sizes[next_info::ipacket]
                             );
 
                             if (keep_pkt_data{}) {

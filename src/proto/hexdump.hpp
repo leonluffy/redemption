@@ -32,7 +32,7 @@ inline void hexdump_d(iovec_array iovs, std::size_t n)
     auto p = arr.get();
     for (auto const & iov : iovs) {
         memcpy(p, iov.iov_base, iov.iov_len);
-        p = reinterpret_cast<uint8_t*>(p) + iov.iov_len;
+        p += iov.iov_len;
     }
     hexdump_d(arr.get(), n);
 }

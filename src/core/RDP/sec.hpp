@@ -1913,6 +1913,7 @@ namespace sec
         return os << "proto_signature";
     }
 
+    // TODO proto::types::u32_le ?
     PROTO_VAR(proto::types::enum_u32_le<decltype(SEC::SEC_ENCRYPT)>, flags);
     PROTO_VAR(proto::types::value<CryptContext&>, crypt);
 

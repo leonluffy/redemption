@@ -59,6 +59,7 @@ namespace detail
     };
 }
 
+// TODO renamed to write_to_transport
 template<class Transport, class... Pkts>
 void write_in_transport(Transport & trans, Pkts const & ... pkts)
 {
@@ -69,6 +70,7 @@ void write_in_transport(Transport & trans, Pkts const & ... pkts)
 }
 
 
+// TODO renamed to write_to_stream
 template<class Stream, class... Pkts>
 void write_in_stream(Stream & stream, Pkts const & ... pkts)
 {
