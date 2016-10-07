@@ -2485,14 +2485,15 @@ public:
             }
 
             if (this->verbose & 16){
-                LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[index]);
+                LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
             }
+
             write_packets(
                 this->nego.trans,
-                [this, &this->ci.channels_id, index](StreamSize<256>, OutStream & mcs_cjrq_data){
+                [this](StreamSize<256>, OutStream & mcs_cjrq_data){
                     MCS::ChannelJoinRequest_Send mcs(
                         mcs_cjrq_data, this->userid,
-                        channels_id[index], MCS::PER_ENCODING
+                        this->ci.channels_id[this->ci.it.index], MCS::PER_ENCODING
                     );
                     (void)mcs;
                 },
@@ -2513,20 +2514,20 @@ public:
             MCS::ChannelJoinConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
             // TODO If mcs.result is negative channel is not confirmed and should be removed from mod_channel list
             if (this->verbose & 16){
-                LOG(LOG_INFO, "cjcf[%zu] = %" PRIu16, index, mcs.channelId);
+                LOG(LOG_INFO, "cjcf[%zu] = %" PRIu16, this->ci.it.index, mcs.channelId);
             }
             
             this->ci.it.index++;
             if (this->ci.it.index++ < this->ci.num_channels+2) {
                 if (this->verbose & 16){
-                    LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[index]);
+                    LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
                 }
                 write_packets(
                     this->nego.trans,
-                    [this, this->ci.channels_id, index](StreamSize<256>, OutStream & mcs_cjrq_data){
+                    [this](StreamSize<256>, OutStream & mcs_cjrq_data){
                         MCS::ChannelJoinRequest_Send mcs(
                             mcs_cjrq_data, this->userid,
-                            channels_id[index], MCS::PER_ENCODING
+                            this->ci.channels_id[this->ci.it.index], MCS::PER_ENCODING
                         );
                         (void)mcs;
                     },
