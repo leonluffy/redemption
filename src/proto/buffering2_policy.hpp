@@ -160,9 +160,21 @@ using keep_info_pkt_data_ptr = brigand::bool_<
     !Info::is_begin_buf && Info::enable_pkt_data && Info::is_begin_pkt
 >;
 
+template<class Val, class Sz, class Sz2>
+using is_undeterministic_sizeof_special = brigand::bool_<
+    !proto::is_static_buffer<desc_type_t<Val>>::value
+    and (
+        (has_pkt_sz_with_self<Val>::value and !is_size_<Sz>::value)
+        or
+        (has_pkt_sz<Val>::value and !is_size_<Sz2>::value)
+        or
+        (has_pkt_data<Val>::value)
+    )
+>;
+
 template<class Info>
 using keep_info_special_pkt_ptr = brigand::bool_<
-    !Info::is_begin_buf && (
+    !Info::is_begin_buf && !Info::is_end_buf && (
         (
             has_pkt_sz_with_self<typename Info::val>::value and
             !is_size_<typename Info::sz_self>::value
@@ -185,14 +197,8 @@ using is_delimiter = brigand::bool_<
     proto::is_dynamic_buffer<desc_type_t<PrevVal>>::value
     or
     proto::is_view_buffer<desc_type_t<PrevVal>>::value
-    or (
-        proto::is_limited_buffer<desc_type_t<PrevVal>>::value
-        and (
-            (has_pkt_sz_with_self<PrevVal>::value and !is_size_<PrevSz>::value)
-            or
-            (has_pkt_sz<PrevVal>::value and !is_size_<PrevSz2>::value)
-        )
-    )
+    or
+    is_undeterministic_sizeof_special<PrevVal, PrevSz, PrevSz2>::value
 >;
 
 template<class IsEnd, class Val, class Sz, class Sz2>
@@ -1186,7 +1192,7 @@ struct Buffering2
                     brigand::size_t<Info::ipacket>{},
                     [&](auto){
                         PROTO_TRACE(" [data: {null, 0}]");
-                        this->reserializer(buf_cat{}, buf, new_val.desc, array_view_u8{});
+                        this->reserializer<Info>(buf_cat{}, buf, new_val.desc, array_view_u8{});
                     },
                     [&](auto ipkt){
                         using next_ipkt = brigand::size_t<
@@ -1207,7 +1213,7 @@ struct Buffering2
 
                         if (next_info::ibuf == brigand::size<buffer_list>::value - 1) {
                             auto iov_base = static_cast<uint8_t *>(iov.iov_base);
-                            this->reserializer(
+                            this->reserializer<Info>(
                                 buf_cat{},
                                 buf,
                                 new_val.desc,
@@ -1229,7 +1235,7 @@ struct Buffering2
                             constexpr std::size_t iov_count = brigand::size<buffer_list>{} - next_info::ibuf;
                             PROTO_TRACE(" [iov_count: " << iov_count << "]");
                             PROTO_TRACE(" [total: " << this->sizes[next_info::ipacket] << "]");
-                            this->reserializer(
+                            this->reserializer<Info>(
                                 buf_cat{},
                                 buf,
                                 new_val.desc,
@@ -1251,9 +1257,6 @@ struct Buffering2
         template<class Info, class Sp, class Get, class Val>
         void serialize_eval_sz(Get get, Val const & val)
         {
-            static_assert(
-                has_pkt_sz_with_self<Val>{} ? !proto::is_limited_buffer<desc_type_t<Info>>{} : true,
-                "unimplemented pkt_sz_with_self + limited_buffer");
             auto get_val = proto::val<Sp, Get>{get};
             auto const & new_val = val.desc.to_proto_value(proto::utils::make_parameters(get_val));
             using new_val_type = std::remove_reference_t<decltype(new_val)>;
@@ -1277,22 +1280,27 @@ struct Buffering2
 
         template<class Info, class Desc>
         void serialize_spe_type(proto::tags::limited_buffer, uint8_t * p, Desc const & d) {
-            std::size_t const len = this->policy.limited_serialize(p, d);
-            PROTO_TRACE(" [sz limited: " << len << "]");
-            this->buffers.data[Info::ibuf].iov_len += len;
-            for (std::size_t i = 0; i <= Info::ipacket; ++i) {
-                this->sizes[i] += len;
-            }
+            this->inc_size<Info>(this->policy.limited_serialize(p, d));
         }
 
-        template<class... Args>
+        template<class Info, class... Args>
         auto reserializer(proto::tags::static_buffer, Args && ... args) {
             this->policy.static_reserialize(args...);
         }
 
-        template<class... Args>
+        template<class Info, class... Args>
         auto reserializer(proto::tags::limited_buffer, Args && ... args) {
-            this->policy.limited_reserialize(args...);
+            this->inc_size<Info>(this->policy.limited_reserialize(args...));
+        }
+
+        template<class Info>
+        void inc_size(std::size_t n)
+        {
+            PROTO_TRACE(" [sz inc: " << n << "]");
+            this->buffers.data[Info::ibuf].iov_len += n;
+            for (std::size_t i = 0; i <= Info::ipacket; ++i) {
+                this->sizes[i] += n;
+            }
         }
 
         template<class... Infos, class DInfos>
@@ -1539,12 +1547,18 @@ struct Buffering2
                     proto::dsl::pkt_sz_with_self{}
                 );
             });
-            using is_special = brigand::bool_<
-                has_pkt_data<Val>{} or
-                (has_pkt_sz<Val>{} and is_size_<pkt_sz>{}) or
-                (has_pkt_sz_with_self<Val>{} and !is_size_<pkt_sz_self>{})
+
+            using is_undeterministic = is_undeterministic_sizeof_special<Val, pkt_sz_self, pkt_sz>;
+            cifv(is_undeterministic{}, val, [this](auto &) {
+                PROTO_TRACE(" [undeterministic reserve]");
+            });
+
+            using is_reservable = brigand::bool_<
+                !is_pkt_sz{} and
+                !is_pkt_sz_self{} and
+                !is_undeterministic{}
             >;
-            cifv(is_special{}, val, [this](auto & val) {
+            cifv(is_reservable{}, val, [this](auto & val) {
                 auto const sz = reserved_size(val);
                 PROTO_TRACE(" [reserved: " << sz << "]");
                 this->piov->iov_base = this->iov_base() + sz;

@@ -98,6 +98,6 @@ struct Printer
     template<class T>
     static void print(T const &, char)
     {
-        std::cout << "<???>";
+        std::cout << "<??""?>";
     }
 };

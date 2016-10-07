@@ -3048,33 +3048,13 @@ namespace mcs
     constexpr auto attach_user_confirm = proto::desc(
         type = proto::cast((MCS::MCSPDU_AttachUserConfirm << 2) | 2),
         result,
-        initiator
+        initiator // = proto::optional
     );
 
-    PROTO_VAR(proto::types::u8, reason);
+    PROTO_VAR(proto::types::enum_u8<MCS::t_reasons>, reason);
 
-//     constexpr auto disconnect_provider_ultimatum = proto::desc(
-//         type = proto::cast((MCS::MCSPDU_DisconnectProviderUltimatum << 10) | (reason << 7))
-//     );
-//
-//
-//     //    DisconnectProviderUltimatum ::= [APPLICATION 8] IMPLICIT SEQUENCE
-// //    {
-// //        reason          Reason
-// //    }
-//
-//     struct DisconnectProviderUltimatum_Send
-//     {
-//         DisconnectProviderUltimatum_Send(OutStream & stream, uint8_t reason, int encoding)
-//         {
-//             if (encoding != PER_ENCODING){
-//                 LOG(LOG_ERR, "DisconnectProviderUltimatum PER_ENCODING mandatory");
-//                 throw Error(ERR_MCS);
-//             }
-//             uint16_t data = ( (MCS::MCSPDU_DisconnectProviderUltimatum << 10)
-//                             | (reason << 7)
-//                             );
-//             stream.out_uint16_be(data);
-//         }
-//     };
+    constexpr auto disconnect_provider_ultimatum = proto::desc(
+        proto::retype<proto::types::u16_be>
+            ((MCS::MCSPDU_DisconnectProviderUltimatum << 10) | (reason << 7))
+    );
 }

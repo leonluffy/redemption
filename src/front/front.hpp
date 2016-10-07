@@ -1130,12 +1130,12 @@ public:
         }
 
         if (!this->is_client_disconnected) {
-            write_packets(
+            write_in_transport(
                 this->trans,
-                [](StreamSize<256>, OutStream & mcs_data) {
-                    MCS::DisconnectProviderUltimatum_Send(mcs_data, 3, MCS::PER_ENCODING);
-                },
-                write_x224_dt_tpdu_fn{}
+                x224::dt_tpdu(),
+                mcs::disconnect_provider_ultimatum(
+                    mcs::reason = MCS::RN_USER_REQUESTED
+                )
             );
         }
     }
@@ -2587,25 +2587,22 @@ public:
     }
 
 private:
+    void send_fastpath_data(InStream & data) override
+    {
+        if (this->verbose & 4) {
+            LOG(LOG_INFO, "Front::send_data: fast-path");
+        }
 
-    void send_fastpath_data(InStream & data) override {
-        write_packets(
+        write_in_transport(
             this->trans,
-            [&data, this](StreamSize<65536>, OutStream & stream) {
-                stream.out_copy_bytes(data.get_data(), data.get_capacity());
-
-                if (this->verbose & 4) {
-                    LOG(LOG_INFO, "Front::send_data: fast-path");
-                }
-            },
-            [this](StreamSize<256>, OutStream & fastpath_header, uint8_t * pkt_data, std::size_t pkt_sz) {
-                FastPath::ServerUpdatePDU_Send SvrUpdPDU(
-                    fastpath_header, pkt_data, pkt_sz,
-                    ((this->encryptionLevel > 1) ?
-                    FastPath::FASTPATH_OUTPUT_ENCRYPTED : 0),
-                    this->encrypt
-                );
-            }
+            fast_path::server_update(
+                fast_path::sec_flags = proto::cast(
+                    this->encryptionLevel > 1
+                  ? FastPath::FASTPATH_OUTPUT_ENCRYPTED
+                  : 0),
+                fast_path::crypt = this->encrypt
+            ),
+            proto::value(proto::types::bytes{{data.get_data(), data.get_capacity()}})
         );
     }
 

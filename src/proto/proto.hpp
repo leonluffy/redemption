@@ -230,8 +230,8 @@ namespace proto
 
         template<class U> constexpr safe_int(U x) noexcept : val{x} {}
 
-        operator T () const { return val; }
-        operator T & () { return val; }
+        constexpr operator T () const { return val; }
+        constexpr operator T & () { return val; }
     };
 
     namespace types {
@@ -330,6 +330,12 @@ namespace proto
                     ? u8{uint8_t(val)}.static_serialize(p)
                     : u16_be{uint16_t(val|0x8000)}.static_serialize(p);
             }
+
+            constexpr std::size_t reserved_size() const
+            {
+                // val + limited_serialize()
+                return (val < 127) ? 1u : 2u;
+            }
         };
         template<class E> using enum_u16_encoding = enum_<E, u16_encoding>;
 
@@ -365,6 +371,8 @@ namespace proto
                         serial(        val       )
                 ;
             }
+
+            // constexpr std::size_t reserved_size() const;
         };
         template<class E> using enum_u32_encoding = enum_<E, u32_encoding>;
         /** @} */
@@ -601,26 +609,49 @@ namespace proto
     { return Desc{std::forward<T>(x)}; }
 
     template<class T>
+    using is_integral_or_enum = brigand::bool_<std::is_integral<T>{} or std::is_enum<T>{}>;
+
+    template<class T, class R = void>
+    struct enable_is_integral_or_enum
+    : std::enable_if<std::is_integral<T>{} or std::is_enum<T>{}, R>
+    {};
+
+    template<class T, class R = void>
+    struct disable_is_integral_or_enum
+    : std::enable_if<!std::is_integral<T>{} and !std::is_enum<T>{}, R>
+    {};
+
+    template<class T, class R = void>
+    using enable_is_integral_or_enum_t = typename enable_is_integral_or_enum<T, R>::type;
+
+    template<class T, class R = void>
+    using disable_is_integral_or_enum_t = typename enable_is_integral_or_enum<T, R>::type;
+
+
+    template<class T>
     struct unsafe_cast_impl
     {
-        static_assert(std::is_integral<T>{} or std::is_enum<T>{}, "");
+        static_assert(is_integral_or_enum<T>{}, "");
         T value_;
     };
 
     template<class T>
-    constexpr unsafe_cast_impl<std::decay_t<T>> unsafe_cast(T v)
+    constexpr unsafe_cast_impl<T>
+    unsafe_cast(T v)
     { return {v}; }
 
     template<class T>
     struct safe_cast_impl
     {
-        static_assert(std::is_integral<T>{} or std::is_enum<T>{}, "");
+        static_assert(is_integral_or_enum<T>{}, "");
         T value_;
     };
 
     template<class T>
-    constexpr safe_cast_impl<std::decay_t<T>> cast(T v)
+    constexpr safe_cast_impl<T>
+    cast(T v)
     { return {v}; }
+
 
     namespace detail
     {
@@ -705,7 +736,7 @@ namespace proto
     private:
         template<class U>
         constexpr auto lax_impl(std::true_type, U v) const
-        { return *this = safe_cast_impl<U>{v}; }
+        { return *this = unsafe_cast_impl<U>{v}; }
 
         template<class U>
         constexpr auto lax_impl(std::false_type, U && v) const
@@ -1317,10 +1348,14 @@ namespace proto
     { f(detail::get_if_packet(pkts)...); }
 
 
-    template<class Desc, class Expr>
+    template<class Deps, class Desc, class Expr>
     struct retype_impl
     {
         using arguments = get_arguments_t<Expr>;
+        using dependencies = brigand::push_back<
+            get_dependencies<Expr>,
+            get_dependencies_if_void<Deps, brigand::list<>>
+        >;
 
         template<class Params>
         constexpr auto
@@ -1328,7 +1363,7 @@ namespace proto
         {
             using type = typename Desc::type;
             using dst = integral_type<type>;
-            return val<arguments, Desc>{{
+            return val<dependencies, Desc>{{
                 static_cast<type>(
                     checked_cast<dst>(this->expr_.to_proto_value(p).desc.val)
                 )
@@ -1338,15 +1373,50 @@ namespace proto
         Expr expr_;
     };
 
+    template<class T> struct as {};
+
+    // TODO redesk
     template<class Desc, class Expr>
-    constexpr retype_impl<Desc, Expr> retype(Expr expr)
+    constexpr
+    retype_impl<void, Desc, Expr>
+    retype(Expr expr)
+    { return {expr}; }
+
+    // TODO desk_as
+    template<class Dep, class Desc, class Expr>
+    constexpr
+    retype_impl<as<Dep>, Desc, Expr>
+    retype_as(var<Dep, Desc>, Expr expr)
     { return {expr}; }
 
 
     namespace dsl
     {
         template<class Deps, class Op, bool MutableOperator, class T, class U>
-        struct expr
+        struct expr;
+
+        // value
+        template<class Deps, class Desc>
+        struct expr<Deps, void, false, Desc, void>
+        {
+            using dependencies = get_dependencies<Deps>;
+            using desc_type = Desc;
+
+            template<class Params>
+            constexpr expr to_proto_value(Params) const
+            {
+                return *this;
+            }
+
+            Desc desc;
+        };
+
+        template<class Deps, class T>
+        using value = expr<Deps, void, false, types::value<T>, void>;
+
+        // mutable binary operator
+        template<class Deps, class Op, class T, class U>
+        struct expr<Deps, Op, true, T, U>
         {
             using dependencies = get_dependencies_if_void<Deps, T, U>;
             using arguments = brigand::append<
@@ -1373,27 +1443,22 @@ namespace proto
 
             T x_;
             U y_;
+
+        private:
+            template<class Dep, class Desc>
+            static constexpr
+            value<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(value<Dep, Desc> v)
+            { return {v.desc}; }
+
+            template<class Dep, class Desc>
+            static constexpr
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(proto::val<Dep, Desc> v)
+            { return {v.desc}; }
         };
 
-        // value
-        template<class Deps, class Desc>
-        struct expr<Deps, void, false, Desc, void>
-        {
-            using dependencies = get_dependencies<Deps>;
-            using desc_type = Desc;
-
-            template<class Params>
-            constexpr expr to_proto_value(Params) const
-            {
-                return *this;
-            }
-
-            Desc desc;
-        };
-
-        template<class Deps, class T>
-        using value = expr<Deps, void, false, types::value<T>, void>;
-
+        // binary operator
         template<class Deps, class Op, class T, class U>
         struct expr<Deps, Op, false, T, U>
         {
@@ -1412,25 +1477,102 @@ namespace proto
                     this->y_.to_proto_value(p).desc.val
                 );
                 return to_value(val);
-                //return value<decltype(val)>{{val}};
             }
 
             T x_;
             U y_;
 
         private:
-            template<class Dep, class V>
+            template<class Dep, class Desc>
             static constexpr
-            value<brigand::append<dependencies, get_dependencies<Dep>>, V>
-            to_value(value<Dep, V> v)
-            { return {{v.desc.val}}; }
+            value<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(value<Dep, Desc> v)
+            { return {v.desc}; }
+
+            template<class Dep, class Desc>
+            static constexpr
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(proto::val<Dep, Desc> v)
+            { return {v.desc}; }
 
             template<class V>
             static constexpr
-            value<Deps, V>
+            value<dependencies, V>
             to_value(V v)
-            { return {{v}}; }
+            { return {v}; }
         };
+
+        // mutable unary operator
+        template<class Deps, class Op, class T>
+        struct expr<Deps, Op, true, T, void>
+        {
+            using dependencies = get_dependencies_if_void<Deps, T>;
+            using arguments = get_arguments_t<T>;
+
+            template<class Params>
+            constexpr auto
+            to_proto_value(Params p) const
+            {
+                auto ret = this->x_.to_proto_value(p);
+                ret.desc.val = Op{}(ret.desc.val);
+                return this->to_value(ret);
+            }
+
+            T x_;
+
+        private:
+            template<class Dep, class Desc>
+            static constexpr
+            value<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(value<Dep, Desc> v)
+            { return {v.desc}; }
+
+            template<class Dep, class Desc>
+            static constexpr
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(proto::val<Dep, Desc> v)
+            { return {v.desc}; }
+        };
+
+        // unary operator
+        template<class Deps, class Op, class T>
+        struct expr<Deps, Op, false, T, void>
+        {
+            using dependencies = get_dependencies_if_void<Deps, T>;
+            using arguments = get_arguments_t<T>;
+
+            template<class Params>
+            constexpr auto
+            to_proto_value(Params p) const
+            {
+                auto val = Op{}(this->x_.to_proto_value(p).desc.val);
+                return to_value(val);
+            }
+
+            T x_;
+
+        private:
+            template<class Dep, class Desc>
+            static constexpr
+            value<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(value<Dep, Desc> v)
+            { return {v.desc}; }
+
+            template<class Dep, class Desc>
+            static constexpr
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
+            to_value(proto::val<Dep, Desc> v)
+            { return {v.desc}; }
+
+            template<class V>
+            static constexpr
+            value<dependencies, V>
+            to_value(V v)
+            { return {v}; }
+        };
+
+        template<class Op, bool MutableOperator, class T>
+        using unary_expr = expr<void, Op, MutableOperator, T, void>;
 
         // param
         template<class Dep>
@@ -1450,24 +1592,37 @@ namespace proto
         using param = expr<void, Dep, true, void, void>;
 
 
-        struct lshift {
-            template<class T, class U>
-            constexpr auto operator()(T x, U y) const
-            { return x << y; }
-        };
+        namespace ops
+        {
+            struct lshift
+            {
+                template<class T, class U>
+                constexpr auto operator()(T x, U y) const
+                { return x << y; }
+            };
+
+            struct unsafe_cast
+            {
+                template<class T>
+                constexpr auto operator()(T x) const
+                {
+                    return x;
+                }
+            };
+        }
     }
 
 #ifdef IN_IDE_PARSER
-# define PROTO_DSL_OPERATORS
-# define PROTO_DSL_OPERATOR(...)
+# define PROTO_DSL_BINARY_OPERATORS
+# define PROTO_DSL_BINARY_OPERATOR(...)
 #else
-# define PROTO_DSL_OPERATOR(mut, op_type, op)                      \
+# define PROTO_DSL_BINARY_OPERATOR(mut, op_type, op)               \
     namespace dsl {                                                \
         template<                                                  \
             class Deps, class Op, bool Mut, class T, class U,      \
             class V                                                \
-        > std::enable_if_t<                                        \
-            (std::is_integral<V>{} or std::is_enum<V>{}),          \
+        > enable_is_integral_or_enum_t<                            \
+            V,                                                     \
             expr<                                                  \
                 void, op_type, mut,                                \
                 expr<Deps, Op, Mut, T, U>,                         \
@@ -1481,8 +1636,8 @@ namespace proto
         template<                                                  \
             class V,                                               \
             class Deps, class Op, bool Mut, class T, class U       \
-        > std::enable_if_t<                                        \
-            (std::is_integral<V>{} or std::is_enum<V>{}),          \
+        > enable_is_integral_or_enum_t<                            \
+            V,                                                     \
             expr<                                                  \
                 void, op_type, mut,                                \
                 value<void, V>,                                    \
@@ -1533,8 +1688,8 @@ namespace proto
     template<                                                      \
         class Dep, class Desc,                                     \
         class V                                                    \
-    > std::enable_if_t<                                            \
-        (std::is_integral<V>::value or std::is_enum<V>::value),    \
+    > enable_is_integral_or_enum_t<                                \
+        V,                                                         \
         dsl::expr<                                                 \
             void, op_type, mut,                                    \
             dsl::param<Dep>,                                       \
@@ -1548,8 +1703,8 @@ namespace proto
     template<                                                      \
         class V,                                                   \
         class Dep, class Desc                                      \
-    > std::enable_if_t<                                            \
-        (std::is_integral<V>::value or std::is_enum<V>::value),    \
+    > enable_is_integral_or_enum_t<                                \
+        V,                                                         \
         dsl::expr<                                                 \
             void, op_type, mut,                                    \
             dsl::value<void, V>,                                   \
@@ -1572,17 +1727,18 @@ namespace proto
         var<Dep2, Desc2>                                           \
     ) { return {}; }
 
-# define PROTO_DSL_OPERATORS(op_type, op, op_eq) \
-    PROTO_DSL_OPERATOR(false, op_type, op)      \
-    PROTO_DSL_OPERATOR(true , op_type, op_eq)
+# define PROTO_DSL_BINARY_OPERATORS(op_type, op, op_eq) \
+    PROTO_DSL_BINARY_OPERATOR(false, op_type, op)      \
+    PROTO_DSL_BINARY_OPERATOR(true , op_type, op_eq)
 #endif
 
-    PROTO_DSL_OPERATORS(std::bit_and<>, &, &= )
-    PROTO_DSL_OPERATORS(std::bit_or<>, |, |= )
-    PROTO_DSL_OPERATORS(::proto::dsl::lshift, <<, <<= )
+    PROTO_DSL_BINARY_OPERATORS(std::bit_and<>, &, &= )
+    PROTO_DSL_BINARY_OPERATORS(std::bit_or<>, |, |= )
+    PROTO_DSL_BINARY_OPERATORS(::proto::dsl::ops::lshift, <<, <<= )
 
-#undef PROTO_DSL_OPERATOR
-#undef PROTO_DSL_OPERATORS
+#undef PROTO_DSL_BINARY_OPERATOR
+#undef PROTO_DSL_BINARY_OPERATORS
+
 
     constexpr struct params_
     {

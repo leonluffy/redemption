@@ -408,6 +408,43 @@ void other_test()
         proto::value(proto::types::u8{2_c}),
         proto::value(proto::types::bytes{{"abc", 3}})
     );
+    BOOST_CHECK(used);
+
+    struct Policy4 : log_policy
+    {
+        void send(iovec_array iovs) const {
+            log_policy::send(iovs);
+            BOOST_REQUIRE_EQUAL(iovs.size(), 3);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
+            BOOST_CHECK_EQUAL(iovs[1].iov_len, 1);
+            BOOST_CHECK_EQUAL(iovs[2].iov_len, 3);
+            CHECK_RANGE(
+                iov2av(iovs[0]),
+                cstr_array_view("\x04")
+            );
+            CHECK_RANGE(
+                iov2av(iovs[1]),
+                cstr_array_view("\x02")
+            );
+            CHECK_RANGE(
+                iov2av(iovs[2]),
+                cstr_array_view("abc")
+            );
+            this->used = true;
+        }
+
+        Policy4(bool & used) : used(used) {}
+        bool & used;
+    };
+    proto::apply(
+        Buffering2<Policy4>{used},
+        proto::desc(
+            proto::sz_with_self<proto::types::u16_encoding>{},
+            c
+        )(c = 2_c),
+        proto::value(proto::types::bytes{{"abc", 3}})
+    );
+    BOOST_CHECK(used);
 }
 
 // #include <chrono>
