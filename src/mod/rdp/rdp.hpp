@@ -657,6 +657,30 @@ public:
     GCC::UserData::SCCore sc_core;
     GCC::UserData::SCSecurity sc_sec1;
 
+    struct ChannelsInfo {
+        size_t num_channels;
+        uint16_t channels_id[CHANNELS::MAX_STATIC_VIRTUAL_CHANNELS + 2];
+        
+        struct Iterator {
+            enum {
+                STATE_INITIAL,
+                STATE_LOOP,
+                STATE_FINAL
+            } state;
+            size_t index;
+            Iterator() 
+                : state(STATE_LOOP)
+                , index(0)
+            {
+            }
+        } it;
+        
+        ChannelsInfo(const CHANNELS::ChannelDefArray & mod_channel_list) 
+            : num_channels(mod_channel_list.size())
+        {
+        }
+    } ci;
+
     mod_rdp( Transport & trans
            , FrontAPI & front
            , const ClientInfo & info
@@ -791,6 +815,7 @@ public:
         , client_execute_exe_or_file(mod_rdp_params.client_execute_exe_or_file)
         , client_execute_working_dir(mod_rdp_params.client_execute_working_dir)
         , client_execute_arguments(mod_rdp_params.client_execute_arguments)
+        , ci(this->mod_channel_list)
     {
         if (this->verbose & 1) {
             if (!enable_transparent_mode) {
@@ -2424,19 +2449,23 @@ public:
     }
 
 
-    void AttachUserConfirm()
+    uint16_t AttachUserConfirm_Recv(Transport & trans) const
     {
         constexpr size_t array_size = AUTOSIZE;
         uint8_t array[array_size];
         uint8_t * end = array;
-        X224::RecvFactory f(this->nego.trans, &end, array_size);
+        X224::RecvFactory f(trans, &end, array_size);
         InStream stream(array, end - array);
         X224::DT_TPDU_Recv x224(stream);
         InStream & mcs_cjcf_data = x224.payload;
         MCS::AttachUserConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
         if (mcs.initiator_flag){
-            this->userid = mcs.initiator;
+            return mcs.initiator;
         }
+        // TOOD: if we do not have initiator_flag, we should raise an error
+        // because initiator is mandatory in our use case
+        // the 0 value we return is the default value anyway
+        return 0;
     }
 
     void channel_connection_attach_user(time_t now)
@@ -2444,48 +2473,74 @@ public:
         if (this->verbose & 1){
             LOG(LOG_INFO, "mod_rdp::Channel Connection Attach User");
         }
+        
+        switch( this->ci.it.state)
         {
-            this->AttachUserConfirm();
-            {
-                size_t num_channels = this->mod_channel_list.size();
-
-                uint16_t channels_id[CHANNELS::MAX_STATIC_VIRTUAL_CHANNELS + 2];
-                channels_id[0] = this->userid + GCC::MCS_USERCHANNEL_BASE;
-                channels_id[1] = GCC::MCS_GLOBAL_CHANNEL;
-                for (size_t index = 0; index < num_channels; index++){
-                    channels_id[index+2] = this->mod_channel_list[index].chanid;
-                }
-
-                for (size_t index = 0; index < num_channels+2; index++) {
-                    if (this->verbose & 16){
-                        LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, index, channels_id[index]);
-                    }
-                    write_packets(
-                        this->nego.trans,
-                        [this, &channels_id, index](StreamSize<256>, OutStream & mcs_cjrq_data){
-                            MCS::ChannelJoinRequest_Send mcs(
-                                mcs_cjrq_data, this->userid,
-                                channels_id[index], MCS::PER_ENCODING
-                            );
-                            (void)mcs;
-                        },
-                        write_x224_dt_tpdu_fn{}
-                    );
-                    LOG(LOG_INFO, "Waiting for Channel Join Confirm");
-                    constexpr size_t array_size = AUTOSIZE;
-                    uint8_t array[array_size];
-                    uint8_t * end = array;
-                    X224::RecvFactory f(this->nego.trans, &end, array_size);
-                    InStream x224_data(array, end - array);
-                    X224::DT_TPDU_Recv x224(x224_data);
-                    InStream & mcs_cjcf_data = x224.payload;
-                    MCS::ChannelJoinConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
-                    // TODO If mcs.result is negative channel is not confirmed and should be removed from mod_channel list
-                    if (this->verbose & 16){
-                        LOG(LOG_INFO, "cjcf[%zu] = %" PRIu16, index, mcs.channelId);
-                    }
-                }
+        case ChannelsInfo::Iterator::STATE_INITIAL:
+            this->userid = this->AttachUserConfirm_Recv(this->nego.trans);
+            this->ci.channels_id[0] = this->userid + GCC::MCS_USERCHANNEL_BASE;
+            this->ci.channels_id[1] = GCC::MCS_GLOBAL_CHANNEL;
+            for (size_t index = 0; index < this->ci.num_channels; index++){
+                this->ci.channels_id[index+2] = this->mod_channel_list[index].chanid;
             }
+
+            if (this->verbose & 16){
+                LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[index]);
+            }
+            write_packets(
+                this->nego.trans,
+                [this, &this->ci.channels_id, index](StreamSize<256>, OutStream & mcs_cjrq_data){
+                    MCS::ChannelJoinRequest_Send mcs(
+                        mcs_cjrq_data, this->userid,
+                        channels_id[index], MCS::PER_ENCODING
+                    );
+                    (void)mcs;
+                },
+                write_x224_dt_tpdu_fn{}
+            );
+            this->ci.it.state = ChannelsInfo::Iterator::STATE_LOOP;
+            LOG(LOG_INFO, "Waiting for Channel Join Confirm");
+        break;                
+        case ChannelsInfo::Iterator::Iterator::STATE_LOOP:
+        {
+            constexpr size_t array_size = AUTOSIZE;
+            uint8_t array[array_size];
+            uint8_t * end = array;
+            X224::RecvFactory f(this->nego.trans, &end, array_size);
+            InStream x224_data(array, end - array);
+            X224::DT_TPDU_Recv x224(x224_data);
+            InStream & mcs_cjcf_data = x224.payload;
+            MCS::ChannelJoinConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
+            // TODO If mcs.result is negative channel is not confirmed and should be removed from mod_channel list
+            if (this->verbose & 16){
+                LOG(LOG_INFO, "cjcf[%zu] = %" PRIu16, index, mcs.channelId);
+            }
+            
+            this->ci.it.index++;
+            if (this->ci.it.index++ < this->ci.num_channels+2) {
+                if (this->verbose & 16){
+                    LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[index]);
+                }
+                write_packets(
+                    this->nego.trans,
+                    [this, this->ci.channels_id, index](StreamSize<256>, OutStream & mcs_cjrq_data){
+                        MCS::ChannelJoinRequest_Send mcs(
+                            mcs_cjrq_data, this->userid,
+                            channels_id[index], MCS::PER_ENCODING
+                        );
+                        (void)mcs;
+                    },
+                    write_x224_dt_tpdu_fn{}
+                );
+                LOG(LOG_INFO, "Waiting for Channel Join Confirm");
+            }
+            else {
+                this->ci.it.state = ChannelsInfo::Iterator::STATE_FINAL;
+            }
+        }
+        break;
+        case ChannelsInfo::Iterator::STATE_FINAL:
+        {
             if (this->verbose & 1){
                 LOG(LOG_INFO, "mod_rdp::Channel Connection Attach User end");
             }
@@ -2556,6 +2611,7 @@ public:
 
             this->send_client_info_pdu(now);
             this->state = MOD_RDP_GET_LICENSE;
+        }
         }
     }
 
