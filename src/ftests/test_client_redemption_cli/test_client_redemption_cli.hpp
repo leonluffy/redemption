@@ -859,7 +859,7 @@ struct MouseMove : public EventConfig
         , y(y)
     {}
 
-    MouseMove(MouseMove mouseMove)
+    MouseMove(const MouseMove & mouseMove)
         : EventConfig(mouseMove.front)
         , x(mouseMove.x)
         , y(mouseMove.y)

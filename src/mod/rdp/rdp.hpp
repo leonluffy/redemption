@@ -2478,13 +2478,16 @@ public:
         {
         case ChannelsInfo::Iterator::STATE_INITIAL:
             this->userid = this->AttachUserConfirm_Recv(this->nego.trans);
+
+            LOG(LOG_INFO, "Sending Channel Join Request");
+
             this->ci.channels_id[0] = this->userid + GCC::MCS_USERCHANNEL_BASE;
             this->ci.channels_id[1] = GCC::MCS_GLOBAL_CHANNEL;
             for (size_t index = 0; index < this->ci.num_channels; index++){
                 this->ci.channels_id[index+2] = this->mod_channel_list[index].chanid;
             }
 
-            if (this->verbose & 16){
+            if (1/*this->verbose & 16*/){
                 LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
             }
 
@@ -2502,7 +2505,7 @@ public:
             this->ci.it.state = ChannelsInfo::Iterator::STATE_LOOP;
             LOG(LOG_INFO, "Waiting for Channel Join Confirm");
         break;                
-        case ChannelsInfo::Iterator::Iterator::STATE_LOOP:
+        case ChannelsInfo::Iterator::STATE_LOOP:
         {
             constexpr size_t array_size = AUTOSIZE;
             uint8_t array[array_size];
@@ -2513,13 +2516,14 @@ public:
             InStream & mcs_cjcf_data = x224.payload;
             MCS::ChannelJoinConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
             // TODO If mcs.result is negative channel is not confirmed and should be removed from mod_channel list
-            if (this->verbose & 16){
+            if (1 /*this->verbose & 16*/){
                 LOG(LOG_INFO, "cjcf[%zu] = %" PRIu16, this->ci.it.index, mcs.channelId);
             }
             
+            LOG(LOG_INFO, "Sending Channel Join Request");
             this->ci.it.index++;
-            if (this->ci.it.index++ < this->ci.num_channels+2) {
-                if (this->verbose & 16){
+            if (this->ci.it.index < this->ci.num_channels+2) {
+                if (1/*this->verbose & 16*/){
                     LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
                 }
                 write_packets(
@@ -2542,7 +2546,7 @@ public:
         break;
         case ChannelsInfo::Iterator::STATE_FINAL:
         {
-            if (this->verbose & 1){
+            if (1/*this->verbose & 1*/){
                 LOG(LOG_INFO, "mod_rdp::Channel Connection Attach User end");
             }
 
