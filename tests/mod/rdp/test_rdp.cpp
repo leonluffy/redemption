@@ -210,7 +210,7 @@ BOOST_AUTO_TEST_CASE(TestModRDPWin2008Server)
     BackEvent_t res = BACK_EVENT_NONE;
     while (res == BACK_EVENT_NONE){
         LOG(LOG_INFO, "===================> count = %u", count);
-        if (count++ >= 38) break;
+        if (count++ >= 36) break;
         mod->draw_event(time(nullptr), front);
     }
 

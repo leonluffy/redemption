@@ -669,7 +669,7 @@ public:
             } state;
             size_t index;
             Iterator() 
-                : state(STATE_LOOP)
+                : state(STATE_INITIAL)
                 , index(0)
             {
             }
@@ -2451,11 +2451,13 @@ public:
 
     uint16_t AttachUserConfirm_Recv(Transport & trans) const
     {
+        LOG(LOG_INFO, "AttachUserConfirm_Recv");
         constexpr size_t array_size = AUTOSIZE;
         uint8_t array[array_size];
         uint8_t * end = array;
         X224::RecvFactory f(trans, &end, array_size);
         InStream stream(array, end - array);
+        hexdump_d(array, end-array);
         X224::DT_TPDU_Recv x224(stream);
         InStream & mcs_cjcf_data = x224.payload;
         MCS::AttachUserConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
