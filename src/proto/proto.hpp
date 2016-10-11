@@ -1234,6 +1234,39 @@ namespace proto
         return packet<Deps, value_type>{value_type{f, ff...}};
     }
 
+    template<class Arguments, class Val>
+    using enable_if_contains_argument = std::enable_if_t<
+        brigand::any<
+            Arguments,
+            brigand::bind<
+                std::is_same,
+                brigand::_1,
+                brigand::pin<var_type_t<Val>>
+            >
+        >::value,
+        Val
+    >;
+
+    namespace detail
+    {
+        template<class T>
+        struct is_packet_description_impl : std::false_type
+        {};
+    }
+    template<class T>
+    using is_packet_description = typename detail::is_packet_description_impl<T>::type;
+//                 brigand::index_if<
+//                     brigand::list<Ts...>,
+//                     brigand::call<is_packet_description>,
+//                     brigand::size_t<sizeof...(Ts)>
+//                 >{},
+
+// #ifdef IN_IDE_PARSER
+// # define PROTO_FOR_IDE(...)
+// #else
+// # define PROTO_FOR_IDE(...) __VA_ARGS__
+// #endif
+// #define PROTO_EXPAND PROTO_FOR_IDE(...)
 
     template<class Deps, class... Ts>
     struct packet_description
@@ -1243,30 +1276,19 @@ namespace proto
 
         inherits<Ts...> values;
 
-        template<class Val>
-        using check_param = std::enable_if_t<
-            brigand::any<
-                arguments,
-                brigand::bind<
-                    std::is_same,
-                    brigand::_1,
-                    brigand::pin<var_type_t<Val>>
-                >
-            >::value,
-            Val
-        >;
-
         template<class... Val>
         constexpr auto
-        operator()(Val... values) const &
+        operator()(Val... values) const
         {
-            return ordering_parameter<check_param<Val>...>({values...});
+            return ordering_parameter<enable_if_contains_argument<arguments, Val>...>(
+                {values...}
+            );
         }
 
     private:
-        template<class... Val>
+        template<class... Us>
         constexpr auto
-        ordering_parameter(utils::parameters<Val...> params) const
+        ordering_parameter(utils::parameters<Us...> params) const
         {
             return packet<
                 Deps,
@@ -1274,6 +1296,71 @@ namespace proto
             >{{(static_cast<Ts const &>(this->values).to_proto_value(params))...}};
         }
     };
+
+    template<class Deps = void, class... Def>
+    constexpr auto
+    desc(Def... d)
+    {
+        return packet_description<Deps, Def...>{{d...}};
+    }
+
+    template<class Deps, class... Pkts>
+    struct subpacket
+    {
+        inherits<Pkts...> pkts;
+    };
+
+    template<class Deps, class... Pkts>
+    constexpr auto
+    make_subpacket(Pkts && ... pkts)
+    { return subpacket<Deps, Pkts...>{{pkts...}}; }
+
+    template<class Deps, class... PktDescs>
+    struct subpacket_description
+    {
+        static_assert(brigand::all<brigand::list<PktDescs...>, brigand::call<is_packet_description>>{}, "");
+
+        using dependencies = get_dependencies<Deps>;
+        using arguments = brigand::append<get_arguments_t<PktDescs>...>;
+
+        inherits<PktDescs...> subpkts;
+
+        template<class... Val>
+        constexpr auto
+        operator()(Val... values) const
+        {
+            inherits<enable_if_contains_argument<arguments, Val>...> params{values...};
+            return make_subpacket<Deps>(
+                this->eval_subpkt(
+                    static_cast<PktDescs const &>(this->subpkts),
+                    get_arguments_t<PktDescs>{},
+                    params
+                )...
+            );
+        }
+
+    private:
+        template<class PktDesc, class... Args, class Params>
+        constexpr auto
+        eval_subpkt(PktDesc const & pktdesc, brigand::list<Args...>, Params const & params) const
+        {
+            return pktdesc(static_cast<Args const &>(params)...);
+        }
+    };
+
+    template<class Deps = void, class... PktDesc>
+    constexpr auto
+    desc2(PktDesc... d)
+    {
+        return subpacket_description<Deps, PktDesc...>{{d...}};
+    }
+
+    namespace detail
+    {
+        template<class Deps, class... Ts>
+        struct is_packet_description_impl<packet_description<Deps, Ts...>> : std::true_type
+        {};
+    }
 
 
     template<class Desc, class... Val>
@@ -1320,16 +1407,22 @@ namespace proto
         return creator<Deps, subtype, Val...>{{v...}};
     }
 
-    template<class Deps = void, class... Desc>
-    constexpr auto
-    desc(Desc... d)
+    namespace detail
     {
-        return packet_description<Deps, Desc...>{{d...}};
+        template<class T> struct is_proto_packet_impl : std::false_type {};
+        template<class... Ts>
+        struct is_proto_packet_impl<packet<Ts...>> : std::true_type {};
+
+        template<class T> struct is_proto_subpacket_impl : std::false_type {};
+        template<class... Ts>
+        struct is_proto_subpacket_impl<subpacket<Ts...>> : std::true_type {};
     }
 
-    template<class T> struct is_proto_packet : std::false_type {};
-    template<class... Ts>
-    struct is_proto_packet<packet<Ts...>> : std::true_type {};
+    template<class T>
+    using is_proto_packet = typename detail::is_proto_packet_impl<T>::type;
+
+    template<class T>
+    using is_proto_subpacket = typename detail::is_proto_subpacket_impl<T>::type;
 
     namespace detail
     {
@@ -1338,14 +1431,78 @@ namespace proto
         { f(pkts...); }
 
         template<class Pkt>
-        std::enable_if_t<is_proto_packet<Pkt>::value, Pkt const &>
+        std::enable_if_t<(is_proto_packet<Pkt>::value or is_proto_subpacket<Pkt>::value), Pkt const &>
         get_if_packet(Pkt const & pkt)
         { return pkt; }
     }
 
     template<class F, class... Pkts>
-    void apply(F f, Pkts const & ... pkts)
+    std::enable_if_t<
+        !brigand::any<
+            brigand::list<Pkts...>,
+            brigand::call<is_proto_subpacket>
+        >::value
+    > apply(F f, Pkts const & ... pkts)
     { f(detail::get_if_packet(pkts)...); }
+
+    namespace detail
+    {
+        template<class Pkt>
+        struct pkt_to_list
+        { using type = brigand::list<brigand::pair<Pkt, Pkt>>; };
+
+        template<class Deps, class... Pkts>
+        struct pkt_to_list<subpacket<Deps, Pkts...>>
+        {
+            using type = brigand::list<
+                brigand::pair<
+                    inherits<Pkts...>,
+                    Pkts
+                >...
+            >;
+        };
+
+        template<class Pkt>
+        Pkt const &
+        pkt_to_subpkt(Pkt const & pkt)
+        { return pkt; }
+
+        template<class Deps, class... Ts>
+        auto const &
+        pkt_to_subpkt(subpacket<Deps, Ts...> const & pkt)
+        { return pkt.pkts; }
+
+        template<class... Ts, class F, class Pkts>
+        void
+        apply_subpkt(brigand::list<Ts...>, F && f, Pkts const & pkts)
+        {
+            f(
+                static_cast<typename Ts::second_type const &>(
+                    static_cast<utils::detail::ref<typename Ts::first_type const &>>(
+                        pkts
+                    ).x
+                )...
+            );
+        }
+    }
+
+    template<class F, class... Pkts>
+    std::enable_if_t<
+        brigand::any<
+            brigand::list<Pkts...>,
+            brigand::call<is_proto_subpacket>
+        >::value
+    > apply2(F f, Pkts const & ... pkts)
+    {
+        inherits<utils::detail::ref<decltype(detail::pkt_to_subpkt(pkts))>...> values{
+            detail::pkt_to_subpkt(pkts)...
+        };
+        detail::apply_subpkt(
+            brigand::append<typename detail::pkt_to_list<Pkts>::type...>{},
+            f,
+            values
+        );
+    }
 
 
     template<class Deps, class Desc, class Expr>

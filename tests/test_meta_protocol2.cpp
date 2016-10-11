@@ -383,6 +383,7 @@ void other_test()
         Policy2(bool & used) : used(used) {}
         bool & used;
     };
+    used = false;
     proto::apply(
         Buffering2<Policy2>{used},
         b2(),
@@ -436,6 +437,7 @@ void other_test()
         Policy4(bool & used) : used(used) {}
         bool & used;
     };
+    used = false;
     proto::apply(
         Buffering2<Policy4>{used},
         proto::desc(
@@ -443,6 +445,37 @@ void other_test()
             c
         )(c = 2_c),
         proto::value(proto::types::bytes{{"abc", 3}})
+    );
+    BOOST_CHECK(used);
+
+
+    auto desc_subpkt = proto::desc2(
+        proto::desc<class desc_a>(proto::sz<proto::types::u8>{}),
+        proto::desc<class desc_b>(proto::sz<proto::types::u8>{}),
+        proto::desc<class desc_c>(proto::sz<proto::types::u8>{}),
+        proto::desc<class desc_d>(proto::val<class sub_a, proto::types::u8>{{7_c}})
+    );
+
+    struct Policy5 : log_policy
+    {
+        void send(iovec_array iovs) const {
+            log_policy::send(iovs);
+            BOOST_REQUIRE_EQUAL(iovs.size(), 1);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
+            CHECK_RANGE(
+                iov2av(iovs[0]),
+                cstr_array_view("\x03\x02\x01\x07")
+            );
+            this->used = true;
+        }
+
+        Policy5(bool & used) : used(used) {}
+        bool & used;
+    };
+    used = false;
+    proto::apply2(
+        Buffering2<Policy5>{used},
+        desc_subpkt()
     );
     BOOST_CHECK(used);
 }
