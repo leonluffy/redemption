@@ -139,6 +139,14 @@ namespace SEC
 // |                                | specified in the Server Message Channel  |
 // |                                | Data (section 2.2.1.4.5).                |
 // +--------------------------------+------------------------------------------+
+// | 0x4000   SEC_HEARTBEAT         | Indicates that the packet is a Heartbeat |
+// |                                | PDU (section 2.2.16.1). This flag MUST   |
+// |                                | NOT be present if the PDU containing the |
+// |                                | security header is not being sent on the |
+// |                                | MCS message channel. The ID of the       |
+// |                                | message channel is specified in the      |
+// |                                | Server Message Channel Data (2.2.1.4.5). |
+// +--------------------------------+------------------------------------------+
 // | 0x8000 SEC_FLAGSHI_VALID       | Indicates that the flagsHi field contains|
 // |                                | valid data. If this flag is not set, then|
 // |                                | the contents of the flagsHi field MUST be|
@@ -160,6 +168,7 @@ enum {
     SEC_SECURE_CHECKSUM    = 0x0800,
     SEC_AUTODETECT_REQ     = 0x1000,
     SEC_AUTODETECT_RSP     = 0x2000,
+    SEC_HEARTBEAT          = 0x4000,
     SEC_FLAGSHI_VALID      = 0x8000
 };
 
@@ -598,6 +607,306 @@ enum {
 // encryptedClientRandom (variable): The client random value encrypted with the public key of
 // the server (see section 5.3.4).
 
+
+// 5.3.1 Encryption Levels
+// =======================
+
+// Standard RDP Security (section 5.3) supports four levels of encryption: 
+// Low, Client Compatible, High, and FIPS Compliant. The required Encryption
+// Level is configured on the server.
+
+// Low: All data sent from the client to the server is protected by encryption
+// based on the maximum key strength supported by the client.
+
+// Client Compatible: All data sent between the client and the server is
+// protected by encryption based on the maximum key strength supported by the client.
+
+// High: All data sent between the client and server is protected by encryption
+// based on the server's maximum key strength.
+
+// FIPS: All data sent between the client and server is protected using Federal
+// Information Processing Standard 140-1 validated encryption methods.
+
+// 5.3.2 Negotiating the Cryptographic Configuration
+// =================================================
+
+// Clients advertise their cryptographic support (for use with Standard RDP Security
+// mechanisms, as described in sections 5.3.3 to 5.3.8) in the Client Security Data
+// (section 2.2.1.3.3), sent to the server as part of the Basic Settings Exchange
+// phase of the RDP Connection Sequence (section 1.3.1.1). Upon receiving the client
+// data the server will determine the cryptographic configuration to use for the session
+// based on its configured Encryption Level and then send this selection to the client 
+// in the Server Security Data (section 2.2.1.4.3), as part of the Basic Settings Exchange
+//  phase. The client will use this information to configure its cryptographic modules.
+
+//  Client                                                    Server
+//    |-- Client Security Data : Supported Encryption Methods -->|
+//    |                                                          |
+//    |                                                          |
+//    |                  Server Security Data                    |
+//    |<-- Selected Encryption Method and Encryption Level ----- |
+//    |                                                          |
+// Fig 7: Determining the cryptographic configuration for a Session
+
+// The Encryption Method and Encryption Level (section 5.3.1) are closely related.
+// If the Encryption Level is zero, then the Encryption Method is zero (the converse
+// is also true). This means that if no encryption is being used for the session
+// (an Encryption Level of zero), there is no Encryption Method being applied to
+// the data. If the Encryption Level is greater than zero (encryption is in force
+// for at least client-to-server traffic) then the Encryption Method is greater than
+// zero (the converse is also true). This means that if encryption is in force for
+// the session, then an Encryption Method is defined which specifies how to encrypt
+// the data. Furthermore, if the Encryption Level is set to FIPS, then the Encryption
+// Method selects only FIPS-compatible methods.
+
+// If the server determines that no encryption is necessary for the session, it can
+// send the client a value of zero for the selected Encryption Method and Encryption
+// Level. In this scenario the Security Commencement phase of the connection sequence
+// (section 5.4.2.3) is not executed, with the result that the client does not send
+// the Security Exchange PDU (section 2.2.1.10). This PDU can be dropped because the
+// Client Random (section 5.3.4) is redundant, since no security keys need to be 
+// generated. Furthermore, because no security measures are in effect, the Security
+// Header (section 5.3.8) will not be included with any data sent on the wire, except
+// for the Client Info (section 3.2.5.3.11) and licensing PDUs ([MS-RDPELE]), which
+// always contain the Security Header (section 2.2.9.1.1.2). To protect the confidentiality
+// of client-to-server user data, an RDP server ensures that the negotiated Encryption
+// Level is always greater than zero when using Standard RDP Security mechanisms.
+
+
+// 5.3.2.1 Cryptographic Negotiation Failures
+// ===========================================
+
+// The Encryption Method selected by the server (section 5.3.2) is based on the
+// Encryption Methods supported by the client (section 2.2.1.3.3), the Encryption
+// Methods supported by the server and the configured Encryption Level (section 5.3.1)
+// of the server.
+
+// The negotiation of the cryptographic parameters for a connection fails if the server
+// is not able to select an Encryption Method to send to the client (section 2.2.1.4.3).
+
+// Low and Client Compatible: Cryptographic configuration fails if the server does not
+// support the highest Encryption Method advertised by the client (for example, the server
+// supports 40-bit and 56-bit encryption while the client only supports 40-bit, 56-bit and
+// 128-bit encryption).
+
+// High: Cryptographic configuration fails if the client does not support the highest
+// Encryption Method supported by the server (for example, the server supports 40-bit,
+// 56-bit and 128-bit encryption while the client only supports 40-bit and 56-bit encryption).
+
+// FIPS: Cryptographic configuration fails if the client does not support FIPS 140-1 
+// validated encryption methods.
+
+// If the server is not able to select an Encryption Method to send to the client, then the
+// network connection is closed.
+
+// 5.3.3 Server Certificates
+// =========================
+
+// 5.3.3.1 Proprietary Certificates
+
+// Proprietary Certificates are used exclusively by servers that have not received
+// an X.509 certificate from a Domain or Enterprise License Server. Every server 
+// creates a public/private key pair and then generates and stores a Proprietary 
+// Certificate containing the public key at least once at system start-up time. The
+// certificate is only generated when one does not already exist.
+
+// The server sends the Proprietary Certificate to the client in the Server Security Data
+// (section 2.2.1.4.3) during the Basic Settings Exchange phase of the RDP Connection
+// Sequence (section 1.3.1.1). The Proprietary Certificate structure is detailed in section
+// 2.2.1.4.3.1.1.
+
+// 5.3.3.1.1 Terminal Services Signing Key
+
+// The modulus, private exponent, and public exponent of the 512-bit Terminal Services
+// asymmetric key used for signing Proprietary Certificates with the RSA algorithm are
+// detailed as follows.
+
+// 64-byte Modulus (n):
+
+//     0x3d, 0x3a, 0x5e, 0xbd, 0x72, 0x43, 0x3e, 0xc9, 
+//     0x4d, 0xbb, 0xc1, 0x1e, 0x4a, 0xba, 0x5f, 0xcb, 
+//     0x3e, 0x88, 0x20, 0x87, 0xef, 0xf5, 0xc1, 0xe2, 
+//     0xd7, 0xb7, 0x6b, 0x9a, 0xf2, 0x52, 0x45, 0x95, 
+//     0xce, 0x63, 0x65, 0x6b, 0x58, 0x3a, 0xfe, 0xef, 
+//     0x7c, 0xe7, 0xbf, 0xfe, 0x3d, 0xf6, 0x5c, 0x7d, 
+//     0x6c, 0x5e, 0x06, 0x09, 0x1a, 0xf5, 0x61, 0xbb, 
+//     0x20, 0x93, 0x09, 0x5f, 0x05, 0x6d, 0xea, 0x87
+
+// 64-byte Private Exponent (d):
+
+//     0x87, 0xa7, 0x19, 0x32, 0xda, 0x11, 0x87, 0x55, 
+//     0x58, 0x00, 0x16, 0x16, 0x25, 0x65, 0x68, 0xf8, 
+//     0x24, 0x3e, 0xe6, 0xfa, 0xe9, 0x67, 0x49, 0x94, 
+//     0xcf, 0x92, 0xcc, 0x33, 0x99, 0xe8, 0x08, 0x60, 
+//     0x17, 0x9a, 0x12, 0x9f, 0x24, 0xdd, 0xb1, 0x24, 
+//     0x99, 0xc7, 0x3a, 0xb8, 0x0a, 0x7b, 0x0d, 0xdd, 
+//     0x35, 0x07, 0x79, 0x17, 0x0b, 0x51, 0x9b, 0xb3, 
+//     0xc7, 0x10, 0x01, 0x13, 0xe7, 0x3f, 0xf3, 0x5f
+
+// 4-byte Public Exponent (e):
+
+//     0x5b, 0x7b, 0x88, 0xc0
+
+// The enumerated integers are in little-endian byte order. The public key is the pair
+// (e, n), while the private key is the pair (d, n).
+
+// 5.3.3.1.2 Signing a Proprietary Certificate
+// ==============================================
+
+// The Proprietary Certificate is signed by using RSA to encrypt the hash of the first six
+// fields with the Terminal Services private signing key (specified in section 5.3.3.1.1)
+// and then appending the result to the end of the certificate. Mathematically the signing
+// operation is formulated as follows:
+
+//     s = m^d mod n
+
+// Where
+
+//     s = signature; 
+//     m = hash of first six fields of certificate
+//     d = private exponent
+//     n = modulus
+
+// The structure of the Proprietary Certificate is detailed in section 2.2.1.4.3.1.1. The
+// structure of the public key embedded in the certificate is described in 2.2.1.4.3.1.1.1.
+// An example of public key bytes (in little-endian format) follows.
+
+//     0x52 0x53 0x41 0x31: magic (0x31415352)
+//     0x48 0x00 0x00 0x00: keylen (72 bytes)
+//     0x00 0x02 0x00 0x00: bitlen (512 bits)
+//     0x3f 0x00 0x00 0x00: datalen (63 bytes)
+//     0x01 0x00 0x01 0x00: pubExp (0x00010001)
+//      
+//     0xaf 0xfe 0x36 0xf2 0xc5 0xa1 0x44 0x2e
+//     0x47 0xc1 0x31 0xa7 0xdb 0xc6 0x67 0x02
+//     0x64 0x71 0x5c 0x00 0xc9 0xb6 0xb3 0x04
+//     0xd0 0x89 0x9f 0xe7 0x6b 0x24 0xe8 0xe8
+//     0xe5 0x2d 0x0b 0x13 0xa9 0x0c 0x6d 0x4d
+//     0x91 0x5e 0xe8 0xf6 0xb3 0x17 0x17 0xe3
+//     0x9f 0xc5 0x4d 0x4a 0xba 0xfa 0xb9 0x2a
+//     0x1b 0xfb 0x10 0xdd 0x91 0x8c 0x60 0xb7: modulus
+
+// A 128-bit MD5 hash over the first six fields of the proprietary certificate (which are all
+// in little-endian format) appears as follows.
+
+
+
+//     PublicKeyBlob = wBlobType + wBlobLen + PublicKeyBytes
+//     hash = MD5(dwVersion + dwSigAlgID + dwKeyAlgID + PublicKeyBlob)
+
+// Because the Terminal Services private signing key has a 64-byte modulus, the maximum number
+// of bytes that can be encoded by using the key is 63 (the size of the modulus, in bytes, minus 1).
+// An array of 63 bytes is created and initialized as follows.
+
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0x00 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0x01
+
+// The 128-bit MD5 hash is copied into the first 16 bytes of the array. For example, assume that
+// the generated hash is as follows.
+
+//     0xf5 0xcc 0x18 0xee 0x45 0xe9 0x4d 0xa6
+//     0x79 0x02 0xca 0x76 0x51 0x33 0xe1 0x7f
+
+// The byte array will appear as follows after copying in the 16 bytes of the MD5 hash.
+
+//     0xf5 0xcc 0x18 0xee 0x45 0xe9 0x4d 0xa6
+//     0x79 0x02 0xca 0x76 0x51 0x33 0xe1 0x7f
+//     0x00 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0x01
+
+// The 63-byte array is then treated as an unsigned little-endian integer and signed with the
+// Terminal Services private key by using RSA. The resultant signature has to be in little-endian
+// format before appending it to the Proprietary Certificate structure. The final structure of the
+// certificate has to conform to the specification in section 2.2.1.4.3.1.1. This means that fields
+// 7 through to 9 will be the signature BLOB type, the number of bytes in the signature and the actual
+// signature bytes respectively. The BLOB type and number of bytes have to be in little-endian format.
+
+// Example Java source code that shows how to use a private 64-byte asymmetric key to sign an array
+// of 63 bytes using RSA is presented in section 4.9. The code also shows how to use the associated
+// public key to verify the signature.
+
+
+// 5.3.3.1.3 Validating a Proprietary Certificate
+// =============================================
+
+// Verification of the Proprietary Certificate signature is carried out by decrypting the signature with
+// the Terminal Services public signing key and then verifying that this result is the same as the MD5
+// hash of the first six fields of the certificate.
+
+//     m = s^e mod n
+
+// Where
+
+//     m = decrypted signature
+//     s = signature
+//     e = public exponent
+//     n = modulus
+
+// The structure of the Proprietary Certificate is detailed in section 2.2.1.4.3.1.1. A 128-bit MD5
+// hash over the first six fields (which are all little-endian integers of varying lengths) appears
+// as follows.
+
+//     PublicKeyBlob = wBlobType + wBlobLen + PublicKeyBytes
+//     hash = MD5(dwVersion + dwSigAlgID + dwKeyAlgID + PublicKeyBlob)
+
+// Next, the actual signature bytes are decrypted with the Terminal Services public key using RSA
+// by treating the signature bytes as an unsigned little-endian integer. If performed correctly, 
+// the decryption operation will produce a 63-byte integer value. When represented in little-endian
+// format, this integer value conforms to the following specification.
+
+//    The 17th byte is 0x00.
+
+//    The 18th through 62nd bytes are each 0xFF.
+
+//    The 63rd byte is 0x01.
+
+// The following is an example of a successfully decrypted signature.
+
+//     0xf5 0xcc 0x18 0xee 0x45 0xe9 0x4d 0xa6
+//     0x79 0x02 0xca 0x76 0x51 0x33 0xe1 0x7f
+//     0x00 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff
+//     0xff 0xff 0xff 0xff 0xff 0xff 0xff 0xff 
+//     0xff 0xff 0xff 0xff 0xff 0xff 0x01
+
+// The first 16 bytes of the decrypted signature are then compared to the hash that was generated
+// over the Proprietary Certificate, and if they match, the signature has been successfully verified.
+
+// Example Java source code that shows how to use a private 64-byte asymmetric key to sign an array
+// of 63 bytes by using RSA is presented in section 4.9. The code also shows how to use the associated
+// public key to verify the signature.
+
+// 5.3.3.2 X.509 Certificate Chains
+// ================================
+
+// X.509-compliant certificates are issued to servers upon request by Domain or Enterprise License Servers
+// and are required to issue client licenses (see [MS-RDPELE] for more information on RDP Licensing). 
+// An X.509 Certificate Chain consists of a collection of certificates concatenated together in 
+// root-certificate-first order. This eliminates the need to scan the chain to the end to get the root
+// certificate for starting chain validation. The last certificate is the certificate of the server; 
+// the second-to-last is the license server's certificate, and so forth. More details on the structure
+// of the chain and the component certificates are in [MS-RDPELE] section 2.2.1.4.2.
+
+// Servers send the X.509 Certificate Chain to clients in the Server Security Data (section 2.2.1.4.3)
+// settings block during the Basic Settings Exchange phase of the RDP Connection Sequence (section 1.3.1.1).
+// A server that has not yet been issued an X.509 Certificate Chain will fall back to using a Proprietary
+// Certificate (section 2.2.1.4.3.1.1). Proprietary Certificates are always used when an RDP 4.0 client
+// connects to a server (the client version can be determined from the Client Core Data (section 2.2.1.3.2)).
+
+
+
 // 5.3.4 Client and Server Random Values
 // =====================================
 // The client and server both generate a 32-byte random value using a cryptographically-safe
@@ -651,6 +960,486 @@ enum {
 // Example Java source code that shows how to use a public 64-byte asymmetric key to encrypt a 32-
 // byte client random using RSA is presented in section 4.8. The code also shows how to use the
 // associated private key to decrypt the ciphertext.
+
+
+// 5.3.5 Initial Session Key Generation
+// ====================================
+
+// RDP uses three symmetric session keys derived from the client and server random values (section 5.3.4).
+// Client-to-server traffic is encrypted with one of these keys (known as the "client's encryption key" and
+// "server's decryption key"), server-to-client traffic with another (known as the "server's encryption key"
+// and "client's decryption key") and the final key is used to generate a MAC over the data to help ensure
+// its integrity. The generated keys are 40, 56, or 128 bits in length.
+
+
+// 5.3.5.1 Non-FIPS
+// ================
+
+//The client and server random values are used to create a 384-bit Pre-Master Secret by concatenating the
+// first 192 bits of the Client Random with the first 192 bits of the Server Random.
+
+//     PreMasterSecret = First192Bits(ClientRandom) + First192Bits(ServerRandom)
+
+//A 384-bit Master Secret is generated using the Pre-Master Secret, the client and server random values,
+// and the MD5 hash and SHA-1 hash functions.
+
+//     MasterSecret = PreMasterHash(0x41) + PreMasterHash(0x4242) + PreMasterHash(0x434343)
+
+//Here, the PreMasterHash function is defined as follows.
+
+//     PreMasterHash(I) = SaltedHash(PremasterSecret, I)
+
+//The SaltedHash function is defined as follows.
+
+//     SaltedHash(S, I) = MD5(S + SHA(I + S + ClientRandom + ServerRandom))
+
+//A 384-bit session key blob is generated as follows.
+
+//     SessionKeyBlob = MasterHash(0x58) + MasterHash(0x5959) + MasterHash(0x5A5A5A)
+
+//Here, the MasterHash function is defined as follows.
+
+//     MasterHash(I) = SaltedHash(MasterSecret, I)
+
+// From the session key blob the actual session keys which will be used are derived. 
+// Both client and server extract the same key data for generating MAC signatures.
+
+//     MACKey128 = First128Bits(SessionKeyBlob)
+
+// The initial encryption and decryption keys are generated next (these keys are updated
+// at a later point in the protocol, per section 5.3.6.1). The server generates its 
+// encryption and decryption keys as follows.
+
+//     InitialServerEncryptKey128 = FinalHash(Second128Bits(SessionKeyBlob))
+//     InitialServerDecryptKey128 = FinalHash(Third128Bits(SessionKeyBlob))
+
+// Here, the FinalHash function is defined as follows.
+
+//     FinalHash(K) = MD5(K + ClientRandom + ServerRandom)
+
+// The client constructs its initial decryption key with the bytes that the server uses
+// to construct its initial encryption key. Similarly, the client forms its initial 
+// encryption key with the bytes that the server uses to form its initial decryption key.
+
+//     InitialClientDecryptKey128 = FinalHash(Second128Bits(SessionKeyBlob))
+//     InitialClientEncryptKey128 = FinalHash(Third128Bits(SessionKeyBlob))
+
+// This means that the client will use its encryption key to encrypt data and the server will
+// use its decryption key to decrypt the same data. Similarly, the server will use its encryption
+// key to encrypt data and the client will use its decryption key to decrypt the same data. 
+// In effect, there are two streams of data (client-to-server and server-to-client) encrypted with
+// different session keys which are updated at different intervals.
+
+// To reduce the entropy of the keys to either 40 or 56 bits, the 128-bit client and server keys are
+// salted appropriately to produce 64-bit versions with the required strength. The salt values to
+// reduce key entropy are shown in the following table:
+
+// +-----------------------+--------------+------------------+----------------+
+// | Negotiated key length | Salt length  |  Salt values     | RC4 key length |
+// +-----------------------+--------------+------------------+----------------+
+// |        40 bits        |   3 bytes    | 0xD1, 0x26, 0x9E |      8 bytes   |
+// +-----------------------+--------------+------------------+----------------+
+// |        56 bits        |   1 byte     |       0xD1       |      8 bytes   |
+// +-----------------------+--------------+------------------+----------------+
+// |       128 bits        |   0 bytes    |        N/A       |    16 bytes    |
+// +-----------------------+--------------+------------------+----------------+
+// Table 1: Salt values to reduce key entropy
+
+// Using the salt values, the 40-bit keys are generated as follows.
+
+//     MACKey40 = 0xD1269E + Last40Bits(First64Bits(MACKey128))
+//      
+//     InitialServerEncryptKey40 = 0xD1269E + Last40Bits(First64Bits(InitialServerEncryptKey128))
+//     InitialServerDecryptKey40 = 0xD1269E + Last40Bits(First64Bits(InitialServerDecryptKey128))
+//      
+//     InitialClientEncryptKey40 = 0xD1269E + Last40Bits(First64Bits(InitialClientEncryptKey128))
+//     InitialClientDecryptKey40 = 0xD1269E + Last40Bits(First64Bits(InitialClientDecryptKey128))
+
+//The 56-bit keys are generated as follows.
+
+//     MACKey56 = 0xD1 + Last56Bits(First64Bits(MACKey128))
+//      
+//     InitialServerEncryptKey56 = 0xD1 + Last56Bits(First64Bits(InitialServerEncryptKey128))
+//     InitialServerDecryptKey56 = 0xD1 + Last56Bits(First64Bits(InitialServerDecryptKey128))
+//      
+//     InitialClientEncryptKey56 = 0xD1 + Last56Bits(First64Bits(InitialClientEncryptKey128))
+//     InitialClientDecryptKey56 = 0xD1 + Last56Bits(First64Bits(InitialClientDecryptKey128))
+
+// After any necessary salting has been applied, the generated encryption and decryption keys are used
+// to initialize RC4 substitution tables which can then be used to encrypt and decrypt data.
+
+// At the end of this process the client and server will each possess three symmetric keys to use with
+// the RC4 stream cipher: a MAC key, an encryption key, and a decryption key. The MAC key is used to
+// initialize the RC4 substitution table that is used to generate Message Authentication Codes, the
+// encryption key is used to initialize the RC4 substitution table that is used to perform encryption,
+// and the decryption key is used to initialize the RC4 substitution table that is used to perform 
+// decryption (for more information on RC4 substitution table initialization, see [[SCHNEIER]] 
+// section 17.1).
+
+
+// 5.3.5.2 FIPS
+// ============
+
+// The client and server random values are used to generate temporary 160-bit initial encryption and
+// decryption keys by using the SHA-1 hash function. The client generates the following:
+
+//     ClientEncryptKeyT = SHA(Last128Bits(ClientRandom) + Last128Bits(ServerRandom))
+//     ClientDecryptKeyT = SHA(First128Bits(ClientRandom) + First128Bits(ServerRandom))
+
+// The server generates the following:
+
+//     ServerDecryptKeyT = SHA(Last128Bits(ClientRandom) + Last128Bits(ServerRandom))
+//     ServerEncryptKeyT= SHA(First128Bits(ClientRandom) + First128Bits(ServerRandom))
+
+// Each of these four keys are then expanded to be 168 bits in length by copying the first 8 bits of
+// each key to the rear of the key:
+
+//     ClientEncryptKey = ClientEncryptKeyT + First8Bits(ClientEncryptKeyT)
+//     ClientDecryptKey = ClientDecryptKeyT + First8Bits(ClientDecryptKeyT)
+//      
+//     ServerDecryptKey = ServerDecryptKeyT + First8Bits(ServerDecryptKeyT)
+//     ServerEncryptKey= ServerEncryptKeyT + First8Bits(ServerEncryptKeyT)
+
+// After expansion to 168 bits, each key is then expanded to be 192 bits in length by adding a zero-bit
+// to every group of seven bits using the following algorithm:
+
+//    Reverse every byte in the key.
+
+//    Insert a zero-bit bit after every seventh bit.
+
+//    Reverse every byte.
+
+// The following example (which only shows the first 5 bytes of a 21-byte key) demonstrates how a 168-bit
+// key is expanded to 192 bits in size. Assume that the key is:
+
+//     0xD1 0x5E 0xC4 0x7E 0xDA ...
+
+//In binary this is:
+
+//     11010001 01011110 11000100 01111110 11011010 ...
+
+//Reversing each byte yields:
+
+//     10001011 01111010 00100011 01111110 01011011 ...
+
+//Adding a zero-bit after each group of seven bits results in the following values:
+
+//     10001010 10111100 10001000 01101110 11100100 ...
+
+//Finally, reversing each of the bytes yields:
+
+//     01010001 00111101 00010001 01110110 00100111 ...
+
+//In hexadecimal this is:
+
+//     0x51 0x3D 0x11 0x76 0x27 ...
+
+// Once each key has been expanded to 192 bits in size, the final step is to alter the least
+// significant bit in each byte so that the entire byte has odd parity. Applying this transformation
+// to the bytes in the previous example yields:
+
+//     01010001 00111101 00010000 01110110 00100110 ...
+
+// In hexadecimal this is:
+
+//     0x51 0x3D 0x10 0x76 0x26 ...
+
+// After producing the client and server encryption and decryption keys, the shared key to be used
+// with the SHA-1 hash function to produce Hash-Based Message Authentication Codes (HMAC) ([RFC2104])
+// is computed by the client as follows:
+
+//     HMACKey = SHA(ClientDecryptKeyT + ClientEncryptKeyT)
+
+// The server performs the same computation with the same data (the client encryption and server
+// decryption keys are identical, while the server encryption and client decryption keys are identical).
+
+//     HMACKey = SHA(ServerEncryptKeyT + ServerDecryptKeyT)
+
+// At the end of this process the client and server will each possess three symmetric keys to use with
+// the Triple DES block cipher: an HMAC key, an encryption key, and a decryption key.
+
+// 5.3.6 Encrypting and Decrypting the I/O Data Stream
+// ===================================================
+
+// If the Encryption Level (section 5.4.1) of the server is greater than zero, then encryption will
+// always be in effect. At a minimum, all client-to-server traffic (except for licensing PDUs which
+// have optional encryption) will be encrypted and a MAC will be appended to the data to ensure
+// transmission integrity.
+
+// The table which follows summarizes the possible encryption and MAC generation scenarios based on
+// the Encryption Method and Encryption Level selected by the server (the Encryption Method values
+// are described in section 2.2.1.4.3, while the Encryption Levels are described in 5.4.1) as part
+// of the cryptographic negotiation described in section 5.3.2:
+
+// +---------------------+---------------------+------------------------+----------------------+
+// | Selected Encryption | Selected Encryption | Data Encryption        | Mac Generation       |
+// | Level               | Method              |                        |                      |
+// +---------------------+---------------------+------------------------+----------------------+
+// |     None (0)        |    None (0x00)      |          None          |          None        |
+// +---------------------+---------------------+------------------------+----------------------+
+// |     Low (1)         |   40-Bit (0x01)     | Client-to-server       | Client-to-server     |
+// |                     |   56-Bit (0x08)     | traffic only using RC4 | traffic only using   |
+// |                     |  128-Bit (0x02)     |                        |  MD5 and SHA-1.      |
+// +---------------------+---------------------+------------------------+----------------------+
+// |Client Compatible (2)|   40-Bit (0x01)     | Client-to-server and   | Client-to-server and |
+// |                     |   56-Bit (0x08)     | server-to-client       | server-to-client     |
+// |                     |  128-Bit (0x02)     | traffic using RC4.     | traffic using MD5    |
+// |                     |                     |                        | and SHA-1            |
+// +---------------------+---------------------+------------------------+----------------------+
+// |     High (3)        |  128-Bit (0x02)     | Client-to-server and   | Client-to-server and |
+// |                     |                     | server-to-client       | server-to-client     |
+// |                     |                     | traffic using RC4      | traffic using MD5    |
+// |                     |                     |                        | and SHA-1            |
+// +---------------------+---------------------+------------------------+----------------------+
+// |     FIPS (4)        |     FIPS (0x10)     | Client-to-server and   | Client-to-server and |
+// |                     |                     | server-to-client       | server-to-client     |
+// |                     |                     | traffic using Triple   | traffic using SHA-1  |
+// |                     |                     | DES                    |                      | 
+// +---------------------+---------------------+------------------------+----------------------+
+
+
+
+// 5.3.6.1 Non-FIPS
+// ================
+
+// The client and server follow the same series of steps to encrypt a block of data.
+// First, a MAC value is generated over the unencrypted data.
+
+//     Pad1 = 0x36 repeated 40 times to give 320 bits
+//     Pad2 = 0x5C repeated 48 times to give 384 bits
+//      
+//     SHAComponent = SHA(MACKeyN + Pad1 + DataLength + Data)
+//     MACSignature = First64Bits(MD5(MACKeyN + Pad2 + SHAComponent))
+//      
+//     MACKeyN is either MACKey40, MACKey56 or MACKey128, depending on the negotiated key strength.
+
+// DataLength is the size of the data to encrypt in bytes, expressed as a little-endian
+// 32-bit integer. Data is the information to be encrypted. The first 8 bytes of the 
+// generated MD5 hash are used as an 8-byte MAC value to send on the wire.
+
+// Next, the data block is encrypted with RC4 using the current client or server encryption
+// substitution table. The encrypted data is appended to the 8-byte MAC value in the network
+// packet.
+
+// Decryption involves a reverse ordering of the previous steps. First, the data is decrypted
+// using the current RC4 decryption substitution table. Then, a 16-byte MAC value is generated
+// over the decrypted data, and the first 8 bytes of this MAC are compared to the 8-byte MAC
+// value that was sent over the wire. If the MAC values do not match, an appropriate error
+// is generated and the connection is dropped.
+
+
+// 5.3.6.1.1 Salted MAC Generation
+// ===============================
+
+// The MAC value can be generated by salting the data to be hashed with the current encryption
+// count. For example, assume that 42 packets have already been encrypted. When the next packet
+// is encrypted the value 42 is added to the SHA component of the MAC signature. The addition
+// of the encryption count can be expressed as follows.
+
+//     SHAComponent = SHA(MACKeyN + Pad1 + DataLength + Data + EncryptionCount)
+//     MACSignature = First64Bits(MD5(MACKeyN + Pad2 + SHAComponent))
+
+// EncryptionCount is the cumulative encryption count, indicating how many encryptions have been
+// carried out. It is expressed as a little-endian 32-bit integer. The descriptions for DataLength,
+// Data, and MacKeyN are the same as in section 5.3.6.1.
+
+// The use of the salted MAC is dictated by capability flags in the General Capability Set (section
+// 2.2.7.1.1), sent by both client and server during the Capability Exchange phase of the RDP 
+// Connection Sequence (section 1.3.1.1). In addition, the presence of a salted MAC is indicated
+// by the presence of the SEC_SECURE_CHECKSUM flag in the Security Header flags field (section 5.3.8).
+
+
+// 5.3.6.2 FIPS
+// ============
+
+// Prior to performing an encryption or decryption operation, the cryptographic modules used to
+// implement Triple DES are configured with the following Initialization Vector.
+
+//     {0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF}
+
+// The 160-bit MAC signature key is used to key the HMAC function ([RFC2104]), which uses SHA-1
+// as the iterative hash function.
+
+//     MACSignature = First64Bits(HMAC(HMACKey, Data + EncryptionCount))
+
+// EncryptionCount is the cumulative encryption count, indicating how many encryptions have been
+// carried out. It is expressed as a little-endian 32-bit integer. The description for Data is the
+// same as in section 5.3.6.1.
+
+// Encryption of the data and construction of the network packet to transmit is similar to section
+// 5.3.6.1. The main difference is that Triple DES (in cipher block chaining (CBC) mode) is used.
+// Because DES is a block cipher, the data to be encrypted is padded to be a multiple of the block
+// size (8 bytes). The FIPS Security Header (sections 2.2.8.1 and 2.2.9.1) has an extra field to
+// record the number of padding bytes which were appended to the data prior to encryption to ensure
+// that upon decryption these bytes are not included as part of the data.
+
+
+// 5.3.7 Session Key Updates
+// =========================
+
+// During the course of a session, the symmetric encryption and decryption keys might need to be
+// refreshed.
+
+
+// 5.3.7.1 Non-FIPS
+// ================
+
+// The encryption and the decryption keys are updated after 4,096 packets
+// have been sent or received.
+
+// Generating an updated session key requires:
+
+//    The initial session keys (generated as described in section 5.3.5).
+
+//    The current session keys (if no update has been performed, the 
+// current and initial session keys will be identical).
+
+//    Knowledge of the RC4 key length (computed using Table 1 and the 
+// negotiated key length).
+
+// The following sequence of steps shows how updated client and server 
+// encryption keys are generated (the same steps are used to update the
+// client and server decryption keys). The following padding constants
+// are used.
+
+//     Pad1 = 0x36 repeated 40 times to give 320 bits
+//     Pad2 = 0x5C repeated 48 times to give 384 bits
+
+// If the negotiated key strength is 128-bit, then the full 128 bits of
+// the initial and current encryption key will be used.
+
+//     InitialEncryptKey = InitialEncryptKey128
+//     CurrentEncryptKey = CurrentEncryptKey128
+
+// If the negotiated key strength is 40-bit or 56-bit, then the first 
+// 64 bits of the initial and current encryption keys will be used.
+
+//     InitialEncryptKey = First64Bits(InitialEncryptKeyN)
+//     CurrentEncryptKey = First64Bits(CurrentEncryptKeyN)
+//      
+//     InitialEncryptKeyN is either InitialEncryptKey40 or InitialEncryptKey56, depending 
+//     on the negotiated key strength, while CurrentEncryptKeyN is either CurrentEncryptKey40 
+//     or CurrentEncryptKey56, depending on the negotiated key strength.
+
+// The initial and current keys are concatenated and hashed together 
+// with padding to form a temporary key as follows.
+
+//     SHAComponent = SHA(InitialEncryptKey + Pad1 + CurrentEncryptKey)
+//     TempKey128 = MD5(InitialEncryptKey + Pad2 + SHAComponent)
+
+// If the key strength is 128 bits, then the temporary key (TempKey128) 
+// is used to reinitialize the associated RC4 substitution table. (For 
+// more information on RC4 substitution table initialization, see 
+// [[SCHNEIER]] section 17.1.)
+
+//     S-TableEncrypt = InitRC4(TempKey128)
+
+// RC4 is then used to encrypt TempKey128 to obtain the new 128-bit 
+// encryption key.
+
+//     NewEncryptKey128 = RC4(TempKey128, S-TableEncrypt)
+
+// Finally, the associated RC4 substitution table is reinitialized with
+// the new encryption key (NewEncryptKey128), which can then be used to
+// encrypt a further 4,096 packets.
+
+//     S-Table = InitRC4(NewEncryptKey128)
+
+// If 40-bit or 56-bit keys are being used, then the first 64 bits of 
+// the temporary key (TempKey128) are used to reinitialize the associated
+// RC4 substitution table.
+
+//     TempKey64 = First64Bits(TempKey128)
+//     S-TableEncrypt = InitRC4(TempKey64)
+
+// RC4 is then used to encrypt these 64 bits, and the first few bytes 
+// are salted according to the key strength to derive a new 40-bit or 
+// 56-bit encryption key (see section 5.3.5.1 for details on how to 
+// perform the salting operation).
+
+//     PreSaltKey = RC4(TempKey64, S-TableEncrypt)
+//      
+//     NewEncryptKey40 = 0xD1269E + Last40Bits(PreSaltKey)
+//     NewEncryptKey56 = 0xD1 + Last56Bits(PreSaltKey)
+
+// Finally, the new 40-bit or 56-bit encryption key (NewEncryptKey40 or
+// NewEncryptKey56) is used to reinitialize the associated RC4 
+// substitution table.
+
+
+// 5.3.7.2 FIPS
+// ============
+
+// No session key updates take place for the duration of a connection 
+// if Standard RDP Security mechanisms (section 5.3) are being used 
+// with a FIPS Encryption Level.
+
+// 5.3.8 Packet Layout in the I/O Data Stream
+// ==========================================
+
+// The usage of Standard RDP Security mechanisms (section 5.3) results 
+// in a security header being present in all packets following the 
+// Security Exchange PDU (section 2.2.1.10) when encryption is in force.
+// Connection sequence PDUs following the RDP Security Commencement phase
+// of the RDP Connection Sequence (section 1.3.1.1) and slow-path packets
+// have the same general wire format.
+
+
+// +--------+-----------+-----------------------+-----------+~~~~~~~~~~~~~~~~~+
+// | TPKT   | X224 Data | MCS Header            | Security  |   Data          |
+// | Header | Header    | (Send Data Request or | Header    |                 |
+// |        |           |  Send Data Indication)|           |                 |
+// +--------+-----------+-----------------------+-----------+~~~~~~~~~~~~~~~~~+
+// Figure 9: Slow-path packet layout
+
+// -----: unencrypted Data (Headers)
+// ~~~~~: encrypted Data (Payload)
+
+
+// The Security Header essentially contains flags and a MAC signature taken over
+// the encrypted data (section 5.3.6 for details on the MAC generation). In FIPS
+// scenarios, the header also includes the number of padding bytes appended to
+// the data.
+
+// Fast-path packets are more compact and formatted differently, but the essential
+// contents of the Security Header are still present. For non-FIPS scenarios, the
+//  packet layout is as follows.
+
+// +-----------+------------+-----------+~~~~~~~~~~~~~~~~~+
+// | Fast-Path |            | MAC       |   Data          |
+// | Header    |  Length    | Signature |                 |
+// |           |            |           |                 |
+// +-----------+------------+-----------+~~~~~~~~~~~~~~~~~+
+//Figure 10: Non-FIPS fast-path packet layout
+
+// -----: unencrypted Data (Headers)
+// ~~~~~: encrypted Data (Payload)
+
+// And in FIPS fast-path scenarios the packet layout is as follows.
+
+
+// +-----------+-----------+-------------+-----------+~~~~~~~~~~~~~~~~~+
+// | Fast-Path |           |  FIPS       | MAC       |   Data          |
+// | Header    |  Length   | Information | Signature |                 |
+// |           |           |             |           |                 |
+// +-----------+-----------+-------------+-----------+~~~~~~~~~~~~~~~~~+
+//Figure 11: FIPS fast-path packet layout
+
+// -----: unencrypted Data (Headers)
+// ~~~~~: encrypted Data (Payload)
+
+
+// If no encryption is in effect, the Selected Encryption Method and 
+// Encryption Level (section 5.3.1) returned to the client is zero. 
+// The Security Header will not be included with any data sent on the 
+// wire, except for the Client Info (section 2.2.1.11) and licensing 
+// PDUs (for an example of a licensing PDU section 2.2.1.12), which 
+// always contain the Security Header.
+
+// See sections 2.2.8.1 and 2.2.9.1 for more details on slow and 
+// fast-path packet formats and the structure of the Security Header in
+// both of these scenarios.
+
 
     struct SecExchangePacket_Recv
     {

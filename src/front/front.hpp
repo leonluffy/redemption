@@ -1768,8 +1768,8 @@ public:
             // Microsoft RDP implementations (encryption of licensing PDUs is optional,
             // however).
 
-            // Client                                                     Server
-            //    |------Security Exchange PDU ---------------------------> |
+            // Client                                       Server
+            //    |------Security Exchange PDU --------------> |
             if (this->tls_client_active) {
                 LOG(LOG_INFO, "TLS mode: exchange packet disabled");
             }

@@ -2490,7 +2490,7 @@ public:
             }
 
             if (1/*this->verbose & 16*/){
-                LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
+                LOG(LOG_INFO, "ChannelJoinRequest[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
             }
 
             write_packets(
@@ -2519,14 +2519,14 @@ public:
             MCS::ChannelJoinConfirm_Recv mcs(mcs_cjcf_data, MCS::PER_ENCODING);
             // TODO If mcs.result is negative channel is not confirmed and should be removed from mod_channel list
             if (1 /*this->verbose & 16*/){
-                LOG(LOG_INFO, "cjcf[%zu] = %" PRIu16, this->ci.it.index, mcs.channelId);
+                LOG(LOG_INFO, "ChannelJoinConfirm[%zu] = %" PRIu16, this->ci.it.index, mcs.channelId);
             }
             
             LOG(LOG_INFO, "Sending Channel Join Request");
             this->ci.it.index++;
             if (this->ci.it.index < this->ci.num_channels+2) {
                 if (1/*this->verbose & 16*/){
-                    LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
+                    LOG(LOG_INFO, "ChannelJoinRequest[%zu] = %" PRIu16, this->ci.it.index, this->ci.channels_id[this->ci.it.index]);
                 }
                 write_packets(
                     this->nego.trans,
@@ -2540,12 +2540,12 @@ public:
                     write_x224_dt_tpdu_fn{}
                 );
                 LOG(LOG_INFO, "Waiting for Channel Join Confirm");
+                break;
             }
             else {
                 this->ci.it.state = ChannelsInfo::Iterator::STATE_FINAL;
             }
         }
-        break;
         case ChannelsInfo::Iterator::STATE_FINAL:
         {
             if (1/*this->verbose & 1*/){
@@ -2581,12 +2581,12 @@ public:
 
             // Client                                                     Server
             //    |------Security Exchange PDU ---------------------------> |
-            if (this->verbose & 1){
+            if (1/*this->verbose & 1*/){
                 LOG(LOG_INFO, "mod_rdp::RDP Security Commencement");
             }
 
             if (this->encryptionLevel){
-                if (this->verbose & 1){
+                if (1/*this->verbose & 1*/){
                     LOG(LOG_INFO, "mod_rdp::SecExchangePacket keylen=%u",
                         this->server_public_key_len);
                 }
@@ -2612,7 +2612,7 @@ public:
             // Client                                                     Server
             //    |------ Client Info PDU      ---------------------------> |
 
-            if (this->verbose & 1){
+            if (1/*this->verbose & 1*/){
                 LOG(LOG_INFO, "mod_rdp::Secure Settings Exchange");
             }
 
