@@ -92,6 +92,8 @@ BOOST_AUTO_TEST_CASE(TestBytesT)
     array_view_const_u8 cuav{cus, 1};
 
     bytes_array{bs, 1};
+    bytes_array{a, 1};
+    bytes_array{ua, 1};
     bytes_array{a};
     bytes_array{ua};
     bytes_array{av};
@@ -99,6 +101,8 @@ BOOST_AUTO_TEST_CASE(TestBytesT)
     bytes_array{ba};
 
     const_bytes_array{bs, 1};
+    const_bytes_array{a, 1};
+    const_bytes_array{ua, 1};
     const_bytes_array{a};
     const_bytes_array{ua};
     const_bytes_array{av};
@@ -106,6 +110,8 @@ BOOST_AUTO_TEST_CASE(TestBytesT)
     const_bytes_array{ba};
 
     const_bytes_array{cbs, 1};
+    const_bytes_array{ca, 1};
+    const_bytes_array{cua, 1};
     const_bytes_array{ca};
     const_bytes_array{cua};
     const_bytes_array{cav};

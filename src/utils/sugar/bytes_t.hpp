@@ -111,7 +111,29 @@ struct bytes_array : array_view<uint8_t>
     : bytes_array(1, a)
     {}
 
+    template<class T, class U, class = std::enable_if_t<(!std::is_same<int, T>::value)>>
+    constexpr bytes_array(T && a, U && sz) noexcept
+    : bytes_array(
+        1,
+        array_view<std::remove_reference_t<decltype(*pointer_or_size(a))>>(
+            pointer_or_size(a),
+            pointer_or_size(sz)
+        )
+    )
+    {}
+
 private:
+    template<class T, class = std::enable_if_t<std::is_integral<T>::value>>
+    constexpr static std::size_t pointer_or_size(T sz) noexcept
+    { return sz; }
+
+    template<class T, class = std::enable_if_t<(!std::is_integral<T>::value)>>
+    constexpr static T & pointer_or_size(T & a) noexcept
+    { return a; }
+
+    constexpr static uint8_t * pointer_or_size(bytes_t & b) noexcept
+    { return b; }
+
     constexpr bytes_array(int, array_view<char> av) noexcept
     : bytes_array(av)
     {}
@@ -158,7 +180,32 @@ struct const_bytes_array : array_view<const uint8_t>
     : const_bytes_array(1, a)
     {}
 
+    template<class T, class U, class = std::enable_if_t<(!std::is_same<int, T>::value)>>
+    constexpr const_bytes_array(T && a, U && sz) noexcept
+    : const_bytes_array(
+        1,
+        array_view<const std::remove_reference_t<decltype(*pointer_or_size(a))>>(
+            pointer_or_size(a),
+            pointer_or_size(sz)
+        )
+    )
+    {}
+
 private:
+    template<class T, class = std::enable_if_t<std::is_integral<T>::value>>
+    constexpr static std::size_t pointer_or_size(T sz) noexcept
+    { return sz; }
+
+    template<class T, class = std::enable_if_t<(!std::is_integral<T>::value)>>
+    constexpr static T & pointer_or_size(T & a) noexcept
+    { return a; }
+
+    constexpr static uint8_t const * pointer_or_size(bytes_t & b) noexcept
+    { return b; }
+
+    constexpr static uint8_t const * pointer_or_size(const_bytes_t & b) noexcept
+    { return b; }
+
     constexpr const_bytes_array(int, array_view<const char> av) noexcept
     : const_bytes_array(av)
     {}
