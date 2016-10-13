@@ -257,3 +257,99 @@ struct SCCore {
 };
 
 }}
+
+#include "proto/proto.hpp"
+#include "falcon/literals/integer_constant.hpp"
+using namespace falcon::literals::integer_constant_literals;
+namespace gcc { namespace user_data
+{
+    PROTO_VAR(proto::types::u16_le, version);
+    PROTO_VAR(proto::types::u32_le, client_requested_protocols);
+    PROTO_VAR(proto::types::u32_le, early_capability_flags);
+    PROTO_VAR(proto::types::enum_u16_le<DATA_BLOCK_TYPE>, user_data_type);
+
+    constexpr auto sc_core = proto::desc(
+        user_data_type = SC_CORE,
+        proto::optseq_size() + 8_c,
+        version,
+        proto::optseq(client_requested_protocols, early_capability_flags)
+    );
+
+    PROTO_VAR(proto::types::u16_le, mcs_channel_id);
+    PROTO_VAR(proto::types::aligned32_size_and_range_u16_le<proto::types::u16_le>, channel_id_list);
+
+    constexpr auto sc_net = proto::desc(
+        user_data_type = SC_NET,
+        proto::pkt_sz<proto::types::u16_le>{},
+        mcs_channel_id,
+        channel_id_list
+    );
+
+    namespace server_proprietary_certificate
+    {
+        PROTO_VAR(proto::types::u32_le, dw_sig_alg_id);
+        PROTO_VAR(proto::types::u32_le, dw_key_alg_id);
+        PROTO_VAR(proto::types::u16_le, w_public_key_blob_type);
+        PROTO_VAR(proto::types::u16_le, w_public_key_blob_len); // rsapk size
+
+        namespace rsapk
+        {
+            PROTO_VAR(proto::types::u32_le, magic);
+            PROTO_VAR(proto::types::u32_le, key_len);
+            PROTO_VAR(proto::types::u32_le, bit_len);
+            PROTO_VAR(proto::types::u32_le, data_len);
+            PROTO_VAR(proto::types::array_u8<4>, pub_exp);
+            PROTO_VAR(proto::types::array_u8<64>, modulus);
+        }
+
+        PROTO_VAR(proto::types::u16_le, w_signature_blob_type);
+        PROTO_VAR(proto::types::size_u16_le_and_array_u8<64>, w_signature_blob);
+    }
+
+    PROTO_VAR(proto::types::u32_le, encryption_method);
+    PROTO_VAR(proto::types::u32_le, encryption_level);
+    PROTO_VAR(proto::types::u32_le, server_random_len);
+    PROTO_VAR(proto::types::u32_le, server_cert_len);
+    PROTO_VAR(proto::types::array_u8<SEC_RANDOM_SIZE>, server_random);
+    PROTO_VAR(proto::types::u32_le, dw_version);
+    PROTO_VAR(proto::types::bool_, temporary);
+
+    constexpr auto sc_security_without_encryption = proto::desc(
+        user_data_type = SC_SECURITY,
+        proto::val<class length, proto::types::u16_le>{{0_c}},
+        encryption_method = 0_c,
+        encryption_level = 0_c
+    );
+
+    constexpr auto sc_security_with_encryption = proto::desc(
+        user_data_type = SC_SECURITY,
+        proto::val<class length, proto::types::u16_le>{{236_c}},
+        encryption_method,
+        encryption_level,
+        proto::val<class server_random_size, proto::types::u32_le>{{server_random.opti_size()}},
+        proto::val<class server_cert_len, proto::types::u32_le>{{184_c}} /* len of rsa info(certificate) */,
+        server_random,
+        /* start certificate */
+        dw_version |= temporary << 31,
+        server_proprietary_certificate::dw_sig_alg_id = SIGNATURE_ALG_RSA,
+        server_proprietary_certificate::dw_key_alg_id = KEY_EXCHANGE_ALG_RSA,
+        server_proprietary_certificate::w_public_key_blob_type = BB_RSA_KEY_BLOB,
+        server_proprietary_certificate::w_public_key_blob_len = 92_c,
+        server_proprietary_certificate::rsapk::magic = 0x31415352_c /* TODO RSA_MAGIC */,
+        server_proprietary_certificate::rsapk::key_len = 72_c,
+        server_proprietary_certificate::rsapk::bit_len = 512_c,
+        server_proprietary_certificate::rsapk::data_len = 63_c,
+        server_proprietary_certificate::rsapk::pub_exp,
+        server_proprietary_certificate::rsapk::modulus,
+        proto::clear_bytes<class pad1, SEC_PADDING_SIZE>{},
+        server_proprietary_certificate::w_signature_blob_type = BB_RSA_SIGNATURE_BLOB,
+        server_proprietary_certificate::w_signature_blob,
+        proto::clear_bytes<class pad2, SEC_PADDING_SIZE>{}
+    );
+
+    constexpr auto sc_security = proto::choose(
+        !encryption_method && !encryption_level,
+        sc_security_without_encryption,
+        sc_security_with_encryption
+    );
+} }
