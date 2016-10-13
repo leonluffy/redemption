@@ -407,7 +407,7 @@ void other_test()
             BOOST_CHECK_EQUAL(iovs.size(), 2);
         }),
         proto::value(proto::types::u8{2_c}),
-        proto::value(proto::types::bytes{{"abc", 3}})
+        proto::value(proto::types::bytes{"abc", 3})
     );
     BOOST_CHECK(used);
 

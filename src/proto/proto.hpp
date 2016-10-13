@@ -229,12 +229,32 @@ namespace proto
         T val;
 
         template<class U> constexpr safe_int(U x) noexcept : val{x} {}
+        template<class U, U v> constexpr safe_int(std::integral_constant<U, v>) noexcept : val{v} {}
 
         constexpr operator T () const { return val; }
         constexpr operator T & () { return val; }
     };
 
-    namespace types {
+    namespace types
+    {
+        template<class Desc, typename Desc::type val>
+        struct static_value
+        {
+            using type = typename Desc::type;
+            using sizeof_ = proto::sizeof_<Desc>;
+            using buffer_category = proto::buffer_category<Desc>;
+
+            std::size_t static_serialize(uint8_t * p) const
+            {
+                return Desc{val}.static_serialize(p);
+            }
+
+            std::size_t limited_serialize(uint8_t * p) const
+            {
+                return Desc{val}.limited_serialize(p);
+            }
+        };
+
         class le_tag {};
         class be_tag {};
 
@@ -336,7 +356,28 @@ namespace proto
                 // val + limited_serialize()
                 return (val < 127) ? 1u : 2u;
             }
+
+            template<class U, U v>
+            constexpr static
+            std::conditional_t<(v < 127), u8, u16_be>
+            make(std::integral_constant<U, v> x)
+            { return {x}; }
         };
+
+        struct u16_encoding_force_u16
+        {
+            using type = uint16_t;
+            using sizeof_ = size_<sizeof(type)>;
+
+            safe_int<type> val;
+
+            std::size_t static_serialize(uint8_t * p) const
+            {
+                assert(!(val & 0x8000));
+                return u16_be{uint16_t(val|0x8000)}.static_serialize(p);
+            }
+        };
+
         template<class E> using enum_u16_encoding = enum_<E, u16_encoding>;
 
         struct u32_encoding
@@ -374,7 +415,12 @@ namespace proto
 
             // constexpr std::size_t reserved_size() const;
         };
-        template<class E> using enum_u32_encoding = enum_<E, u32_encoding>;
+
+        template<class E>
+        using enum_u16_encoding = enum_<E, u16_encoding>;
+
+        template<class E>
+        using enum_u32_encoding = enum_<E, u32_encoding>;
         /** @} */
 
         template<class Obj, class T>
@@ -383,57 +429,33 @@ namespace proto
 
         struct bytes
         {
-            using type = array_view_const_u8;
+            using type = const_bytes_array;
             using sizeof_ = dyn_size;
             using buffer_category = tags::view_buffer;
 
             type av;
 
-            template<class T, class = enable_if_not_default_ctor_argument_t<bytes, T>>
-            constexpr bytes(T && av) noexcept
-            : av(av)
+            constexpr bytes(bytes &&) = default;
+            constexpr bytes(bytes const &) = default;
+
+            constexpr bytes(const_bytes_array b) noexcept
+            : av(b)
             {}
 
-            constexpr bytes(array_view_const_u8 av) noexcept
-            : av(av)
+            template<class T>
+            constexpr bytes(T && a) noexcept
+            : av(a)
             {}
 
-            bytes(array_view_const_char av) noexcept
-            : av(reinterpret_cast<uint8_t const*>(av.data()), av.size())
-            {}
-
-            array_view_const_u8 get_view_buffer() const
-            {
-                /**///std::cout << " [view_buffer] [size: " << av.size() << "]";
-                return av;
-            }
-        };
-
-        struct mutable_bytes
-        {
-            using type = array_view_u8;
-            using sizeof_ = dyn_size;
-            using buffer_category = tags::view_buffer;
-
-            type av;
-
-            template<class T, class = enable_if_not_default_ctor_argument_t<mutable_bytes, T>>
-            constexpr mutable_bytes(T && av) noexcept
-            : av(av)
-            {}
-
-            constexpr mutable_bytes(array_view_u8 av) noexcept
-            : av(av)
-            {}
-
-            mutable_bytes(array_view_char av) noexcept
-            : av(reinterpret_cast<uint8_t *>(av.data()), av.size())
+            template<class T, class U>
+            constexpr bytes(T && a, U && sz) noexcept
+            : av(a, sz)
             {}
 
             array_view_const_u8 get_view_buffer() const
             {
                 /**///std::cout << " [view_buffer] [size: " << av.size() << "]";
-                return av;
+                return this->av;
             }
         };
 
@@ -453,24 +475,6 @@ namespace proto
             {
                 /**///std::cout << " [dynamic_buffer]";
                 f(this->str);
-            }
-        };
-
-        template<class Desc, typename Desc::type val>
-        struct static_value
-        {
-            using type = typename Desc::type;
-            using sizeof_ = proto::sizeof_<Desc>;
-            using buffer_category = proto::buffer_category<Desc>;
-
-            std::size_t static_serialize(uint8_t * p) const
-            {
-                return Desc{val}.static_serialize(p);
-            }
-
-            std::size_t limited_serialize(uint8_t * p) const
-            {
-                return Desc{val}.limited_serialize(p);
             }
         };
 
@@ -587,26 +591,41 @@ namespace proto
         get_dependencies<Deps>
     >;
 
+    namespace detail
+    {
+        template<template<class> class Tpl, class T, class R, class = void>
+        struct get_or_impl
+        { using type = R; };
 
-    template<class Deps, class Desc>
+        template<template<class> class Tpl, class T, class R>
+        struct get_or_impl<Tpl, T, R, void_t<Tpl<T>>>
+        { using type = Tpl<T>; };
+    }
+
+    template<template<class> class Tpl, class T, class R = T>
+    using get_or_t = typename detail::get_or_impl<Tpl, T, R>::type;
+
+    template<class T>
+    using desc_type_t = typename T::desc_type;
+
+    template<class T>
+    using desc_or_t = get_or_t<desc_type_t, T>;
+
+    template<class Deps, class Value, class Desc = desc_or_t<Value>>
     struct val
     {
         using var_type = Deps;
         using dependencies = get_dependencies<Deps>;
+        using value_type = Value;
         using desc_type = Desc;
 
-        Desc desc;
+        Value desc;
 
         template<class Params>
         constexpr val
         to_proto_value(Params const &) const
         { return *this; }
     };
-
-    // for more readable errors
-    template<class Dep, class Desc, class T>
-    constexpr auto make_val(T && x)
-    { return Desc{std::forward<T>(x)}; }
 
     template<class T>
     using is_integral_or_enum = brigand::bool_<std::is_integral<T>{} or std::is_enum<T>{}>;
@@ -629,6 +648,18 @@ namespace proto
 
 
     template<class T>
+    struct safe_cast_impl
+    {
+        static_assert(is_integral_or_enum<T>{}, "");
+        T value_;
+    };
+
+    template<class T>
+    constexpr safe_cast_impl<T>
+    cast(T v)
+    { return {v}; }
+
+    template<class T>
     struct unsafe_cast_impl
     {
         static_assert(is_integral_or_enum<T>{}, "");
@@ -640,17 +671,10 @@ namespace proto
     unsafe_cast(T v)
     { return {v}; }
 
-    template<class T>
-    struct safe_cast_impl
-    {
-        static_assert(is_integral_or_enum<T>{}, "");
-        T value_;
-    };
-
-    template<class T>
-    constexpr safe_cast_impl<T>
-    cast(T v)
-    { return {v}; }
+    template<class T, T v>
+    constexpr safe_cast_impl<std::integral_constant<T, v>>
+    unsafe_cast(std::integral_constant<T, v> c)
+    { return {c}; }
 
 
     namespace detail
@@ -705,6 +729,16 @@ namespace proto
     { return r; }
 
 
+    // for more readable errors
+    template<class Dep, class Desc, class T>
+    constexpr auto make_val(T && x, int)
+    -> decltype(Desc::make(std::forward<T>(x)))
+    { return Desc::make(std::forward<T>(x)); }
+
+    template<class Dep, class Desc, class T>
+    constexpr auto make_val(T && x, char)
+    { return Desc{std::forward<T>(x)}; }
+
     template<class Dep, class Desc>
     struct var
     {
@@ -729,8 +763,17 @@ namespace proto
             return impl(static_cast<type>(checked_cast<dst>(static_cast<scr>(o.value_))));
         }
 
+        template<class U, U v>
+        constexpr auto operator = (safe_cast_impl<std::integral_constant<U, v>>) const
+        {
+            using type = typename desc_type::type;
+            using scr = integral_type<U>;
+            using dst = integral_type<type>;
+            return impl(static_cast<type>(dst{static_cast<scr>(v)}));
+        }
+
         template<class Params>
-        decltype(auto) to_proto_value(Params params) const noexcept
+        static decltype(auto) to_proto_value(Params params) noexcept
         { return params.template get_proto_value<Dep>(); }
 
     private:
@@ -739,17 +782,14 @@ namespace proto
         { return *this = unsafe_cast_impl<U>{v}; }
 
         template<class U>
-        constexpr auto lax_impl(std::false_type, U && v) const
+        static constexpr auto lax_impl(std::false_type, U && v)
         { return impl(std::forward<U>(v)); }
 
         template<class U>
-        constexpr auto impl(U && x) const
-        -> val<Dep, decltype(make_val<Dep, Desc>(std::forward<U>(x)))>
-        { return {make_val<Dep, Desc>(std::forward<U>(x))}; }
+        static constexpr auto impl(U && x)
+        -> val<Dep, decltype(make_val<Dep, Desc>(std::forward<U>(x), 1))>
+        { return {make_val<Dep, Desc>(std::forward<U>(x), 1)}; }
     };
-
-    template<class T>
-    using desc_type_t = typename T::desc_type;
 
     template<class T, class = void> struct check;
     template<class T> struct check<T, std::enable_if_t<T::value>> { constexpr operator bool () { return 0; } };
@@ -863,18 +903,21 @@ namespace proto
         };
 
         template<class Params>
-        constexpr val<Sp, lazy> to_proto_value(Params) const
+        constexpr val<Sp, lazy, lazy> to_proto_value(Params) const
         {
             return {};
         }
     };
 
+    // TODO Deps, Desc
     template<class Desc>
     using sz = special<dsl::pkt_sz, Desc>;
 
+    // TODO Deps, Desc
     template<class Desc>
     using sz_with_self = special<dsl::pkt_sz_with_self, Desc>;
 
+    // TODO Deps, Desc
     template<class Desc>
     using data = special<dsl::pkt_data, Desc>;
 
@@ -968,7 +1011,7 @@ namespace proto
         constexpr
         std::conditional_t<
             brigand::any<brigand::list<has_special_sz<V>...>>::value,
-            val<Deps, lazy_creator<Deps, Desc, V...>>,
+            val<Deps, lazy_creator<Deps, Desc, V...>, lazy_creator<Deps, Desc, V...>>,
             val<Deps, Desc>
         >
         to_proto_value_(V && ... values) const
@@ -1377,25 +1420,11 @@ namespace proto
         return creator<Deps, Desc, Val...>{{v...}};
     }
 
-    namespace detail
-    {
-        template<template<class> class Tpl, class T, class = void>
-        struct get_or_impl
-        { using type = T; };
-
-        template<template<class> class Tpl, class T>
-        struct get_or_impl<Tpl, T, void_t<Tpl<T>>>
-        { using type = Tpl<T>; };
-    }
-
-    template<template<class> class Tpl, class T>
-    using get_or = typename detail::get_or_impl<Tpl, T>::type;
-
     template<class... Val>
     constexpr auto
     composer(Val... v)
     {
-        using subtype = compose_t<get_or<desc_type_t, Val>...>;
+        using subtype = compose_t<desc_or_t<Val>...>;
         return creator<brigand::list<Val...>, subtype, Val...>{{v...}};
     }
 
@@ -1403,7 +1432,7 @@ namespace proto
     constexpr auto
     composer(Val... v)
     {
-        using subtype = compose_t<get_or<desc_type_t, Val>...>;
+        using subtype = compose_t<desc_or_t<Val>...>;
         return creator<Deps, subtype, Val...>{{v...}};
     }
 
@@ -2152,7 +2181,7 @@ namespace proto
             constexpr std::enable_if_t<
                 proto::has_special_sz<Desc>::value or
                 proto::has_special_sz<DescCond>::value,
-                proto::val<dependencies, lazy_only_if_true<Desc>>
+                proto::val<dependencies, lazy_only_if_true<Desc>, lazy_only_if_true<Desc>>
             >
             to_proto_value_(DescCond cond, Desc && value) const
             {
