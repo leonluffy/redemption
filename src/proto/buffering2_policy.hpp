@@ -174,7 +174,7 @@ using is_undeterministic_sizeof_special = brigand::bool_<
 
 template<class Info>
 using keep_info_special_pkt_ptr = brigand::bool_<
-    !Info::is_begin_buf && !Info::is_end_buf && (
+    !Info::is_begin_buf && (
         (
             has_pkt_sz_with_self<typename Info::val>::value and
             !is_size_<typename Info::sz_self>::value
@@ -1159,14 +1159,14 @@ struct Buffering2
             using is_pkt_sz_self = brigand::bool_<has_pkt_sz_with_self<Val>{} && !is_size_<pkt_sz_self>{}>;
 
             cifv(is_pkt_sz{}, val, [this](auto const & val){
-                PROTO_TRACE(" [pkt_sz: " << this->next_size_or_0<Info>() << "]");
+                PROTO_TRACE(this->next_size_or_0<Info>() << " [pkt_sz]");
                 this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
                     return this->next_size_or_0<Info>();
                 }, val);
             });
 
             cifv(is_pkt_sz_self{}, val, [this](auto const & val){
-                PROTO_TRACE(" [pkt_sz_with_self: " << this->sizes[Info::ipacket] << "]");
+                PROTO_TRACE(this->sizes[Info::ipacket] << " [pkt_sz_with_self]");
                 this->serialize_eval_sz<Info, proto::dsl::pkt_sz_with_self>([this]{
                     return this->sizes[Info::ipacket];
                 }, val);
@@ -1265,6 +1265,7 @@ struct Buffering2
             void * buf = keep_info_special_pkt_ptr<Info>{}
               ? *--this->pspecial_pkt
               : this->buffers.data[Info::ibuf].iov_base;
+            PROTO_TRACE(" [buf: " << buf << "]");
 
             this->serialize_spe_type<Info>(
                 proto::buffer_category<desc_type_t<new_val_type>>{},
@@ -1370,7 +1371,7 @@ struct Buffering2
             );
             PROTO_ENABLE_IF_TRACE(
                 cifv(has_special_pkt<Val>{}, val, [](auto const &) {
-                    PROTO_TRACE(" [spe] ");
+                    PROTO_TRACE(" [spe]");
                 })
             );
 
@@ -1429,7 +1430,6 @@ struct Buffering2
                 val
             );
             this->post_serialize_value(info);
-            PROTO_TRACE("\n");
         }
 
         template<class Info>
@@ -1438,7 +1438,7 @@ struct Buffering2
             using is_view = proto::is_view_buffer<desc_type_t<Info>>;
             using is_dyn = proto::is_dynamic_buffer<desc_type_t<Info>>;
             if (is_view{} || is_dyn{}) {
-                PROTO_TRACE(" [*psz: +" << this->piov->iov_len << "] ");
+                PROTO_TRACE(" [*psz: +" << this->piov->iov_len << "]");
                 *this->psize += this->piov->iov_len;
             }
 
@@ -1449,19 +1449,21 @@ struct Buffering2
                 cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
                     using i = decltype(ibuf);
                     auto const inc_sz = this->iov_base() - get<i::value>(this->buffer_tuple).buf;
-                    PROTO_TRACE(" [*psz: +" << inc_sz << "] ");
+                    PROTO_TRACE(" [*psz: +" << inc_sz << "]");
                     *this->psize += inc_sz;
                 });
             }
 
             if (Info::is_end_pkt) {
-                PROTO_TRACE(" [++psz] ");
+                PROTO_TRACE(" [++psz]");
                 ++this->psize;
             }
 
             if (Info::is_end_buf) {
                 ++this->piov;
             }
+
+            PROTO_TRACE("\n");
         }
 
         template<class Info, class Val>
@@ -1571,6 +1573,7 @@ struct Buffering2
         ) {
             static_assert(!proto::is_view_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
             static_assert(!proto::is_dynamic_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
+            PROTO_TRACE(" = " << Sz::value);
             auto get_sz = []{ return Sz::value; };
             auto szval = proto::val<Sp, decltype(get_sz)>{get_sz};
             this->serialize_type(

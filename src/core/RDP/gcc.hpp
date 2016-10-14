@@ -560,90 +560,90 @@ namespace GCC
 
 
 
-#include "proto/proto.hpp"
-#include "falcon/literals/integer_constant.hpp"
-using namespace falcon::literals::integer_constant_literals;
-
-// TODO integer_constant_operators.hpp
-template<class T, T a, class U, U b>
-std::integral_constant<decltype(a | b), (a | b)>
-operator | (std::integral_constant<T, a>, std::integral_constant<U, b>)
-{ return {}; }
-
-namespace gcc
-{
-    constexpr auto create_response = proto::desc(
-        // ConnectData
-        // 00 05 -> Key::object length = 5 bytes
-        // 00 14 7c 00 01 -> Key::object = { 0 0 20 124 0 1 }
-        // TODO len + data = proto::types::len_and_data
-        proto::val<class key_object_len, proto::types::u16_be>{{5_c}}, /* TODO enum */
-        proto::val<class key_object_data, proto::types::bytes>{cstr_array_view("\x00\x14\x7c\x00\x01")},
-
-        // 2a -> ConnectData::connectPDU length = 42 bytes
-        // This length MUST be ignored by the client.
-        proto::val<class connect_pdu_len, proto::types::u8>{{0x2a_c}},
-
-        // PER encoded (ALIGNED variant of BASIC-PER) GCC Conference Create Response
-        // PDU:
-        // 14 76 0a 01 01 00 01 c0 00 00 4d 63 44 6e 81 08
-
-        // 0x14:
-        // 0 - extension bit (ConnectGCCPDU)
-        // 0 - --\ ...
-        // 0 -   | CHOICE: From ConnectGCCPDU select conferenceCreateResponse (1)
-        // 1 - --/ of type ConferenceCreateResponse
-        // 0 - extension bit (ConferenceCreateResponse)
-        // 1 - ConferenceCreateResponse::userData present
-        // 0 - padding
-        // 0 - padding
-        proto::val<class extension_bit_connect_gcc_pdu, proto::types::u8>{{0x10_c | 4_c}},
-
-        // ConferenceCreateResponse::nodeID
-        //  = 0x760a + 1001 = 30218 + 1001 = 31219
-        //  (minimum for UserID is 1001)
-        proto::val<class node_id, proto::types::u16_be>{{0x760a_c}},
-
-        // ConferenceCreateResponse::tag length = 1 byte
-        proto::val<class tag_len, proto::types::u8>{{1_c}},
-
-        // ConferenceCreateResponse::tag = 1
-        proto::val<class tag, proto::types::u8>{{1_c}},
-
-        // 0x00:
-        // 0 - extension bit (Result)
-        // 0 - --\ ...
-        // 0 -   | ConferenceCreateResponse::result = success (0)
-        // 0 - --/
-        // 0 - padding
-        // 0 - padding
-        // 0 - padding
-        // 0 - padding
-        proto::val<class extension_bit_result, proto::types::u8>{{0_c}},
-
-        // number of UserData sets = 1
-        proto::val<class number_of_user_data, proto::types::u8>{{1_c}},
-
-        // 0xc0:
-        // 1 - UserData::value present
-        // 1 - CHOICE: From Key select h221NonStandard (1)
-        //               of type H221NonStandardIdentifier
-        // 0 - padding
-        // 0 - padding
-        // 0 - padding
-        // 0 - padding
-        // 0 - padding
-        // 0 - padding
-        proto::val<class user_data_value, proto::types::u8>{{0xc0_c}},
-
-        // h221NonStandard length = 0 + 4 = 4 octets
-        //   (minimum for H221NonStandardIdentifier is 4)
-        proto::val<class h221_non_standard_len, proto::types::u8>{{0_c}},
-
-        // h221NonStandard (server-to-client H.221 key) = "McDn"
-        proto::val<class server_to_client_h221_key, proto::types::bytes>{cstr_array_view("McDn")},
-
-        // set user_data_len (TWO_BYTE_UNSIGNED_ENCODING)
-        proto::sz<proto::types::u16_encoding_force_u16>{}
-    );
-}
+// #include "proto/proto.hpp"
+// #include "falcon/literals/integer_constant.hpp"
+// using namespace falcon::literals::integer_constant_literals;
+//
+// // TODO integer_constant_operators.hpp
+// template<class T, T a, class U, U b>
+// std::integral_constant<decltype(a | b), (a | b)>
+// operator | (std::integral_constant<T, a>, std::integral_constant<U, b>)
+// { return {}; }
+//
+// namespace gcc
+// {
+//     constexpr auto create_response = proto::desc(
+//         // ConnectData
+//         // 00 05 -> Key::object length = 5 bytes
+//         // 00 14 7c 00 01 -> Key::object = { 0 0 20 124 0 1 }
+//         // TODO len + data = proto::types::len_and_data
+//         proto::val<class key_object_len, proto::types::u16_be>{{5_c}}, /* TODO enum */
+//         proto::val<class key_object_data, proto::types::bytes>{cstr_array_view("\x00\x14\x7c\x00\x01")},
+//
+//         // 2a -> ConnectData::connectPDU length = 42 bytes
+//         // This length MUST be ignored by the client.
+//         proto::val<class connect_pdu_len, proto::types::u8>{{0x2a_c}},
+//
+//         // PER encoded (ALIGNED variant of BASIC-PER) GCC Conference Create Response
+//         // PDU:
+//         // 14 76 0a 01 01 00 01 c0 00 00 4d 63 44 6e 81 08
+//
+//         // 0x14:
+//         // 0 - extension bit (ConnectGCCPDU)
+//         // 0 - --\ ...
+//         // 0 -   | CHOICE: From ConnectGCCPDU select conferenceCreateResponse (1)
+//         // 1 - --/ of type ConferenceCreateResponse
+//         // 0 - extension bit (ConferenceCreateResponse)
+//         // 1 - ConferenceCreateResponse::userData present
+//         // 0 - padding
+//         // 0 - padding
+//         proto::val<class extension_bit_connect_gcc_pdu, proto::types::u8>{{0x10_c | 4_c}},
+//
+//         // ConferenceCreateResponse::nodeID
+//         //  = 0x760a + 1001 = 30218 + 1001 = 31219
+//         //  (minimum for UserID is 1001)
+//         proto::val<class node_id, proto::types::u16_be>{{0x760a_c}},
+//
+//         // ConferenceCreateResponse::tag length = 1 byte
+//         proto::val<class tag_len, proto::types::u8>{{1_c}},
+//
+//         // ConferenceCreateResponse::tag = 1
+//         proto::val<class tag, proto::types::u8>{{1_c}},
+//
+//         // 0x00:
+//         // 0 - extension bit (Result)
+//         // 0 - --\ ...
+//         // 0 -   | ConferenceCreateResponse::result = success (0)
+//         // 0 - --/
+//         // 0 - padding
+//         // 0 - padding
+//         // 0 - padding
+//         // 0 - padding
+//         proto::val<class extension_bit_result, proto::types::u8>{{0_c}},
+//
+//         // number of UserData sets = 1
+//         proto::val<class number_of_user_data, proto::types::u8>{{1_c}},
+//
+//         // 0xc0:
+//         // 1 - UserData::value present
+//         // 1 - CHOICE: From Key select h221NonStandard (1)
+//         //               of type H221NonStandardIdentifier
+//         // 0 - padding
+//         // 0 - padding
+//         // 0 - padding
+//         // 0 - padding
+//         // 0 - padding
+//         // 0 - padding
+//         proto::val<class user_data_value, proto::types::u8>{{0xc0_c}},
+//
+//         // h221NonStandard length = 0 + 4 = 4 octets
+//         //   (minimum for H221NonStandardIdentifier is 4)
+//         proto::val<class h221_non_standard_len, proto::types::u8>{{0_c}},
+//
+//         // h221NonStandard (server-to-client H.221 key) = "McDn"
+//         proto::val<class server_to_client_h221_key, proto::types::bytes>{cstr_array_view("McDn")},
+//
+//         // set user_data_len (TWO_BYTE_UNSIGNED_ENCODING)
+//         proto::sz<proto::types::u16_encoding_force_u16>{}
+//     );
+// }

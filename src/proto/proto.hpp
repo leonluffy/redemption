@@ -630,6 +630,25 @@ namespace proto
     template<class T>
     using is_integral_or_enum = brigand::bool_<std::is_integral<T>{} or std::is_enum<T>{}>;
 
+    namespace detail
+    {
+        template<class T>
+        struct is_integral_constant_impl
+        : std::false_type
+        {};
+
+        template<class T, T x>
+        struct is_integral_constant_impl<std::integral_constant<T, x>>
+        : std::true_type
+        {};
+    }
+
+    template<class T>
+    using is_integral_constant = typename detail::is_integral_constant_impl<T>::type;
+
+    template<class T>
+    using is_integral_or_enum_or_constant = brigand::bool_<is_integral_or_enum<T>{} or is_integral_constant<T>{}>;
+
     template<class T, class R = void>
     struct enable_is_integral_or_enum
     : std::enable_if<std::is_integral<T>{} or std::is_enum<T>{}, R>
@@ -650,7 +669,7 @@ namespace proto
     template<class T>
     struct safe_cast_impl
     {
-        static_assert(is_integral_or_enum<T>{}, "");
+        static_assert(is_integral_or_enum<T>{} or is_integral_constant<T>{}, "");
         T value_;
     };
 

@@ -60,6 +60,7 @@ struct Printer
         using type = decltype(x.val);
         using casted_type = std::conditional_t<
             std::is_same<type, unsigned char>::value ||
+            std::is_same<type, char>::value ||
             std::is_same<type, proto::safe_int<unsigned char>>::value,
             int,
             type const &

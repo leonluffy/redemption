@@ -330,6 +330,31 @@ void other_test()
     proto::apply(
         Buffering2<PolicyLL>{used},
         b2(),
+        b3(c = proto::cast(3_c)),
+        proto::value(proto::types::u8{2_c})
+    );
+    BOOST_CHECK(used);
+
+    struct PolicyLL2 : log_policy {
+        void send(iovec_array iovs) const {
+            log_policy::send(iovs);
+            BOOST_REQUIRE_EQUAL(iovs.size(), 1);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 3);
+            CHECK_RANGE(
+                iov2av(iovs[0]),
+                cstr_array_view("\x02\x03\x02")
+            );
+            this->used = true;
+        }
+
+        PolicyLL2(bool & used) : used(used) {}
+        bool & used;
+    };
+
+    used = false;
+    proto::apply(
+        Buffering2<PolicyLL2>{used},
+        b2(),
         b3(c = 3_c),
         proto::value(proto::types::u8{2_c})
     );
@@ -338,7 +363,7 @@ void other_test()
     proto::apply(
         Buffering2<PolicyLL>{used},
         b2(),
-        b3(c = 3_c),
+        b3(c = proto::cast(3_c)),
         proto::hook<class hook>([](array_view_u8 av){
             using voidp = void*;
             std::cout << " [hook av{0x" << voidp(av.data()) << ", " << av.size() << "}] [data:";

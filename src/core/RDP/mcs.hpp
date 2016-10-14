@@ -3060,38 +3060,38 @@ namespace mcs
             ((MCS::MCSPDU_DisconnectProviderUltimatum << 10) | (reason << 7))
     );
 
-    constexpr auto connect_response = proto::desc2(
-        // BER: Application-Defined Type = APPLICATION 102 = Connect-Response
-        proto::desc(
-            type = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00),
-            proto::sz
-        ),
-        proto::desc(
-            // Connect-Response::result = rt-successful (0)
-            // The first byte (0x0a) is the ASN.1 BER encoded Enumerated type. The
-            // length of the value is given by the second byte (1 byte), and the
-            // actual value is 0 (rt-successful).
-            proto::val<class encoded_enumerated, proto::types::u8>{{10_c /* TODO BER_TAG_RESULT*/}},
-            proto::val<class len, proto::types::u8>{{1_c}},
-            result = MCS::RT_SUCCESSFUL,
-
-            // Connect-Response::calledConnectId = 0
-            proto::val<class called_connect_id, proto::types::u8>{{0_c}}, // 3 bytes TODO 0 = 3 bytes ???
-
-            // Connect-Response::domainParameters (26 bytes)
-            proto::val<class domain_parameters, proto::types::u8>{{0x30 /* TODO BER_TAG_MCS_DOMAIN_PARAMS*/}},
-            proto::val<class domain_parameters_len, proto::types::u8>{{26_c}},
-            proto::val<class domain_parameters_max_channel_ids, proto::types::u8>{{34_c}},
-            proto::val<class domain_parameters_max_user_ids, proto::types::u8>{{3_c}},
-            proto::val<class domain_parameters_max_priorities, proto::types::u8>{{0_c}},
-            proto::val<class domain_parameters_num_priorities, proto::types::u8>{{1_c}},
-            proto::val<class domain_parameters_min_throughtout, proto::types::u8>{{0_c}},
-            proto::val<class domain_parameters_max_height, proto::types::u8>{{1_c}},
-            proto::val<class domain_parameters_max_mcs_pdu_size, proto::types::u8>{{0xfff8_c}},
-            proto::val<class domain_parameters_protocol_version, proto::types::u8>{{2_c}},
-
-            proto::val<class tag_octet_string, proto::types::u8>{{4_c /* TODO BER_TAG_OCTET_STRING*/}},
-            proto::sz
-        )
-    );
+//     constexpr auto connect_response = proto::desc2(
+//         // BER: Application-Defined Type = APPLICATION 102 = Connect-Response
+//         proto::desc(
+//             type = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00_c),
+//             proto::sz
+//         ),
+//         proto::desc(
+//             // Connect-Response::result = rt-successful (0)
+//             // The first byte (0x0a) is the ASN.1 BER encoded Enumerated type. The
+//             // length of the value is given by the second byte (1 byte), and the
+//             // actual value is 0 (rt-successful).
+//             proto::val<class encoded_enumerated, proto::types::u8>{{10_c /* TODO BER_TAG_RESULT*/}},
+//             proto::val<class len, proto::types::u8>{{1_c}},
+//             result = MCS::RT_SUCCESSFUL,
+//
+//             // Connect-Response::calledConnectId = 0
+//             proto::val<class called_connect_id, proto::types::u8>{{0_c}}, // 3 bytes TODO 0 = 3 bytes ???
+//
+//             // Connect-Response::domainParameters (26 bytes)
+//             proto::val<class domain_parameters, proto::types::u8>{{0x30_c /* TODO BER_TAG_MCS_DOMAIN_PARAMS*/}},
+//             proto::val<class domain_parameters_len, proto::types::u8>{{26_c}},
+//             proto::val<class domain_parameters_max_channel_ids, proto::types::u8>{{34_c}},
+//             proto::val<class domain_parameters_max_user_ids, proto::types::u8>{{3_c}},
+//             proto::val<class domain_parameters_max_priorities, proto::types::u8>{{0_c}},
+//             proto::val<class domain_parameters_num_priorities, proto::types::u8>{{1_c}},
+//             proto::val<class domain_parameters_min_throughtout, proto::types::u8>{{0_c}},
+//             proto::val<class domain_parameters_max_height, proto::types::u8>{{1_c}},
+//             proto::val<class domain_parameters_max_mcs_pdu_size, proto::types::u8>{{0xfff8_c}},
+//             proto::val<class domain_parameters_protocol_version, proto::types::u8>{{2_c}},
+//
+//             proto::val<class tag_octet_string, proto::types::u8>{{4_c /* TODO BER_TAG_OCTET_STRING*/}},
+//             proto::sz
+//         )
+//     );
 }
