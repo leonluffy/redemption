@@ -436,24 +436,8 @@ namespace proto {
     {};
 }
 
-namespace proto_buffering2 {
-
-namespace detail {
-    template<template<class> class IsPktSz, class Pkt, class Sz>
-    struct convert_pkt_sz
-    { using type = Pkt; };
-
-    template<template<class> class IsPktSz, class... Ts, std::size_t n>
-    struct convert_pkt_sz<IsPktSz, brigand::list<Ts...>, proto::size_<n>>
-    { using type = brigand::list<std::conditional_t<IsPktSz<Ts>{}, pkt_sz_with_size<Ts, n>, Ts>...>; };
-}
-template<class Pkt, class Sz, class SzNext>
-using convert_pkt_sz = typename detail::convert_pkt_sz<
-    proto::is_pkt_sz_with_self,
-    typename detail::convert_pkt_sz<proto::is_pkt_sz, Pkt, SzNext>::type,
-    Sz
->::type;
-
+namespace proto_buffering2
+{
 
 template<std::size_t i>
 using i_ = std::integral_constant<std::size_t, i>;
@@ -512,12 +496,6 @@ using sizeof_var_infos = brigand::fold<
 
 template<class L>
 using buffer_from_var_infos = sizeof_to_buffer<sizeof_var_infos<L>>;
-
-template<class T>
-using var_info_is_pkt_sz = proto::is_pkt_sz_category<desc_type_t<T>>;
-
-template<class VarInfos>
-using var_infos_has_pkt_sz = brigand::any<VarInfos, brigand::call<var_info_is_pkt_sz>>;
 
 namespace detail {
     template<class T>
@@ -707,13 +685,7 @@ namespace detail {
     struct convert_pkt_sz2<IsPktSz, brigand::list<Ts...>, proto::size_<n>>
     { using type = brigand::list<std::conditional_t<IsPktSz<Ts>{}, proto::types::static_value<Ts, n>, Ts>...>; };
 }
-// TODO convert_pkt_sz
-// template<class Pkt, class Sz, class SzNext>
-// using convert_pkt_sz2 = typename detail::convert_pkt_sz2<
-//     proto::is_pkt_sz_with_self,
-//     typename detail::convert_pkt_sz2<proto::is_pkt_sz, Pkt, SzNext>::type,
-//     Sz
-// >::type;
+
 template<class Pkt, class Sz, class SzNext>
 using convert_pkt_sz2 = Pkt;
 
@@ -896,23 +868,6 @@ struct Buffering2
                 >
             >
         >;
-
-//         brigand::transform<
-//                     flat_values,
-//                     brigand::push_front<
-//                         brigand::pop_back<flat_values>,
-//                         proto::var<void, proto::types::u8>
-//                     >,
-//                     brigand::push_front<
-//                         brigand::pop_back<
-//                           flat_accu_sizeof_by_packet_by_packet
-//                         >,
-//                         proto::size_<0>
-//                     >,
-//                     flat_accu_sizeof_by_packet_by_packet,
-//                     brigand::call<brigand::list>
-//                 > a = 1;
-//                 desc_list_by_buffer b = 2;
 
         // [ filled_list<ibuf, size<buffer>> ... ]
         // [ [ 0 ... ] [ 1 ... ] ... ]
@@ -1526,18 +1481,6 @@ struct Buffering2
         {
             PROTO_ENABLE_IF_TRACE(Printer::print(x.desc, 1));
             (void)x;
-        }
-
-        template<class T, class Derived>
-        static void print(proto::var<proto::types::pkt_sz<T>, Derived>)
-        {
-            PROTO_TRACE("[pkt_sz]");
-        }
-
-        template<class T, class Derived>
-        static void print(proto::var<proto::types::pkt_sz_with_self<T>, Derived>)
-        {
-            PROTO_TRACE("[pkt_sz_with_self]");
         }
 
         static void print_buffer_type(proto::tags::static_buffer)

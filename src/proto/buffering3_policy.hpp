@@ -312,18 +312,6 @@ struct Buffering3
             (void)x;
         }
 
-        template<class T, class Derived>
-        static void print(proto::var<proto::types::pkt_sz<T>, Derived>)
-        {
-            PROTO_TRACE("[pkt_sz]");
-        }
-
-        template<class T, class Derived>
-        static void print(proto::var<proto::types::pkt_sz_with_self<T>, Derived>)
-        {
-            PROTO_TRACE("[pkt_sz_with_self]");
-        }
-
         template<class T>
         static void print(T const &)
         {

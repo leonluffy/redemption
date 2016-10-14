@@ -453,27 +453,6 @@ namespace proto
             }
         };
 
-        template<class Desc>
-        struct pkt_sz
-        {
-            using type = Desc;
-            using sizeof_ = proto::sizeof_<Desc>;
-        };
-
-        template<class Desc>
-        struct pkt_sz_with_self
-        {
-            using type = Desc;
-            using sizeof_ = proto::sizeof_<Desc>;
-        };
-
-        template<class Desc>
-        struct pkt_data
-        {
-            using type = Desc;
-            using sizeof_ = proto::sizeof_<Desc>;
-        };
-
         template<class T>
         struct value
         {
@@ -520,23 +499,7 @@ namespace proto
         { using type = tags::limited_buffer ; };
         template<> struct common_buffer_impl<tags::limited_buffer, tags::static_buffer>
         { using type = tags::limited_buffer ; };
-
-
-        template<class T> struct is_pkt_sz : std::false_type {};
-        template<class T> struct is_pkt_sz<types::pkt_sz<T>> : std::true_type {};
-
-        template<class T> struct is_pkt_sz_with_self : std::false_type {};
-        template<class T> struct is_pkt_sz_with_self<types::pkt_sz_with_self<T>> : std::true_type {};
-
-        template<class T> struct is_pkt_data : std::false_type {};
-        template<class T> struct is_pkt_data<types::pkt_data<T>> : std::true_type {};
     }
-    template<class T> using is_pkt_sz = typename detail::is_pkt_sz<T>::type;
-    template<class T> using is_pkt_sz_with_self = typename detail::is_pkt_sz_with_self<T>::type;
-    template<class T> using is_pkt_sz_category = brigand::bool_<is_pkt_sz<T>{} or is_pkt_sz_with_self<T>{}>;
-
-    template<class T> using is_pkt_data = typename detail::is_pkt_data<T>::type;
-
 
     namespace detail
     {
@@ -1447,86 +1410,6 @@ namespace proto
     template<class T>
     using is_proto_subpacket = typename detail::is_proto_subpacket_impl<T>::type;
 
-    namespace detail
-    {
-        template<class F, class... Pkts>
-        void apply_impl(F & f, Pkts const & ... pkts)
-        { f(pkts...); }
-
-        template<class Pkt>
-        std::enable_if_t<(is_proto_packet<Pkt>::value or is_proto_subpacket<Pkt>::value), Pkt const &>
-        get_if_packet(Pkt const & pkt)
-        { return pkt; }
-    }
-
-    template<class F, class... Pkts>
-    std::enable_if_t<
-        !brigand::any<
-            brigand::list<Pkts...>,
-            brigand::call<is_proto_subpacket>
-        >::value
-    > apply(F f, Pkts const & ... pkts)
-    { f(detail::get_if_packet(pkts)...); }
-
-    namespace detail
-    {
-        template<class Pkt>
-        struct pkt_to_list
-        { using type = brigand::list<brigand::pair<Pkt, Pkt>>; };
-
-        template<class Deps, class... Pkts>
-        struct pkt_to_list<subpacket<Deps, Pkts...>>
-        {
-            using type = brigand::list<
-                brigand::pair<
-                    inherits<Pkts...>,
-                    Pkts
-                >...
-            >;
-        };
-
-        template<class Pkt>
-        Pkt const &
-        pkt_to_subpkt(Pkt const & pkt)
-        { return pkt; }
-
-        template<class Deps, class... Ts>
-        auto const &
-        pkt_to_subpkt(subpacket<Deps, Ts...> const & pkt)
-        { return pkt.pkts; }
-
-        template<class... Ts, class F, class Pkts>
-        void
-        apply_subpkt(brigand::list<Ts...>, F && f, Pkts const & pkts)
-        {
-            f(
-                static_cast<typename Ts::second_type const &>(
-                    static_cast<utils::detail::ref<typename Ts::first_type const &>>(
-                        pkts
-                    ).x
-                )...
-            );
-        }
-    }
-
-    template<class F, class... Pkts>
-    std::enable_if_t<
-        brigand::any<
-            brigand::list<Pkts...>,
-            brigand::call<is_proto_subpacket>
-        >::value
-    > apply2(F f, Pkts const & ... pkts)
-    {
-        inherits<utils::detail::ref<decltype(detail::pkt_to_subpkt(pkts))>...> values{
-            detail::pkt_to_subpkt(pkts)...
-        };
-        detail::apply_subpkt(
-            brigand::append<typename detail::pkt_to_list<Pkts>::type...>{},
-            f,
-            values
-        );
-    }
-
 
     template<class Deps, class Desc, class Expr>
     struct retype_impl
@@ -2275,5 +2158,84 @@ namespace proto
     {
         detail::named_dep_out(out, brigand::unique<brigand::list<Ts...>>{});
         return out;
+    }
+
+    namespace detail
+    {
+        template<class Pkt>
+        std::enable_if_t<is_proto_packet<Pkt>::value, Pkt const &>
+        get_if_packet(Pkt const & pkt)
+        { return pkt; }
+    }
+
+    template<class F, class... Pkts>
+    std::enable_if_t<
+        !brigand::any<
+            brigand::list<Pkts...>,
+            brigand::call<is_proto_subpacket>
+        >::value
+    > apply(F f, Pkts const & ... pkts)
+    {
+        f(detail::get_if_packet(pkts)...);
+    }
+
+    namespace detail
+    {
+        template<class Pkt>
+        struct pkt_to_list
+        { using type = brigand::list<brigand::pair<Pkt, Pkt>>; };
+
+        template<class Deps, class... Pkts>
+        struct pkt_to_list<subpacket<Deps, Pkts...>>
+        {
+            using type = brigand::list<
+                brigand::pair<
+                    inherits<Pkts...>,
+                    Pkts
+                >...
+            >;
+        };
+
+        template<class Pkt>
+        Pkt const &
+        pkt_to_subpkt(Pkt const & pkt)
+        { return pkt; }
+
+        template<class Deps, class... Ts>
+        auto const &
+        pkt_to_subpkt(subpacket<Deps, Ts...> const & pkt)
+        { return pkt.pkts; }
+
+        template<class... Ts, class F, class Pkts>
+        void
+        apply_subpkt(brigand::list<Ts...>, F && f, Pkts const & pkts)
+        {
+            apply(
+                f,
+                static_cast<typename Ts::second_type const &>(
+                    static_cast<utils::detail::ref<typename Ts::first_type const &>>(
+                        pkts
+                    ).x
+                )...
+            );
+        }
+    }
+
+    template<class F, class... Pkts>
+    std::enable_if_t<
+        brigand::any<
+            brigand::list<Pkts...>,
+            brigand::call<is_proto_subpacket>
+        >::value
+    > apply(F f, Pkts const & ... pkts)
+    {
+        inherits<utils::detail::ref<decltype(detail::pkt_to_subpkt(pkts))>...> values{
+            detail::pkt_to_subpkt(pkts)...
+        };
+        detail::apply_subpkt(
+            brigand::append<typename detail::pkt_to_list<Pkts>::type...>{},
+            f,
+            values
+        );
     }
 }

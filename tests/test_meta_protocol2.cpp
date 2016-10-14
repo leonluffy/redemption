@@ -498,11 +498,41 @@ void other_test()
         bool & used;
     };
     used = false;
-    proto::apply2(
+    proto::apply(
         Buffering2<Policy5>{used},
         desc_subpkt()
     );
     BOOST_CHECK(used);
+
+
+//     auto desc_optseq = proto::desc(
+//         proto::optseq_sz<proto::types::u8>(),
+//         XXX::a,
+//         proto::optseq(XXX::b, XXX::d)
+//     );
+//
+//     struct Policy6 : log_policy
+//     {
+//         void send(iovec_array iovs) const {
+//             log_policy::send(iovs);
+//             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
+//             BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
+//             CHECK_RANGE(
+//                 iov2av(iovs[0]),
+//                 cstr_array_view("\x03\x02\x01\x07")
+//             );
+//             this->used = true;
+//         }
+//
+//         Policy6(bool & used) : used(used) {}
+//         bool & used;
+//     };
+//     used = false;
+//     proto::apply(
+//         Buffering2<Policy6>{used},
+//         desc_optseq(XXX::a = 1_c, XXX::b = 2_c, XXX::d = 3_c)
+//     );
+//     BOOST_CHECK(used);
 }
 
 // #include <chrono>
