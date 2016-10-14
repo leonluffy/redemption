@@ -2238,4 +2238,88 @@ namespace proto
             values
         );
     }
+
+    namespace utils
+    {
+        namespace detail
+        {
+            template<class, class>
+            struct sizeof_packet_add_impl
+            { using type = dyn_size; };
+
+            template<std::size_t n1, std::size_t n2>
+            struct sizeof_packet_add_impl<size_<n1>, size_<n2>>
+            { using type = size_<n1+n2>; };
+
+            template<std::size_t n1, std::size_t n2>
+            struct sizeof_packet_add_impl<limited_size<n1>, limited_size<n2>>
+            { using type = limited_size<n1+n2>; };
+
+            template<std::size_t n1, std::size_t n2>
+            struct sizeof_packet_add_impl<size_<n1>, limited_size<n2>>
+            { using type = limited_size<n1+n2>; };
+
+            template<std::size_t n1, std::size_t n2>
+            struct sizeof_packet_add_impl<limited_size<n1>, size_<n2>>
+            { using type = limited_size<n1+n2>; };
+        }
+
+        template<class i1, class i2>
+        using sizeof_packet_add = typename detail::sizeof_packet_add_impl<i1, i2>::type;
+
+        template<class L>
+        using sizeof_packet = brigand::fold<
+            brigand::transform<L, brigand::call<sizeof_>>,
+            size_<0>,
+            brigand::call<sizeof_packet_add>
+        >;
+
+        namespace detail
+        {
+            template<class T>
+            struct limited_size_to_dyn_size_impl
+            { using type = T; };
+
+            template<std::size_t n>
+            struct limited_size_to_dyn_size_impl<limited_size<n>>
+            { using type = dyn_size; };
+        }
+
+        template<class T>
+        using limited_size_to_dyn_size = typename detail::limited_size_to_dyn_size_impl<T>::type;
+
+        template<class... Pkts>
+        struct sizeof_pkt_ctx
+        {
+            // [ [ desc_type ... ] ... ]
+            using desc_list_by_packet = brigand::list<
+                brigand::transform<
+                    typename Pkts::type_list,
+                    brigand::call<desc_type_t>
+                >...
+            >;
+
+            // [ size_<n> | dyn_size ... ]
+            using sizeof_by_packet = brigand::transform<
+                brigand::transform<
+                    desc_list_by_packet,
+                    brigand::call<sizeof_packet>
+                >,
+                brigand::call<limited_size_to_dyn_size>
+            >;
+
+            // [ size_<n> | dyn_size ... ]
+            using accu_sizeof_by_packet = brigand::fold<
+                sizeof_by_packet,
+                size_<0>,
+                brigand::call<sizeof_packet_add>
+            >;
+
+            // [ size_<n> | dyn_size ... 0 ]
+            using accu_next_sizeof_by_packet = brigand::push_back<
+                brigand::pop_front<accu_sizeof_by_packet>,
+                proto::size_<0>
+            >;
+        };
+    }
 }
