@@ -161,10 +161,8 @@ namespace proto
     namespace tags
     {
         class static_buffer {};
-        class dynamic_buffer {};
         class view_buffer {};
         class limited_buffer {};
-        class overrided_buffer {};
     }
 
     template<class T> struct sizeof_impl { using type = typename T::sizeof_; };
@@ -175,7 +173,7 @@ namespace proto
 
     namespace detail
     {
-        template<class T> struct sizeof_to_buffer_cat { using type = tags::dynamic_buffer; };
+        template<class T> struct sizeof_to_buffer_cat;
         template<std::size_t n> struct sizeof_to_buffer_cat<size_<n>> { using type = tags::static_buffer; };
         template<std::size_t n> struct sizeof_to_buffer_cat<limited_size<n>> { using type = tags::limited_buffer; };
 
@@ -197,10 +195,6 @@ namespace proto
       = typename std::is_same<tags::limited_buffer, buffer_category<T>>::type;
     template<class T> using is_view_buffer
       = typename std::is_same<tags::view_buffer, buffer_category<T>>::type;
-    template<class T> using is_dynamic_buffer
-      = typename std::is_same<tags::dynamic_buffer, buffer_category<T>>::type;
-    template<class T> using is_overrided_buffer
-      = typename std::is_same<tags::overrided_buffer, buffer_category<T>>::type;
 
     namespace detail
     {
@@ -459,25 +453,6 @@ namespace proto
             }
         };
 
-        struct str8_to_str16
-        {
-            using type = const_bytes_array;
-            using sizeof_ = dyn_size;
-
-            type str;
-
-            constexpr str8_to_str16(const_bytes_array av) noexcept
-            : str(av)
-            {}
-
-            template<class F>
-            void dynamic_serialize(F && f) const
-            {
-                /**///std::cout << " [dynamic_buffer]";
-                f(this->str);
-            }
-        };
-
         template<class Desc>
         struct pkt_sz
         {
@@ -539,7 +514,7 @@ namespace proto
         template<> struct common_size_impl<dyn_size, dyn_size> { using type = dyn_size; };
 
 
-        template<class T, class U> struct common_buffer_impl { using type = tags::dynamic_buffer; };
+        template<class T, class U> struct common_buffer_impl;
         template<class T> struct common_buffer_impl<T, T> { using type = T; };
         template<> struct common_buffer_impl<tags::static_buffer, tags::limited_buffer>
         { using type = tags::limited_buffer ; };
@@ -1989,15 +1964,6 @@ namespace proto
                     : this->val_fail.get_view_buffer();
             }
 
-            template<class F>
-            void dynamic_serialize(F && f) const
-            {
-                // TODO { static or limited | view | dynamic } => dynamic_adapter
-                return this->is_ok
-                    ? this->val_ok.dynamic_serialize(f)
-                    : this->val_fail.dynamic_serialize(f);
-            }
-
             bool is_ok;
             Val val_ok;
             ValElse val_fail;
@@ -2106,12 +2072,6 @@ namespace proto
             array_view_const_u8 get_view_buffer() const
             {
                 return this->is_ok ? this->val_ok.get_view_buffer() : array_view_const_u8{};
-            }
-
-            template<class F>
-            void dynamic_serialize(F && f) const
-            {
-                return (this->is_ok) ? this->val_ok.dynamic_serialize(f) : f();
             }
 
             std::size_t reserved_size() const

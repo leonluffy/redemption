@@ -18,7 +18,7 @@ namespace XXX {
     PROTO_VAR(proto::types::u8, b);
     PROTO_VAR(proto::types::bytes, c);
     PROTO_VAR(proto::types::u16_le, d);
-    PROTO_VAR(proto::types::str8_to_str16, e);
+    PROTO_VAR(proto::types::bytes, e);
     PROTO_VAR(proto::types::u16_encoding, f);
 
     constexpr auto desc = proto::desc(

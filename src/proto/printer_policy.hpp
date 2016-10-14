@@ -47,7 +47,6 @@ struct Printer
     {
         std::cout
             << "  static: " << proto::is_static_buffer<Desc>{}
-            << "  dyn: " << proto::is_dynamic_buffer<Desc>{}
             << "  view: " << proto::is_view_buffer<Desc>{}
             << "  limited: " << proto::is_limited_buffer<Desc>{}
             << "\n";

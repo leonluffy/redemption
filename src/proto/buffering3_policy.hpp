@@ -234,32 +234,6 @@ struct Buffering3
             PROTO_TRACE(" [view: 0x" << static_cast<void const *>(buf) << " | len: " << av.size() << "]\n");
         }
 
-# define PROTO_NIL
-#ifndef NDEBUG
-# define PROTO_ENABLE_IF_DEBUG(...) __VA_ARGS__
-#else
-# define PROTO_ENABLE_IF_DEBUG(...)
-#endif
-        template<class T>
-        void serialize_type2(proto::tags::dynamic_buffer, uint8_t * buf, T const & x)
-        {
-            PROTO_ENABLE_IF_DEBUG(bool dynamic_is_used = false;)
-            // PERFORMANCE or limited_serialize (policy rule)
-            this->policy.dynamic_serialize(
-                [buf, this PROTO_ENABLE_IF_DEBUG(PROTO_NIL, &dynamic_is_used)]
-                (array_view_const_u8 av) {
-                    PROTO_ENABLE_IF_DEBUG(dynamic_is_used = true;)
-                    memcpy(buf, av.data(), av.size());
-                    PROTO_TRACE(" [size: " << av.size() << "]");
-                    PROTO_TRACE("\n");
-                },
-                x
-            );
-            assert(dynamic_is_used);
-        }
-#undef PROTO_ENABLE_IF_DEBUG
-#undef PROTO_NIL
-
         template<class IsFirstPkt, class VarInfo, class Val>
         void serialize_without_special_pkt(IsFirstPkt is_first_pkt, VarInfo, Val const & val)
         {
@@ -324,33 +298,6 @@ struct Buffering3
             this->buf += av.size();
         }
 
-# define PROTO_NIL
-#ifndef NDEBUG
-# define PROTO_ENABLE_IF_DEBUG(...) __VA_ARGS__
-#else
-# define PROTO_ENABLE_IF_DEBUG(...)
-#endif
-        template<class Val>
-        void serialize_type(proto::tags::dynamic_buffer, Val const & val)
-        {
-            PROTO_ENABLE_IF_DEBUG(bool dynamic_is_used = false;)
-            // PERFORMANCE or limited_serialize (policy rule)
-            this->policy.dynamic_serialize(
-                [this PROTO_ENABLE_IF_DEBUG(PROTO_NIL, &dynamic_is_used)]
-                (array_view_const_u8 av) {
-                    PROTO_ENABLE_IF_DEBUG(dynamic_is_used = true;)
-                    memcpy(this->buf, av.data(), av.size());
-                    this->buf += av.size();
-                    PROTO_TRACE(" [size: " << av.size() << "]");
-                    PROTO_TRACE("\n");
-                },
-                val.desc
-            );
-            assert(dynamic_is_used);
-        }
-#undef PROTO_ENABLE_IF_DEBUG
-#undef PROTO_NIL
-
         template<class T>
         static auto name(T const &)
         {
@@ -386,10 +333,6 @@ struct Buffering3
         static void print_buffer_type(proto::tags::static_buffer)
         {
             PROTO_TRACE("[static_buffer]");
-        }
-        static void print_buffer_type(proto::tags::dynamic_buffer)
-        {
-            PROTO_TRACE("[dyn_buffer]");
         }
         static void print_buffer_type(proto::tags::view_buffer)
         {

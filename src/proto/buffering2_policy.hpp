@@ -98,7 +98,6 @@ auto const & larg(L const & l)
 
 template<class T>
 using is_buffer_delimiter = brigand::bool_<
-    proto::is_dynamic_buffer<T>::value or
     proto::is_view_buffer<T>::value or
     (proto::is_limited_buffer<T>::value and proto::has_special_sz<T>::value)
 >;
@@ -190,11 +189,7 @@ using keep_info_special_pkt_ptr = brigand::bool_<
 
 template<class Val, class PrevVal, class PrevSz, class PrevSz2>
 using is_delimiter = brigand::bool_<
-    proto::is_dynamic_buffer<desc_type_t<Val>>::value
-    or
     proto::is_view_buffer<desc_type_t<Val>>::value
-    or
-    proto::is_dynamic_buffer<desc_type_t<PrevVal>>::value
     or
     proto::is_view_buffer<desc_type_t<PrevVal>>::value
     or
@@ -517,9 +512,6 @@ using sizeof_var_infos = brigand::fold<
 
 template<class L>
 using buffer_from_var_infos = sizeof_to_buffer<sizeof_var_infos<L>>;
-
-template<class VarInfos>
-using var_infos_is_not_dynamic = proto::is_dynamic_buffer<desc_type_t<brigand::front<VarInfos>>>;
 
 template<class T>
 using var_info_is_pkt_sz = proto::is_pkt_sz_category<desc_type_t<T>>;
@@ -1073,26 +1065,11 @@ struct Buffering2
         template<class... Info>
         void serialize(brigand::list<Info...>, Pkts const & ... pkts)
         {
-            using at = brigand::index_if<
-                brigand::list<desc_type_t<Info>...>,
-                brigand::call<proto::is_dynamic_buffer>,
-                i_<sizeof...(Info)>
-            >;
+            PROTO_UNPACK(this->serialize_value(
+                Info{},
+                larg<Info::ivar>(arg<Info::ipacket>(pkts...))
+            ));
 
-            using splitted = brigand::split_at<
-                brigand::list<Info...>,
-                at
-            >;
-
-            this->serialize_(
-                brigand::front<splitted>{},
-                brigand::back<splitted>{},
-                pkts...
-            );
-        }
-
-        void serialize(brigand::list<>, Pkts const & ... pkts)
-        {
             PROTO_TRACE("----------- special (" << special_pkt_size{} << ") -----------\n");
 
             PROTO_TRACE("\nsizes: ");
@@ -1304,59 +1281,6 @@ struct Buffering2
             }
         }
 
-        template<class... Infos, class DInfos>
-        void serialize_(
-            brigand::list<Infos...>,
-            DInfos,
-            Pkts const & ... pkts
-        ) {
-            PROTO_UNPACK(this->serialize_value(
-                Infos{},
-                larg<Infos::ivar>(arg<Infos::ipacket>(pkts...))
-            ));
-
-            this->serialize_dyn(DInfos{}, pkts...);
-        }
-
-        template<class Info, class... Infos>
-        void serialize_dyn(
-            brigand::list<Info, Infos...>,
-            Pkts const & ... pkts
-        ) {
-#define PROTO_NIL
-#ifndef NDEBUG
-# define PROTO_ENABLE_IF_DEBUG(...) __VA_ARGS__
-#else
-# define PROTO_ENABLE_IF_DEBUG(...)
-#endif
-            auto const & val = larg<Info::ivar>(arg<Info::ipacket>(pkts...));
-            this->pre_serialize_value(Info{}, val);
-            PROTO_ENABLE_IF_DEBUG(int dynamic_buf_ctxfunc_is_used = 0;)
-            [this, &val](auto f){
-                this->policy.dynamic_serialize(f, val.desc);
-            }(
-                [this, PROTO_ENABLE_IF_DEBUG(&dynamic_buf_ctxfunc_is_used, PROTO_NIL) &pkts...]
-                (auto && av) {
-                    PROTO_ENABLE_IF_DEBUG(++dynamic_buf_ctxfunc_is_used;)
-                    this->piov->iov_base = const_cast<void*>(cvoidp(av.data()));
-                    this->piov->iov_len = av.size();
-                    this->post_serialize_value(Info{});
-                    this->serialize(brigand::list<Infos...>{}, pkts...);
-                }
-            );
-            assert(dynamic_buf_ctxfunc_is_used == 1);
-#undef PROTO_ENABLE_IF_DEBUG
-#undef PROTO_NIL
-        }
-
-        void serialize_dyn(
-            brigand::list<>,
-            Pkts const & ... pkts
-        ) {
-            this->serialize(brigand::list<>{}, pkts...);
-        }
-
-
         template<class Info, class Val>
         void pre_serialize_value(Info, Val const & val)
         {
@@ -1436,8 +1360,7 @@ struct Buffering2
         void post_serialize_value(Info)
         {
             using is_view = proto::is_view_buffer<desc_type_t<Info>>;
-            using is_dyn = proto::is_dynamic_buffer<desc_type_t<Info>>;
-            if (is_view{} || is_dyn{}) {
+            if (is_view{}) {
                 PROTO_TRACE(" [*psz: +" << this->piov->iov_len << "]");
                 *this->psize += this->piov->iov_len;
             }
@@ -1445,7 +1368,7 @@ struct Buffering2
             if (Info::is_end_pkt || Info::is_end_buf) {
                 using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
                 using is_size = is_size_<sizeof_packet>;
-                using is_limited = brigand::bool_<!is_size{} && !is_view{} && !is_dyn{}>;
+                using is_limited = brigand::bool_<!is_size{} && !is_view{}>;
                 cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
                     using i = decltype(ibuf);
                     auto const inc_sz = this->iov_base() - get<i::value>(this->buffer_tuple).buf;
@@ -1572,7 +1495,6 @@ struct Buffering2
             Info info, Val const & val, std::true_type, Sz, Sp
         ) {
             static_assert(!proto::is_view_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
-            static_assert(!proto::is_dynamic_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
             PROTO_TRACE(" = " << Sz::value);
             auto get_sz = []{ return Sz::value; };
             auto szval = proto::val<Sp, decltype(get_sz)>{get_sz};
@@ -1621,10 +1543,6 @@ struct Buffering2
         static void print_buffer_type(proto::tags::static_buffer)
         {
             PROTO_TRACE("[static_buffer]");
-        }
-        static void print_buffer_type(proto::tags::dynamic_buffer)
-        {
-            PROTO_TRACE("[dyn_buffer]");
         }
         static void print_buffer_type(proto::tags::view_buffer)
         {
@@ -1676,12 +1594,6 @@ struct base_policy
     static auto limited_reserialize(uint8_t * p, T const & val, array_view<U> av, Sz... sz)
     {
         return val.limited_reserialize(p, av, sz...);
-    }
-
-    template<class F, class T>
-    static void dynamic_serialize(F && f, T const & val)
-    {
-        val.dynamic_serialize(f);
     }
 
     static void send(iovec_array iovs) = delete; // please, overrided this function

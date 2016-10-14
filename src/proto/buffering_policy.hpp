@@ -26,7 +26,6 @@ namespace proto_buffering {
 
 template<class T>
 using is_buffer_delimiter = brigand::bool_<
-    proto::is_dynamic_buffer<T>::value or
     proto::is_view_buffer<T>::value
 >;
 
