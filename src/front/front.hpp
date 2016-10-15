@@ -23,56 +23,77 @@
 */
 
 #pragma once
-
-#include "utils/log.hpp"
-
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include "openssl_tls.hpp"
+#include <memory>
+
+#include "utils/log.hpp"
 #include "utils/stream.hpp"
+#include "utils/colors.hpp"
+#include "utils/bitfu.hpp"
+#include "utils/rect.hpp"
+#include "utils/region.hpp"
+#include "utils/bitmap.hpp"
+#include "utils/colors.hpp"
+#include "utils/bitfu.hpp"
+#include "utils/confdescriptor.hpp"
+#include "utils/pattutils.hpp"
+#include "utils/genrandom.hpp"
+#include "utils/timeout.hpp"
+#include "utils/sugar/cast.hpp"
+#include "utils/sugar/underlying_cast.hpp"
+#include "utils/sugar/non_null_ptr.hpp"
+#include "utils/crypto/ssl_lib.hpp"
+
+#include "openssl_tls.hpp"
+
+#include "configs/config.hpp"
+
+#include "capture/capture.hpp"
+
+#include "acl/auth_api.hpp"
+
+#include "keyboard/keymap2.hpp"
+
+#include "gdi/clip_from_cmd.hpp"
+
 #include "transport/transport.hpp"
+#include "transport/in_file_transport.hpp"
+#include "transport/out_file_transport.hpp"
+
+#include "core/channel_list.hpp"
+#include "core/font.hpp"
+#include "core/channel_names.hpp"
+#include "core/client_info.hpp"
+#include "core/error.hpp"
+#include "core/callback.hpp"
+#include "core/front_api.hpp"
+#include "core/activity_checker.hpp"
+
 #include "core/RDP/x224.hpp"
 #include "core/RDP/nego.hpp"
 #include "core/RDP/mcs.hpp"
 #include "core/RDP/lic.hpp"
-#include "core/channel_list.hpp"
 #include "core/RDP/gcc.hpp"
 #include "core/RDP/sec.hpp"
-#include "utils/colors.hpp"
 #include "core/RDP/fastpath.hpp"
 #include "core/RDP/slowpath.hpp"
-
-#include "utils/crypto/ssl_lib.hpp"
-#include "utils/bitfu.hpp"
-#include "utils/rect.hpp"
-#include "utils/region.hpp"
-#include "capture/capture.hpp"
-#include "core/font.hpp"
-#include "utils/bitmap.hpp"
-#include "core/RDP/caches/bmpcache.hpp"
-#include "core/RDP/caches/bmpcachepersister.hpp"
-#include "core/RDP/caches/glyphcache.hpp"
-#include "core/RDP/caches/pointercache.hpp"
-#include "core/RDP/caches/brushcache.hpp"
-#include "core/channel_names.hpp"
-#include "core/client_info.hpp"
-#include "configs/config.hpp"
-#include "core/error.hpp"
-#include "core/callback.hpp"
-#include "utils/colors.hpp"
-#include "utils/bitfu.hpp"
-#include "utils/confdescriptor.hpp"
-#include "transport/in_file_transport.hpp"
-#include "transport/out_file_transport.hpp"
-#include "utils/pattutils.hpp"
-
 #include "core/RDP/GraphicUpdatePDU.hpp"
 #include "core/RDP/PersistentKeyListPDU.hpp"
 #include "core/RDP/remote_programs.hpp"
 #include "core/RDP/SaveSessionInfoPDU.hpp"
 #include "core/RDP/SuppressOutputPDU.hpp"
-
+#include "core/RDP/MonitorLayoutPDU.hpp"
+#include "core/RDP/mppc_40.hpp"
+#include "core/RDP/mppc_50.hpp"
+#include "core/RDP/mppc_60.hpp"
+#include "core/RDP/mppc_61.hpp"
+#include "core/RDP/caches/bmpcache.hpp"
+#include "core/RDP/caches/bmpcachepersister.hpp"
+#include "core/RDP/caches/glyphcache.hpp"
+#include "core/RDP/caches/pointercache.hpp"
+#include "core/RDP/caches/brushcache.hpp"
 #include "core/RDP/capabilities/cap_bmpcache.hpp"
 #include "core/RDP/capabilities/offscreencache.hpp"
 #include "core/RDP/capabilities/bmpcache2.hpp"
@@ -89,30 +110,7 @@
 #include "core/RDP/capabilities/rail.hpp"
 #include "core/RDP/capabilities/window.hpp"
 
-#include "core/RDP/SaveSessionInfoPDU.hpp"
 
-#include "core/front_api.hpp"
-#include "core/activity_checker.hpp"
-#include "utils/genrandom.hpp"
-
-#include "acl/auth_api.hpp"
-
-#include "keyboard/keymap2.hpp"
-
-#include "core/RDP/mppc_40.hpp"
-#include "core/RDP/mppc_50.hpp"
-#include "core/RDP/mppc_60.hpp"
-#include "core/RDP/mppc_61.hpp"
-
-#include "core/RDP/MonitorLayoutPDU.hpp"
-#include "utils/timeout.hpp"
-#include "utils/sugar/cast.hpp"
-#include "utils/sugar/underlying_cast.hpp"
-#include "utils/sugar/non_null_ptr.hpp"
-
-#include "gdi/clip_from_cmd.hpp"
-
-#include <memory>
 
 
 class Front : public gdi::GraphicBase<Front, FrontAPI>, public ActivityChecker {
@@ -1196,6 +1194,602 @@ public:
                                           , length, flags, chunk, chunk_size);
     }
 
+
+    void connection_initiation(void)
+    {
+        // Connection Initiation
+        // ---------------------
+
+        // The client initiates the connection by sending the server an X.224 Connection
+        //  Request PDU (class 0). The server responds with an X.224 Connection Confirm
+        // PDU (class 0). From this point, all subsequent data sent between client and
+        // server is wrapped in an X.224 Data Protocol Data Unit (PDU).
+
+        // Client                                                     Server
+        //    |------------X224 Connection Request PDU----------------> |
+        //    | <----------X224 Connection Confirm PDU----------------- |
+
+        if (this->verbose & 1) {
+            LOG(LOG_INFO, "Front::incoming:CONNECTION_INITIATION");
+            LOG(LOG_INFO, "Front::incoming::receiving x224 request PDU");
+        }
+
+        {
+            constexpr size_t array_size = AUTOSIZE;
+            uint8_t array[array_size];
+            uint8_t * end = array;
+            X224::RecvFactory fx224(this->trans, &end, array_size);
+            InStream stream(array, end - array);
+
+            X224::CR_TPDU_Recv x224(stream, this->ini.get<cfg::client::bogus_neg_request>());
+            if (x224._header_size != stream.get_capacity()) {
+                LOG(LOG_ERR, "Front::incoming::connection request : all data should have been consumed,"
+                             " %zu bytes remains", stream.get_capacity() - x224._header_size);
+            }
+            this->clientRequestedProtocols = x224.rdp_neg_requestedProtocols;
+
+            if (!this->ini.get<cfg::client::tls_support>() && !this->ini.get<cfg::client::tls_fallback_legacy>()) {
+                LOG(LOG_WARNING, "tls_support and tls_fallback_legacy should not be disabled at same time. tls_support is assumed to be enabled.");
+            }
+
+            if (// Proxy doesnt supports TLS or RDP client doesn't support TLS
+                (!this->ini.get<cfg::client::tls_support>() 
+                || 0 == (this->clientRequestedProtocols & X224::PROTOCOL_TLS))
+                // Fallback to legacy security protocol (RDP) is allowed.
+            && this->ini.get<cfg::client::tls_fallback_legacy>()) {
+                LOG(LOG_INFO, "Fallback to legacy security protocol");
+                this->tls_client_active = false;
+            }
+            else if ((0 == (this->clientRequestedProtocols & X224::PROTOCOL_TLS)) &&
+                     !this->ini.get<cfg::client::tls_fallback_legacy>()) {
+                LOG(LOG_WARNING, "TLS security protocol is not supported by client. Allow falling back to legacy security protocol is probably necessary");
+            }
+        }
+
+        if (this->verbose & 1) {
+            LOG(LOG_INFO, "Front::incoming::sending x224 connection confirm PDU");
+        }
+        {
+            uint8_t rdp_neg_type = (this->tls_client_active)
+                                 ? (this->clientRequestedProtocols & X224::PROTOCOL_TLS)
+                                 ? X224::RDP_NEG_RSP
+                                 : X224::RDP_NEG_FAILURE
+                                 : 0;
+            uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED;
+            uint32_t rdp_neg_code = (this->tls_client_active)
+                                  ? (this->clientRequestedProtocols & X224::PROTOCOL_TLS)
+                                  ? X224::PROTOCOL_TLS
+                                  : X224::SSL_REQUIRED_BY_SERVER
+                                  : 0;
+
+            if ((this->tls_client_active)
+            && (this->clientRequestedProtocols & X224::PROTOCOL_TLS)){
+                this->encryptionLevel = 0;
+            }
+
+            LOG(LOG_INFO, "-----------------> Front::TLS Support %s", 
+                (this->tls_client_active?"Enabled":"not Enabled"));
+
+            StaticOutStream<256> stream;
+            X224::CC_TPDU_Send x224(stream, rdp_neg_type, rdp_neg_flags, rdp_neg_code);
+            this->trans.send(stream.get_data(), stream.get_offset());
+
+            if (this->tls_client_active) {
+                this->trans.enable_server_tls(
+                    this->ini.get<cfg::globals::certificate_password>(),
+                    this->ini.get<cfg::client::ssl_cipher_list>().c_str());
+            }
+        }
+        
+// 2.2.10.2 Early User Authorization Result PDU
+// ============================================
+
+// The Early User Authorization Result PDU is sent from server to client and is used
+// to convey authorization information to the client. This PDU is only sent by the server
+// if the client advertised support for it by specifying the PROTOCOL_HYBRID_EX (0x00000008)
+// flag in the requestedProtocols field of the RDP Negotiation Request (section 2.2.1.1.1)
+// structure and it MUST be sent immediately after the CredSSP handshake (section 5.4.5.2) has completed.
+
+// authorizationResult (4 bytes): A 32-bit unsigned integer. Specifies the authorization result.
+
+// +---------------------------------+--------------------------------------------------------+
+// | AUTHZ_SUCCESS 0x00000000        | The user has permission to access the server.          |
+// +---------------------------------+--------------------------------------------------------+
+// | AUTHZ _ACCESS_DENIED 0x0000052E | The user does not have permission to access the server.|
+// +---------------------------------+--------------------------------------------------------+
+
+        // Basic Settings Exchange
+        // -----------------------
+
+        // Basic Settings Exchange: Basic settings are exchanged between the client and
+        // server by using the MCS Connect Initial and MCS Connect Response PDUs. The
+        // Connect Initial PDU contains a GCC Conference Create Request, while the
+        // Connect Response PDU contains a GCC Conference Create Response.
+
+        // These two Generic Conference Control (GCC) packets contain concatenated
+        // blocks of settings data (such as core data, security data and network data)
+        // which are read by client and server
+
+        // Client                                                     Server
+        //    |--------------MCS Connect Initial PDU with-------------> |
+        //                   GCC Conference Create Request
+        //    | <------------MCS Connect Response PDU with------------- |
+        //                   GCC conference Create Response
+
+        if (this->verbose & 1) {
+            LOG(LOG_INFO, "Front::incoming::Basic Settings Exchange");
+        }
+
+        constexpr size_t array_size = AUTOSIZE;
+        uint8_t array[array_size];
+        uint8_t * end = array;
+        X224::RecvFactory fx224(this->trans, &end, array_size);
+        InStream x224_data(array, end - array);
+
+        X224::DT_TPDU_Recv x224(x224_data);
+        MCS::CONNECT_INITIAL_PDU_Recv mcs_ci(x224.payload, MCS::BER_ENCODING);
+
+        // GCC User Data
+        // -------------
+        GCC::Create_Request_Recv gcc_cr(mcs_ci.payload);
+        // TODO ensure gcc_data substream is fully consumed
+
+        while (gcc_cr.payload.in_check_rem(4)) {
+            GCC::UserData::RecvFactory f(gcc_cr.payload);
+            switch (f.tag) {
+                case CS_CORE:
+                {
+                    GCC::UserData::CSCore cs_core;
+                    cs_core.recv(f.payload);
+                    if (this->verbose & 1) {
+                        cs_core.log("Received from Client");
+                    }
+
+                    this->client_info.width     = cs_core.desktopWidth;
+                    this->client_info.height    = cs_core.desktopHeight;
+                    this->client_info.keylayout = cs_core.keyboardLayout;
+                    this->client_info.build     = cs_core.clientBuild;
+                    for (size_t i = 0; i < 16 ; i++) {
+                        this->client_info.hostname[i] = cs_core.clientName[i];
+                    }
+                    //LOG(LOG_INFO, "hostname=\"%s\"", this->client_info.hostname);
+                    this->client_info.bpp = 8;
+                    switch (cs_core.postBeta2ColorDepth) {
+                    case 0xca01:
+                        /*
+                        this->client_info.bpp =
+                            (cs_core.highColorDepth <= 24)?cs_core.highColorDepth:24;
+                        */
+                        this->client_info.bpp = (
+                                  (cs_core.earlyCapabilityFlags & GCC::UserData::RNS_UD_CS_WANT_32BPP_SESSION)
+                                ? 32
+                                : cs_core.highColorDepth
+                            );
+                    break;
+                    case 0xca02:
+                        this->client_info.bpp = 15;
+                    break;
+                    case 0xca03:
+                        this->client_info.bpp = 16;
+                    break;
+                    case 0xca04:
+                        this->client_info.bpp = 24;
+                    break;
+                    default:
+                    break;
+                    }
+                    if (bool(this->ini.get<cfg::client::max_color_depth>())) {
+                        this->client_info.bpp = std::min(
+                            this->client_info.bpp, static_cast<int>(this->ini.get<cfg::client::max_color_depth>()));
+                    }
+                    this->client_support_monitor_layout_pdu =
+                        (cs_core.earlyCapabilityFlags &
+                         GCC::UserData::RNS_UD_CS_SUPPORT_MONITOR_LAYOUT_PDU);
+                }
+                break;
+                case CS_SECURITY:
+                {
+                    GCC::UserData::CSSecurity cs_sec;
+                    cs_sec.recv(f.payload);
+                    if (this->verbose & 1) {
+                        cs_sec.log("Received from Client");
+                    }
+                }
+                break;
+                case CS_NET:
+                {
+                    GCC::UserData::CSNet cs_net;
+                    cs_net.recv(f.payload);
+                    for (uint32_t index = 0; index < cs_net.channelCount; index++) {
+                        const auto & channel_def = cs_net.channelDefArray[index];
+                        CHANNELS::ChannelDef channel_item;
+                        memcpy(channel_item.name, channel_def.name, 8);
+                        channel_item.flags = channel_def.options;
+                        channel_item.chanid = GCC::MCS_GLOBAL_CHANNEL + (index + 1);
+                        this->channel_list.push_back(channel_item);
+
+                        if (!this->rail_channel_id &&
+                            !strcmp(channel_item.name, channel_names::rail)) {
+                            this->rail_channel_id = channel_item.chanid;
+                        }
+                    }
+                    if (this->verbose & 1) {
+                        cs_net.log("Received from Client");
+                    }
+                }
+                break;
+                case CS_CLUSTER:
+                {
+                    GCC::UserData::CSCluster cs_cluster;
+                    cs_cluster.recv(f.payload);
+                    this->client_info.console_session =
+                        (0 != (cs_cluster.flags & GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID));
+                    if (this->verbose & 1) {
+                        cs_cluster.log("Receiving from Client");
+                    }
+                }
+                break;
+                case CS_MONITOR:
+                {
+                    GCC::UserData::CSMonitor & cs_monitor =
+                        this->client_info.cs_monitor;
+                    cs_monitor.recv(f.payload);
+                    if (this->verbose & 1) {
+                        cs_monitor.log("Receiving from Client");
+                    }
+
+                    Rect client_monitors_rect = this->client_info.cs_monitor.get_rect();
+                    if (this->verbose & 1) {
+                        LOG(LOG_INFO, "MonitorsRect=(%d, %d, %d, %d)",
+                            client_monitors_rect.x, client_monitors_rect.y,
+                            client_monitors_rect.cx, client_monitors_rect.cy);
+                    }
+
+                    if (this->ini.get<cfg::globals::allow_using_multiple_monitors>()) {
+                        this->client_info.width     = client_monitors_rect.cx + 1;
+                        this->client_info.height    = client_monitors_rect.cy + 1;
+                    }
+                }
+                break;
+                case CS_MCS_MSGCHANNEL:
+                {
+                    GCC::UserData::CSMCSMsgChannel cs_mcs_msgchannel;
+                    cs_mcs_msgchannel.recv(f.payload);
+                    if (this->verbose & 1) {
+                        cs_mcs_msgchannel.log("Receiving from Client");
+                    }
+                }
+                break;
+                case CS_MULTITRANSPORT:
+                {
+                    GCC::UserData::CSMultiTransport cs_multitransport;
+                    cs_multitransport.recv(f.payload);
+                    if (this->verbose & 1) {
+                        cs_multitransport.log("Receiving from Client");
+                    }
+                }
+                break;
+                default:
+                    LOG(LOG_WARNING, "Unexpected data block tag %x\n", f.tag);
+                break;
+            }
+        }
+        if (gcc_cr.payload.in_check_rem(1)) {
+            LOG(LOG_ERR, "recv connect request parsing gcc data : short header");
+            throw Error(ERR_MCS_DATA_SHORT_HEADER);
+        }
+
+        write_packets(
+            this->trans,
+            [this](StreamSize<65536-1024>, OutStream & stream) {
+                {
+                    GCC::UserData::SCCore sc_core;
+                    sc_core.version = 0x00080004;
+                    if (this->tls_client_active) {
+                        sc_core.length = 12;
+                        sc_core.clientRequestedProtocols = this->clientRequestedProtocols;
+                    }
+                    if (this->verbose & 1) {
+                        sc_core.log("Sending to client");
+                    }
+                    sc_core.emit(stream);
+                }
+                // ------------------------------------------------------------------
+                {
+                    GCC::UserData::SCNet sc_net;
+                    sc_net.MCSChannelId = GCC::MCS_GLOBAL_CHANNEL;
+                    sc_net.channelCount = this->channel_list.size();
+                    for (size_t index = 0; index < this->channel_list.size(); ++index) {
+                        sc_net.channelDefArray[index].id = this->channel_list[index].chanid;
+                    }
+                    if (this->verbose & 1) {
+                        sc_net.log("Sending to client");
+                    }
+                    sc_net.emit(stream);
+                }
+                // ------------------------------------------------------------------
+                if (this->tls_client_active) {
+                    GCC::UserData::SCSecurity sc_sec1;
+                    sc_sec1.encryptionMethod = 0;
+                    sc_sec1.encryptionLevel = 0;
+                    sc_sec1.length = 12;
+                    sc_sec1.serverRandomLen = 0;
+                    sc_sec1.serverCertLen = 0;
+                    if (this->verbose & 1) {
+                        sc_sec1.log("Sending to client");
+                    }
+                    sc_sec1.emit(stream);
+                }
+                else {
+                    GCC::UserData::SCSecurity sc_sec1;
+                    /*
+                    For now rsa_keys are not in a configuration file any more, but as we were not changing keys
+                    the values have been embedded in code and the key generator file removed from source code.
+
+                    It will be put back at some later time using a clean parser/writer module and sll calls
+                    coherent with the remaining of ReDemPtion code. For reference to historical key generator
+                    code look for utils/keygen.cpp in old repository code.
+
+                    references for RSA Keys: http://www.securiteam.com/windowsntfocus/5EP010KG0G.html
+                    */
+                    uint8_t rsa_keys_pub_mod[64] = {
+                        0x67, 0xab, 0x0e, 0x6a, 0x9f, 0xd6, 0x2b, 0xa3,
+                        0x32, 0x2f, 0x41, 0xd1, 0xce, 0xee, 0x61, 0xc3,
+                        0x76, 0x0b, 0x26, 0x11, 0x70, 0x48, 0x8a, 0x8d,
+                        0x23, 0x81, 0x95, 0xa0, 0x39, 0xf7, 0x5b, 0xaa,
+                        0x3e, 0xf1, 0xed, 0xb8, 0xc4, 0xee, 0xce, 0x5f,
+                        0x6a, 0xf5, 0x43, 0xce, 0x5f, 0x60, 0xca, 0x6c,
+                        0x06, 0x75, 0xae, 0xc0, 0xd6, 0xa4, 0x0c, 0x92,
+                        0xa4, 0xc6, 0x75, 0xea, 0x64, 0xb2, 0x50, 0x5b
+                    };
+                    memcpy(this->pub_mod, rsa_keys_pub_mod, 64);
+
+                    uint8_t rsa_keys_pri_exp[64] = {
+                        0x41, 0x93, 0x05, 0xB1, 0xF4, 0x38, 0xFC, 0x47,
+                        0x88, 0xC4, 0x7F, 0x83, 0x8C, 0xEC, 0x90, 0xDA,
+                        0x0C, 0x8A, 0xB5, 0xAE, 0x61, 0x32, 0x72, 0xF5,
+                        0x2B, 0xD1, 0x7B, 0x5F, 0x44, 0xC0, 0x7C, 0xBD,
+                        0x8A, 0x35, 0xFA, 0xAE, 0x30, 0xF6, 0xC4, 0x6B,
+                        0x55, 0xA7, 0x65, 0xEF, 0xF4, 0xB2, 0xAB, 0x18,
+                        0x4E, 0xAA, 0xE6, 0xDC, 0x71, 0x17, 0x3B, 0x4C,
+                        0xC2, 0x15, 0x4C, 0xF7, 0x81, 0xBB, 0xF0, 0x03
+                    };
+                    memcpy(sc_sec1.pri_exp, rsa_keys_pri_exp, 64);
+                    memcpy(this->pri_exp, sc_sec1.pri_exp, 64);
+
+                    uint8_t rsa_keys_pub_sig[64] = {
+                        0x6a, 0x41, 0xb1, 0x43, 0xcf, 0x47, 0x6f, 0xf1,
+                        0xe6, 0xcc, 0xa1, 0x72, 0x97, 0xd9, 0xe1, 0x85,
+                        0x15, 0xb3, 0xc2, 0x39, 0xa0, 0xa6, 0x26, 0x1a,
+                        0xb6, 0x49, 0x01, 0xfa, 0xa6, 0xda, 0x60, 0xd7,
+                        0x45, 0xf7, 0x2c, 0xee, 0xe4, 0x8e, 0x64, 0x2e,
+                        0x37, 0x49, 0xf0, 0x4c, 0x94, 0x6f, 0x08, 0xf5,
+                        0x63, 0x4c, 0x56, 0x29, 0x55, 0x5a, 0x63, 0x41,
+                        0x2c, 0x20, 0x65, 0x95, 0x99, 0xb1, 0x15, 0x7c
+                    };
+
+                    uint8_t rsa_keys_pub_exp[4] = { 0x01, 0x00, 0x01, 0x00 };
+
+                    sc_sec1.encryptionMethod = this->encrypt.encryptionMethod;
+                    sc_sec1.encryptionLevel = this->encryptionLevel;
+                    sc_sec1.serverRandomLen = 32;
+                    this->gen.random(this->server_random, 32);
+                    memcpy(sc_sec1.serverRandom, this->server_random, 32);
+                    sc_sec1.dwVersion = GCC::UserData::SCSecurity::CERT_CHAIN_VERSION_1;
+                    sc_sec1.temporary = false;
+                    memcpy(sc_sec1.proprietaryCertificate.RSAPK.pubExp, rsa_keys_pub_exp, SEC_EXPONENT_SIZE);
+                    memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus, this->pub_mod, 64);
+                    memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus + 64,
+                        "\x00\x00\x00\x00\x00\x00\x00\x00", SEC_PADDING_SIZE);
+                    memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob, rsa_keys_pub_sig, 64);
+                    memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob + 64,
+                        "\x00\x00\x00\x00\x00\x00\x00\x00", SEC_PADDING_SIZE);
+
+                    if (this->verbose & 1) {
+                        sc_sec1.log("Sending to client");
+                    }
+                    sc_sec1.emit(stream);
+                }
+            },
+            [](StreamSize<256>, OutStream & gcc_header, std::size_t packed_size) {
+                GCC::Create_Response_Send(gcc_header, packed_size);
+            },
+            [](StreamSize<256>, OutStream & mcs_header, std::size_t packed_size) {
+                MCS::CONNECT_RESPONSE_Send mcs_cr(mcs_header, packed_size, MCS::BER_ENCODING);
+            },
+            write_x224_dt_tpdu_fn{}
+        );
+
+        // Channel Connection
+        // ------------------
+
+        // Channel Connection: The client sends an MCS Erect Domain Request PDU,
+        // followed by an MCS Attach User Request PDU to attach the primary user
+        // identity to the MCS domain.
+
+        // The server responds with an MCS Attach User Response PDU containing the user
+        // channel ID.
+
+        // The client then proceeds to join the :
+        // - user channel,
+        // - the input/output (I/O) channel
+        // - and all of the static virtual channels
+
+        // (the I/O and static virtual channel IDs are obtained from the data embedded
+        //  in the GCC packets) by using multiple MCS Channel Join Request PDUs.
+
+        // The server confirms each channel with an MCS Channel Join Confirm PDU.
+        // (The client only sends a Channel Join Request after it has received the
+        // Channel Join Confirm for the previously sent request.)
+
+        // From this point, all subsequent data sent from the client to the server is
+        // wrapped in an MCS Send Data Request PDU, while data sent from the server to
+        //  the client is wrapped in an MCS Send Data Indication PDU. This is in
+        // addition to the data being wrapped by an X.224 Data PDU.
+
+        // Client                                                     Server
+        //    |-------MCS Erect Domain Request PDU--------------------> |
+        //    |-------MCS Attach User Request PDU---------------------> |
+
+        //    | <-----MCS Attach User Confirm PDU---------------------- |
+
+        //    |-------MCS Channel Join Request PDU--------------------> |
+        //    | <-----MCS Channel Join Confirm PDU--------------------- |
+
+        if (this->verbose & 16) {
+            LOG(LOG_INFO, "Front::incoming::Channel Connection");
+        }
+
+        if (this->verbose) {
+            LOG(LOG_INFO, "Front::incoming::Recv MCS::ErectDomainRequest");
+        }
+        {
+            constexpr size_t array_size = 256;
+            uint8_t array[array_size];
+            uint8_t * end = array;
+            X224::RecvFactory fx224(this->trans, &end, array_size);
+            REDASSERT(fx224.type == X224::DT_TPDU);
+            InStream x224_data(array, end - array);
+
+            X224::DT_TPDU_Recv x224(x224_data);
+            MCS::ErectDomainRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
+        }
+        if (this->verbose) {
+            LOG(LOG_INFO, "Front::incoming::Recv MCS::AttachUserRequest");
+        }
+        {
+            constexpr size_t array_size = 256;
+            uint8_t array[array_size];
+            uint8_t * end = array;
+            X224::RecvFactory fx224(this->trans, &end, array_size);
+            REDASSERT(fx224.type == X224::DT_TPDU);
+            InStream x224_data(array, end - array);
+            X224::DT_TPDU_Recv x224(x224_data);
+            MCS::AttachUserRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
+        }
+
+        if (this->ini.get<cfg::client::bogus_user_id>()) {
+            // To avoid bug in freerdp 0.7.x and Remmina 0.8.x that causes client disconnection
+            //  when unexpected channel id is received.
+            this->userid = 32;
+        }
+
+        if (this->verbose) {
+            LOG(LOG_INFO, "Front::incoming::Send MCS::AttachUserConfirm userid=%u", this->userid);
+        }
+
+        write_packets(
+            this->trans,
+            [this](StreamSize<256>, OutStream & mcs_data) {
+                MCS::AttachUserConfirm_Send(mcs_data, MCS::RT_SUCCESSFUL, true, this->userid, MCS::PER_ENCODING);
+            },
+            write_x224_dt_tpdu_fn{}
+        );
+
+        this->channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
+            this->userid = mcs.initiator;
+        });
+        this->channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
+            if (mcs.initiator != this->userid) {
+                LOG(LOG_ERR, "MCS error bad userid, expecting %u got %u", this->userid, mcs.initiator);
+                throw Error(ERR_MCS_BAD_USERID);
+            }
+        });
+
+        for (size_t i = 0 ; i < this->channel_list.size(); ++i) {
+            this->channel_join_request_transmission([this,i](MCS::ChannelJoinRequest_Recv & mcs) {
+                if (this->verbose & 16) {
+                    LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16 " -> cjcf", i, mcs.channelId);
+                }
+
+                if (mcs.initiator != this->userid) {
+                    LOG(LOG_ERR, "MCS error bad userid, expecting %" PRIu16 " got %" PRIu16,
+                        this->userid, mcs.initiator);
+                    throw Error(ERR_MCS_BAD_USERID);
+                }
+
+                this->channel_list.set_chanid(i, mcs.channelId);
+            });
+        }
+
+        if (this->verbose & 1) {
+            LOG(LOG_INFO, "Front::incoming::RDP Security Commencement");
+        }
+
+        // RDP Security Commencement
+        // -------------------------
+
+        // RDP Security Commencement: If standard RDP security methods are being
+        // employed and encryption is in force (this is determined by examining the data
+        // embedded in the GCC Conference Create Response packet) then the client sends
+        // a Security Exchange PDU containing an encrypted 32-byte random number to the
+        // server. This random number is encrypted with the public key of the server
+        // (the server's public key, as well as a 32-byte server-generated random
+        // number, are both obtained from the data embedded in the GCC Conference Create
+        //  Response packet).
+
+        // The client and server then utilize the two 32-byte random numbers to generate
+        // session keys which are used to encrypt and validate the integrity of
+        // subsequent RDP traffic.
+
+        // From this point, all subsequent RDP traffic can be encrypted and a security
+        // header is included with the data if encryption is in force (the Client Info
+        // and licensing PDUs are an exception in that they always have a security
+        // header). The Security Header follows the X.224 and MCS Headers and indicates
+        // whether the attached data is encrypted.
+
+        // Even if encryption is in force server-to-client traffic may not always be
+        // encrypted, while client-to-server traffic will always be encrypted by
+        // Microsoft RDP implementations (encryption of licensing PDUs is optional,
+        // however).
+
+        // Client                                       Server
+        //    |------Security Exchange PDU --------------> |
+        if (this->tls_client_active) {
+            LOG(LOG_INFO, "TLS mode: exchange packet disabled");
+        }
+        else
+        {
+            LOG(LOG_INFO, "Legacy RDP mode: expecting exchange packet");
+            constexpr size_t array_size = 256;
+            uint8_t array[array_size];
+            uint8_t * end = array;
+            X224::RecvFactory fx224(this->trans, &end, array_size);
+            InStream pdu(array, end - array);
+            X224::DT_TPDU_Recv x224(pdu);
+
+            int mcs_type = MCS::peekPerEncodedMCSType(x224.payload);
+            if (mcs_type == MCS::MCSPDU_DisconnectProviderUltimatum) {
+                LOG(LOG_INFO, "Front::incoming::DisconnectProviderUltimatum received");
+                MCS::DisconnectProviderUltimatum_Recv mcs(x224.payload, MCS::PER_ENCODING);
+                const char * reason = MCS::get_reason(mcs.reason);
+                LOG(LOG_INFO, "Front DisconnectProviderUltimatum: reason=%s [%d]", reason, mcs.reason);
+                this->is_client_disconnected = true;
+                throw Error(ERR_MCS_APPID_IS_MCS_DPUM);
+            }
+
+            MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
+            SEC::SecExchangePacket_Recv sec(mcs.payload);
+
+            uint8_t client_random[64] = {};
+            {
+            ssllib ssl;
+            ssl.ssl_xxxxxx(client_random, 64, sec.payload.get_data(), 64, this->pub_mod, 64, this->pri_exp);
+            }
+            // beware order of parameters for key generation (decrypt/encrypt)
+            // is inversed between server and client
+            SEC::KeyBlock key_block(client_random, this->server_random);
+            memcpy(this->encrypt.sign_key, key_block.blob0, 16);
+            if (this->encrypt.encryptionMethod == 1) {
+                ssllib ssl;
+                ssl.sec_make_40bit(this->encrypt.sign_key);
+            }
+            this->encrypt.generate_key(key_block.key1, this->encrypt.encryptionMethod);
+            this->decrypt.generate_key(key_block.key2, this->encrypt.encryptionMethod);
+        }
+        this->state = WAITING_FOR_LOGON_INFO;
+    }
+
     void incoming(Callback & cb, time_t now)
     {
         switch(this->timeout.check(now)) {
@@ -1224,595 +1818,7 @@ public:
         switch (this->state) {
         case CONNECTION_INITIATION:
         {
-            // Connection Initiation
-            // ---------------------
-
-            // The client initiates the connection by sending the server an X.224 Connection
-            //  Request PDU (class 0). The server responds with an X.224 Connection Confirm
-            // PDU (class 0). From this point, all subsequent data sent between client and
-            // server is wrapped in an X.224 Data Protocol Data Unit (PDU).
-
-            // Client                                                     Server
-            //    |------------X224 Connection Request PDU----------------> |
-            //    | <----------X224 Connection Confirm PDU----------------- |
-
-            if (this->verbose & 1) {
-                LOG(LOG_INFO, "Front::incoming:CONNECTION_INITIATION");
-                LOG(LOG_INFO, "Front::incoming::receiving x224 request PDU");
-            }
-
-            {
-                constexpr size_t array_size = AUTOSIZE;
-                uint8_t array[array_size];
-                uint8_t * end = array;
-                X224::RecvFactory fx224(this->trans, &end, array_size);
-                InStream stream(array, end - array);
-
-                X224::CR_TPDU_Recv x224(stream, this->ini.get<cfg::client::bogus_neg_request>());
-                if (x224._header_size != stream.get_capacity()) {
-                    LOG(LOG_ERR, "Front::incoming::connection request : all data should have been consumed,"
-                                 " %zu bytes remains", stream.get_capacity() - x224._header_size);
-                }
-                this->clientRequestedProtocols = x224.rdp_neg_requestedProtocols;
-
-                if (!this->ini.get<cfg::client::tls_support>() && !this->ini.get<cfg::client::tls_fallback_legacy>()) {
-                    LOG(LOG_WARNING, "tls_support and tls_fallback_legacy should not be disabled at same time. tls_support is assumed to be enabled.");
-                }
-
-                if (// Proxy doesnt supports TLS or RDP client doesn't support TLS
-                    (!this->ini.get<cfg::client::tls_support>() || 0 == (this->clientRequestedProtocols & X224::PROTOCOL_TLS))
-                    // Fallback to legacy security protocol (RDP) is allowed.
-                    && this->ini.get<cfg::client::tls_fallback_legacy>()) {
-                    LOG(LOG_INFO, "Fallback to legacy security protocol");
-                    this->tls_client_active = false;
-                }
-                else if ((0 == (this->clientRequestedProtocols & X224::PROTOCOL_TLS)) &&
-                         !this->ini.get<cfg::client::tls_fallback_legacy>()) {
-                    LOG(LOG_WARNING, "TLS security protocol is not supported by client. Allow falling back to legacy security protocol is probably necessary");
-                }
-            }
-
-            if (this->verbose & 1) {
-                LOG(LOG_INFO, "Front::incoming::sending x224 connection confirm PDU");
-            }
-            {
-                uint8_t rdp_neg_type = 0;
-                uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED;
-                uint32_t rdp_neg_code = 0;
-                if (this->tls_client_active) {
-                    LOG(LOG_INFO, "-----------------> Front::TLS Support Enabled");
-                    if (this->clientRequestedProtocols & X224::PROTOCOL_TLS) {
-                        rdp_neg_type = X224::RDP_NEG_RSP;
-                        rdp_neg_code = X224::PROTOCOL_TLS;
-                        this->encryptionLevel = 0;
-                    }
-                    else {
-                        rdp_neg_type = X224::RDP_NEG_FAILURE;
-                        rdp_neg_code = X224::SSL_REQUIRED_BY_SERVER;
-                    }
-                }
-                else {
-                    LOG(LOG_INFO, "-----------------> Front::TLS Support not Enabled");
-                }
-
-                StaticOutStream<256> stream;
-                X224::CC_TPDU_Send x224(stream, rdp_neg_type, rdp_neg_flags, rdp_neg_code);
-                this->trans.send(stream.get_data(), stream.get_offset());
-
-                if (this->tls_client_active) {
-                    this->trans.enable_server_tls(this->ini.get<cfg::globals::certificate_password>(),
-                        this->ini.get<cfg::client::ssl_cipher_list>().c_str());
-
-            // 2.2.10.2 Early User Authorization Result PDU
-            // ============================================
-
-            // The Early User Authorization Result PDU is sent from server to client and is used
-            // to convey authorization information to the client. This PDU is only sent by the server
-            // if the client advertised support for it by specifying the PROTOCOL_HYBRID_EX (0x00000008)
-            // flag in the requestedProtocols field of the RDP Negotiation Request (section 2.2.1.1.1)
-            // structure and it MUST be sent immediately after the CredSSP handshake (section 5.4.5.2) has completed.
-
-            // authorizationResult (4 bytes): A 32-bit unsigned integer. Specifies the authorization result.
-
-            // +---------------------------------+--------------------------------------------------------+
-            // | AUTHZ_SUCCESS 0x00000000        | The user has permission to access the server.          |
-            // +---------------------------------+--------------------------------------------------------+
-            // | AUTHZ _ACCESS_DENIED 0x0000052E | The user does not have permission to access the server.|
-            // +---------------------------------+--------------------------------------------------------+
-
-                }
-            }
-            // Basic Settings Exchange
-            // -----------------------
-
-            // Basic Settings Exchange: Basic settings are exchanged between the client and
-            // server by using the MCS Connect Initial and MCS Connect Response PDUs. The
-            // Connect Initial PDU contains a GCC Conference Create Request, while the
-            // Connect Response PDU contains a GCC Conference Create Response.
-
-            // These two Generic Conference Control (GCC) packets contain concatenated
-            // blocks of settings data (such as core data, security data and network data)
-            // which are read by client and server
-
-            // Client                                                     Server
-            //    |--------------MCS Connect Initial PDU with-------------> |
-            //                   GCC Conference Create Request
-            //    | <------------MCS Connect Response PDU with------------- |
-            //                   GCC conference Create Response
-
-            if (this->verbose & 1) {
-                LOG(LOG_INFO, "Front::incoming::Basic Settings Exchange");
-            }
-
-
-            constexpr size_t array_size = AUTOSIZE;
-            uint8_t array[array_size];
-            uint8_t * end = array;
-            X224::RecvFactory fx224(this->trans, &end, array_size);
-            InStream x224_data(array, end - array);
-
-            X224::DT_TPDU_Recv x224(x224_data);
-            MCS::CONNECT_INITIAL_PDU_Recv mcs_ci(x224.payload, MCS::BER_ENCODING);
-
-            // GCC User Data
-            // -------------
-            GCC::Create_Request_Recv gcc_cr(mcs_ci.payload);
-            // TODO ensure gcc_data substream is fully consumed
-
-            while (gcc_cr.payload.in_check_rem(4)) {
-                GCC::UserData::RecvFactory f(gcc_cr.payload);
-                switch (f.tag) {
-                    case CS_CORE:
-                    {
-                        GCC::UserData::CSCore cs_core;
-                        cs_core.recv(f.payload);
-                        if (this->verbose & 1) {
-                            cs_core.log("Received from Client");
-                        }
-
-                        this->client_info.width     = cs_core.desktopWidth;
-                        this->client_info.height    = cs_core.desktopHeight;
-                        this->client_info.keylayout = cs_core.keyboardLayout;
-                        this->client_info.build     = cs_core.clientBuild;
-                        for (size_t i = 0; i < 16 ; i++) {
-                            this->client_info.hostname[i] = cs_core.clientName[i];
-                        }
-                        //LOG(LOG_INFO, "hostname=\"%s\"", this->client_info.hostname);
-                        this->client_info.bpp = 8;
-                        switch (cs_core.postBeta2ColorDepth) {
-                        case 0xca01:
-                            /*
-                            this->client_info.bpp =
-                                (cs_core.highColorDepth <= 24)?cs_core.highColorDepth:24;
-                            */
-                            this->client_info.bpp = (
-                                      (cs_core.earlyCapabilityFlags & GCC::UserData::RNS_UD_CS_WANT_32BPP_SESSION)
-                                    ? 32
-                                    : cs_core.highColorDepth
-                                );
-                        break;
-                        case 0xca02:
-                            this->client_info.bpp = 15;
-                        break;
-                        case 0xca03:
-                            this->client_info.bpp = 16;
-                        break;
-                        case 0xca04:
-                            this->client_info.bpp = 24;
-                        break;
-                        default:
-                        break;
-                        }
-                        if (bool(this->ini.get<cfg::client::max_color_depth>())) {
-                            this->client_info.bpp = std::min(
-                                this->client_info.bpp, static_cast<int>(this->ini.get<cfg::client::max_color_depth>()));
-                        }
-                        this->client_support_monitor_layout_pdu =
-                            (cs_core.earlyCapabilityFlags &
-                             GCC::UserData::RNS_UD_CS_SUPPORT_MONITOR_LAYOUT_PDU);
-                    }
-                    break;
-                    case CS_SECURITY:
-                    {
-                        GCC::UserData::CSSecurity cs_sec;
-                        cs_sec.recv(f.payload);
-                        if (this->verbose & 1) {
-                            cs_sec.log("Received from Client");
-                        }
-                    }
-                    break;
-                    case CS_NET:
-                    {
-                        GCC::UserData::CSNet cs_net;
-                        cs_net.recv(f.payload);
-                        for (uint32_t index = 0; index < cs_net.channelCount; index++) {
-                            const auto & channel_def = cs_net.channelDefArray[index];
-                            CHANNELS::ChannelDef channel_item;
-                            memcpy(channel_item.name, channel_def.name, 8);
-                            channel_item.flags = channel_def.options;
-                            channel_item.chanid = GCC::MCS_GLOBAL_CHANNEL + (index + 1);
-                            this->channel_list.push_back(channel_item);
-
-                            if (!this->rail_channel_id &&
-                                !strcmp(channel_item.name, channel_names::rail)) {
-                                this->rail_channel_id = channel_item.chanid;
-                            }
-                        }
-                        if (this->verbose & 1) {
-                            cs_net.log("Received from Client");
-                        }
-                    }
-                    break;
-                    case CS_CLUSTER:
-                    {
-                        GCC::UserData::CSCluster cs_cluster;
-                        cs_cluster.recv(f.payload);
-                        this->client_info.console_session =
-                            (0 != (cs_cluster.flags & GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID));
-                        if (this->verbose & 1) {
-                            cs_cluster.log("Receiving from Client");
-                        }
-                    }
-                    break;
-                    case CS_MONITOR:
-                    {
-                        GCC::UserData::CSMonitor & cs_monitor =
-                            this->client_info.cs_monitor;
-                        cs_monitor.recv(f.payload);
-                        if (this->verbose & 1) {
-                            cs_monitor.log("Receiving from Client");
-                        }
-
-                        Rect client_monitors_rect = this->client_info.cs_monitor.get_rect();
-                        if (this->verbose & 1) {
-                            LOG(LOG_INFO, "MonitorsRect=(%d, %d, %d, %d)",
-                                client_monitors_rect.x, client_monitors_rect.y,
-                                client_monitors_rect.cx, client_monitors_rect.cy);
-                        }
-
-                        if (this->ini.get<cfg::globals::allow_using_multiple_monitors>()) {
-                            this->client_info.width     = client_monitors_rect.cx + 1;
-                            this->client_info.height    = client_monitors_rect.cy + 1;
-                        }
-                    }
-                    break;
-                    case CS_MCS_MSGCHANNEL:
-                    {
-                        GCC::UserData::CSMCSMsgChannel cs_mcs_msgchannel;
-                        cs_mcs_msgchannel.recv(f.payload);
-                        if (this->verbose & 1) {
-                            cs_mcs_msgchannel.log("Receiving from Client");
-                        }
-                    }
-                    break;
-                    case CS_MULTITRANSPORT:
-                    {
-                        GCC::UserData::CSMultiTransport cs_multitransport;
-                        cs_multitransport.recv(f.payload);
-                        if (this->verbose & 1) {
-                            cs_multitransport.log("Receiving from Client");
-                        }
-                    }
-                    break;
-                    default:
-                        LOG(LOG_WARNING, "Unexpected data block tag %x\n", f.tag);
-                    break;
-                }
-            }
-            if (gcc_cr.payload.in_check_rem(1)) {
-                LOG(LOG_ERR, "recv connect request parsing gcc data : short header");
-                throw Error(ERR_MCS_DATA_SHORT_HEADER);
-            }
-
-            write_packets(
-                this->trans,
-                [this](StreamSize<65536-1024>, OutStream & stream) {
-                    {
-                        GCC::UserData::SCCore sc_core;
-                        sc_core.version = 0x00080004;
-                        if (this->tls_client_active) {
-                            sc_core.length = 12;
-                            sc_core.clientRequestedProtocols = this->clientRequestedProtocols;
-                        }
-                        if (this->verbose & 1) {
-                            sc_core.log("Sending to client");
-                        }
-                        sc_core.emit(stream);
-                    }
-                    // ------------------------------------------------------------------
-                    {
-                        GCC::UserData::SCNet sc_net;
-                        sc_net.MCSChannelId = GCC::MCS_GLOBAL_CHANNEL;
-                        sc_net.channelCount = this->channel_list.size();
-                        for (size_t index = 0; index < this->channel_list.size(); ++index) {
-                            sc_net.channelDefArray[index].id = this->channel_list[index].chanid;
-                        }
-                        if (this->verbose & 1) {
-                            sc_net.log("Sending to client");
-                        }
-                        sc_net.emit(stream);
-                    }
-                    // ------------------------------------------------------------------
-                    if (this->tls_client_active) {
-                        GCC::UserData::SCSecurity sc_sec1;
-                        sc_sec1.encryptionMethod = 0;
-                        sc_sec1.encryptionLevel = 0;
-                        sc_sec1.length = 12;
-                        sc_sec1.serverRandomLen = 0;
-                        sc_sec1.serverCertLen = 0;
-                        if (this->verbose & 1) {
-                            sc_sec1.log("Sending to client");
-                        }
-                        sc_sec1.emit(stream);
-                    }
-                    else {
-                        GCC::UserData::SCSecurity sc_sec1;
-                        /*
-                        For now rsa_keys are not in a configuration file any more, but as we were not changing keys
-                        the values have been embedded in code and the key generator file removed from source code.
-
-                        It will be put back at some later time using a clean parser/writer module and sll calls
-                        coherent with the remaining of ReDemPtion code. For reference to historical key generator
-                        code look for utils/keygen.cpp in old repository code.
-
-                        references for RSA Keys: http://www.securiteam.com/windowsntfocus/5EP010KG0G.html
-                        */
-                        uint8_t rsa_keys_pub_mod[64] = {
-                            0x67, 0xab, 0x0e, 0x6a, 0x9f, 0xd6, 0x2b, 0xa3,
-                            0x32, 0x2f, 0x41, 0xd1, 0xce, 0xee, 0x61, 0xc3,
-                            0x76, 0x0b, 0x26, 0x11, 0x70, 0x48, 0x8a, 0x8d,
-                            0x23, 0x81, 0x95, 0xa0, 0x39, 0xf7, 0x5b, 0xaa,
-                            0x3e, 0xf1, 0xed, 0xb8, 0xc4, 0xee, 0xce, 0x5f,
-                            0x6a, 0xf5, 0x43, 0xce, 0x5f, 0x60, 0xca, 0x6c,
-                            0x06, 0x75, 0xae, 0xc0, 0xd6, 0xa4, 0x0c, 0x92,
-                            0xa4, 0xc6, 0x75, 0xea, 0x64, 0xb2, 0x50, 0x5b
-                        };
-                        memcpy(this->pub_mod, rsa_keys_pub_mod, 64);
-
-                        uint8_t rsa_keys_pri_exp[64] = {
-                            0x41, 0x93, 0x05, 0xB1, 0xF4, 0x38, 0xFC, 0x47,
-                            0x88, 0xC4, 0x7F, 0x83, 0x8C, 0xEC, 0x90, 0xDA,
-                            0x0C, 0x8A, 0xB5, 0xAE, 0x61, 0x32, 0x72, 0xF5,
-                            0x2B, 0xD1, 0x7B, 0x5F, 0x44, 0xC0, 0x7C, 0xBD,
-                            0x8A, 0x35, 0xFA, 0xAE, 0x30, 0xF6, 0xC4, 0x6B,
-                            0x55, 0xA7, 0x65, 0xEF, 0xF4, 0xB2, 0xAB, 0x18,
-                            0x4E, 0xAA, 0xE6, 0xDC, 0x71, 0x17, 0x3B, 0x4C,
-                            0xC2, 0x15, 0x4C, 0xF7, 0x81, 0xBB, 0xF0, 0x03
-                        };
-                        memcpy(sc_sec1.pri_exp, rsa_keys_pri_exp, 64);
-                        memcpy(this->pri_exp, sc_sec1.pri_exp, 64);
-
-                        uint8_t rsa_keys_pub_sig[64] = {
-                            0x6a, 0x41, 0xb1, 0x43, 0xcf, 0x47, 0x6f, 0xf1,
-                            0xe6, 0xcc, 0xa1, 0x72, 0x97, 0xd9, 0xe1, 0x85,
-                            0x15, 0xb3, 0xc2, 0x39, 0xa0, 0xa6, 0x26, 0x1a,
-                            0xb6, 0x49, 0x01, 0xfa, 0xa6, 0xda, 0x60, 0xd7,
-                            0x45, 0xf7, 0x2c, 0xee, 0xe4, 0x8e, 0x64, 0x2e,
-                            0x37, 0x49, 0xf0, 0x4c, 0x94, 0x6f, 0x08, 0xf5,
-                            0x63, 0x4c, 0x56, 0x29, 0x55, 0x5a, 0x63, 0x41,
-                            0x2c, 0x20, 0x65, 0x95, 0x99, 0xb1, 0x15, 0x7c
-                        };
-
-                        uint8_t rsa_keys_pub_exp[4] = { 0x01, 0x00, 0x01, 0x00 };
-
-                        sc_sec1.encryptionMethod = this->encrypt.encryptionMethod;
-                        sc_sec1.encryptionLevel = this->encryptionLevel;
-                        sc_sec1.serverRandomLen = 32;
-                        this->gen.random(this->server_random, 32);
-                        memcpy(sc_sec1.serverRandom, this->server_random, 32);
-                        sc_sec1.dwVersion = GCC::UserData::SCSecurity::CERT_CHAIN_VERSION_1;
-                        sc_sec1.temporary = false;
-                        memcpy(sc_sec1.proprietaryCertificate.RSAPK.pubExp, rsa_keys_pub_exp, SEC_EXPONENT_SIZE);
-                        memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus, this->pub_mod, 64);
-                        memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus + 64,
-                            "\x00\x00\x00\x00\x00\x00\x00\x00", SEC_PADDING_SIZE);
-                        memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob, rsa_keys_pub_sig, 64);
-                        memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob + 64,
-                            "\x00\x00\x00\x00\x00\x00\x00\x00", SEC_PADDING_SIZE);
-
-                        if (this->verbose & 1) {
-                            sc_sec1.log("Sending to client");
-                        }
-                        sc_sec1.emit(stream);
-                    }
-                },
-                [](StreamSize<256>, OutStream & gcc_header, std::size_t packed_size) {
-                    GCC::Create_Response_Send(gcc_header, packed_size);
-                },
-                [](StreamSize<256>, OutStream & mcs_header, std::size_t packed_size) {
-                    MCS::CONNECT_RESPONSE_Send mcs_cr(mcs_header, packed_size, MCS::BER_ENCODING);
-                },
-                write_x224_dt_tpdu_fn{}
-            );
-
-            // Channel Connection
-            // ------------------
-
-            // Channel Connection: The client sends an MCS Erect Domain Request PDU,
-            // followed by an MCS Attach User Request PDU to attach the primary user
-            // identity to the MCS domain.
-
-            // The server responds with an MCS Attach User Response PDU containing the user
-            // channel ID.
-
-            // The client then proceeds to join the :
-            // - user channel,
-            // - the input/output (I/O) channel
-            // - and all of the static virtual channels
-
-            // (the I/O and static virtual channel IDs are obtained from the data embedded
-            //  in the GCC packets) by using multiple MCS Channel Join Request PDUs.
-
-            // The server confirms each channel with an MCS Channel Join Confirm PDU.
-            // (The client only sends a Channel Join Request after it has received the
-            // Channel Join Confirm for the previously sent request.)
-
-            // From this point, all subsequent data sent from the client to the server is
-            // wrapped in an MCS Send Data Request PDU, while data sent from the server to
-            //  the client is wrapped in an MCS Send Data Indication PDU. This is in
-            // addition to the data being wrapped by an X.224 Data PDU.
-
-            // Client                                                     Server
-            //    |-------MCS Erect Domain Request PDU--------------------> |
-            //    |-------MCS Attach User Request PDU---------------------> |
-
-            //    | <-----MCS Attach User Confirm PDU---------------------- |
-
-            //    |-------MCS Channel Join Request PDU--------------------> |
-            //    | <-----MCS Channel Join Confirm PDU--------------------- |
-
-            if (this->verbose & 16) {
-                LOG(LOG_INFO, "Front::incoming::Channel Connection");
-            }
-
-            if (this->verbose) {
-                LOG(LOG_INFO, "Front::incoming::Recv MCS::ErectDomainRequest");
-            }
-            {
-                constexpr size_t array_size = 256;
-                uint8_t array[array_size];
-                uint8_t * end = array;
-                X224::RecvFactory fx224(this->trans, &end, array_size);
-                REDASSERT(fx224.type == X224::DT_TPDU);
-                InStream x224_data(array, end - array);
-
-                X224::DT_TPDU_Recv x224(x224_data);
-                MCS::ErectDomainRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
-            }
-            if (this->verbose) {
-                LOG(LOG_INFO, "Front::incoming::Recv MCS::AttachUserRequest");
-            }
-            {
-                constexpr size_t array_size = 256;
-                uint8_t array[array_size];
-                uint8_t * end = array;
-                X224::RecvFactory fx224(this->trans, &end, array_size);
-                REDASSERT(fx224.type == X224::DT_TPDU);
-                InStream x224_data(array, end - array);
-                X224::DT_TPDU_Recv x224(x224_data);
-                MCS::AttachUserRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
-            }
-
-            if (this->ini.get<cfg::client::bogus_user_id>()) {
-                // To avoid bug in freerdp 0.7.x and Remmina 0.8.x that causes client disconnection
-                //  when unexpected channel id is received.
-                this->userid = 32;
-            }
-
-            if (this->verbose) {
-                LOG(LOG_INFO, "Front::incoming::Send MCS::AttachUserConfirm userid=%u", this->userid);
-            }
-
-            write_packets(
-                this->trans,
-                [this](StreamSize<256>, OutStream & mcs_data) {
-                    MCS::AttachUserConfirm_Send(mcs_data, MCS::RT_SUCCESSFUL, true, this->userid, MCS::PER_ENCODING);
-                },
-                write_x224_dt_tpdu_fn{}
-            );
-
-            this->channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
-                this->userid = mcs.initiator;
-            });
-            this->channel_join_request_transmission([this](MCS::ChannelJoinRequest_Recv & mcs) {
-                if (mcs.initiator != this->userid) {
-                    LOG(LOG_ERR, "MCS error bad userid, expecting %u got %u", this->userid, mcs.initiator);
-                    throw Error(ERR_MCS_BAD_USERID);
-                }
-            });
-
-            for (size_t i = 0 ; i < this->channel_list.size(); ++i) {
-                this->channel_join_request_transmission([this,i](MCS::ChannelJoinRequest_Recv & mcs) {
-                    if (this->verbose & 16) {
-                        LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16 " -> cjcf", i, mcs.channelId);
-                    }
-
-                    if (mcs.initiator != this->userid) {
-                        LOG(LOG_ERR, "MCS error bad userid, expecting %" PRIu16 " got %" PRIu16,
-                            this->userid, mcs.initiator);
-                        throw Error(ERR_MCS_BAD_USERID);
-                    }
-
-                    this->channel_list.set_chanid(i, mcs.channelId);
-                });
-            }
-
-            if (this->verbose & 1) {
-                LOG(LOG_INFO, "Front::incoming::RDP Security Commencement");
-            }
-
-            // RDP Security Commencement
-            // -------------------------
-
-            // RDP Security Commencement: If standard RDP security methods are being
-            // employed and encryption is in force (this is determined by examining the data
-            // embedded in the GCC Conference Create Response packet) then the client sends
-            // a Security Exchange PDU containing an encrypted 32-byte random number to the
-            // server. This random number is encrypted with the public key of the server
-            // (the server's public key, as well as a 32-byte server-generated random
-            // number, are both obtained from the data embedded in the GCC Conference Create
-            //  Response packet).
-
-            // The client and server then utilize the two 32-byte random numbers to generate
-            // session keys which are used to encrypt and validate the integrity of
-            // subsequent RDP traffic.
-
-            // From this point, all subsequent RDP traffic can be encrypted and a security
-            // header is included with the data if encryption is in force (the Client Info
-            // and licensing PDUs are an exception in that they always have a security
-            // header). The Security Header follows the X.224 and MCS Headers and indicates
-            // whether the attached data is encrypted.
-
-            // Even if encryption is in force server-to-client traffic may not always be
-            // encrypted, while client-to-server traffic will always be encrypted by
-            // Microsoft RDP implementations (encryption of licensing PDUs is optional,
-            // however).
-
-            // Client                                       Server
-            //    |------Security Exchange PDU --------------> |
-            if (this->tls_client_active) {
-                LOG(LOG_INFO, "TLS mode: exchange packet disabled");
-            }
-            else
-            {
-                LOG(LOG_INFO, "Legacy RDP mode: expecting exchange packet");
-                constexpr size_t array_size = 256;
-                uint8_t array[array_size];
-                uint8_t * end = array;
-                X224::RecvFactory fx224(this->trans, &end, array_size);
-                InStream pdu(array, end - array);
-                X224::DT_TPDU_Recv x224(pdu);
-
-                int mcs_type = MCS::peekPerEncodedMCSType(x224.payload);
-                if (mcs_type == MCS::MCSPDU_DisconnectProviderUltimatum) {
-                    LOG(LOG_INFO, "Front::incoming::DisconnectProviderUltimatum received");
-                    MCS::DisconnectProviderUltimatum_Recv mcs(x224.payload, MCS::PER_ENCODING);
-                    const char * reason = MCS::get_reason(mcs.reason);
-                    LOG(LOG_INFO, "Front DisconnectProviderUltimatum: reason=%s [%d]", reason, mcs.reason);
-                    this->is_client_disconnected = true;
-                    throw Error(ERR_MCS_APPID_IS_MCS_DPUM);
-                }
-
-                MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
-                SEC::SecExchangePacket_Recv sec(mcs.payload);
-
-                uint8_t client_random[64] = {};
-                {
-                ssllib ssl;
-                ssl.ssl_xxxxxx(client_random, 64, sec.payload.get_data(), 64, this->pub_mod, 64, this->pri_exp);
-                }
-                // beware order of parameters for key generation (decrypt/encrypt)
-                // is inversed between server and client
-                SEC::KeyBlock key_block(client_random, this->server_random);
-                memcpy(this->encrypt.sign_key, key_block.blob0, 16);
-                if (this->encrypt.encryptionMethod == 1) {
-                    ssllib ssl;
-                    ssl.sec_make_40bit(this->encrypt.sign_key);
-                }
-                this->encrypt.generate_key(key_block.key1, this->encrypt.encryptionMethod);
-                this->decrypt.generate_key(key_block.key2, this->encrypt.encryptionMethod);
-            }
-            this->state = WAITING_FOR_LOGON_INFO;
+            this->connection_initiation();
         }
         break;
 
