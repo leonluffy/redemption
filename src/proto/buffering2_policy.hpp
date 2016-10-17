@@ -131,13 +131,13 @@ using is_limited_size = typename detail::is_limited_size_impl<Sz>::type;
 template<class Val>
 using has_pkt_sz = typename std::is_same<
     proto::get_arguments_t<desc_type_t<Val>>,
-    brigand::list<proto::dsl::pkt_sz>
+    brigand::list<proto::dsl::next_pkts_sz>
 >::type;
 
 template<class Val>
 using has_pkt_sz_with_self = typename std::is_same<
     proto::get_arguments_t<desc_type_t<Val>>,
-    brigand::list<proto::dsl::pkt_sz_with_self>
+    brigand::list<proto::dsl::current_pkts_sz>
 >::type;
 
 template<class Val>
@@ -1092,14 +1092,14 @@ struct Buffering2
 
             cifv(is_pkt_sz{}, val, [this](auto const & val){
                 PROTO_TRACE(this->next_size_or_0<Info>() << " [pkt_sz]");
-                this->serialize_eval_sz<Info, proto::dsl::pkt_sz>([this]{
+                this->serialize_eval_sz<Info, proto::dsl::next_pkts_sz>([this]{
                     return this->next_size_or_0<Info>();
                 }, val);
             });
 
             cifv(is_pkt_sz_self{}, val, [this](auto const & val){
                 PROTO_TRACE(this->sizes[Info::ipacket] << " [pkt_sz_with_self]");
-                this->serialize_eval_sz<Info, proto::dsl::pkt_sz_with_self>([this]{
+                this->serialize_eval_sz<Info, proto::dsl::current_pkts_sz>([this]{
                     return this->sizes[Info::ipacket];
                 }, val);
             });
@@ -1416,7 +1416,7 @@ struct Buffering2
                 this->serialize_type_reval_sz(
                     Info{}, val,
                     is_pkt_sz{}, pkt_sz{},
-                    proto::dsl::pkt_sz{}
+                    proto::dsl::next_pkts_sz{}
                 );
             });
             cifv(is_pkt_sz_self{}, val, [this](auto & val) {
@@ -1424,7 +1424,7 @@ struct Buffering2
                 this->serialize_type_reval_sz(
                     Info{}, val,
                     is_pkt_sz_self{}, pkt_sz_self{},
-                    proto::dsl::pkt_sz_with_self{}
+                    proto::dsl::current_pkts_sz{}
                 );
             });
 

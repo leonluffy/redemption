@@ -153,7 +153,7 @@ struct Buffering3
             PROTO_TRACE("[" << static_cast<void const *>(*this->special_pkt_iterator) << "] ");
 
             cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
-                this->serialize_eval_sz<VarInfo, proto::dsl::pkt_sz>([this]{
+                this->serialize_eval_sz<VarInfo, proto::dsl::next_pkts_sz>([this]{
                     auto const sz = this->buf - this->next_pkt_ptr_or_end<VarInfo>();
                     PROTO_TRACE(sz);
                     return sz;
@@ -162,7 +162,7 @@ struct Buffering3
 
             cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){
                 constexpr std::size_t ipacket = VarInfo::ipacket::value;
-                this->serialize_eval_sz<VarInfo, proto::dsl::pkt_sz_with_self>([this]{
+                this->serialize_eval_sz<VarInfo, proto::dsl::current_pkts_sz>([this]{
                     auto const sz = this->buf - this->pkt_ptrs[ipacket];
                     PROTO_TRACE(sz);
                     return sz;

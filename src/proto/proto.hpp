@@ -824,9 +824,9 @@ namespace proto
 
     namespace dsl
     {
-        struct pkt_sz {};
-        struct pkt_sz_with_self {};
-        struct pkt_data {};
+        struct current_pkts_sz {};
+        struct next_pkts_sz {};
+        struct next_pkts_data {};
     }
 
     template<class Sp, class Desc>
@@ -868,40 +868,40 @@ namespace proto
 
     // TODO Deps, Desc
     template<class Desc>
-    using sz = special<dsl::pkt_sz, Desc>;
+    using sz = special<dsl::next_pkts_sz, Desc>;
 
     // TODO Deps, Desc
     template<class Desc>
-    using sz_with_self = special<dsl::pkt_sz_with_self, Desc>;
+    using sz_with_self = special<dsl::current_pkts_sz, Desc>;
 
     // TODO Deps, Desc
     template<class Desc>
-    using data = special<dsl::pkt_data, Desc>;
+    using data = special<dsl::next_pkts_data, Desc>;
 
     namespace types {
-        using ::proto::sz;
-        using ::proto::sz_with_self;
-        using ::proto::data;
+        using ::proto::dsl::next_pkts_sz;
+        using ::proto::dsl::current_pkts_sz;
+        using ::proto::dsl::next_pkts_data;
     }
 
     namespace detail
     {
-        template<> struct is_special_value_impl<dsl::pkt_sz> : std::true_type {};
-        template<> struct is_special_value_impl<dsl::pkt_sz_with_self> : std::true_type {};
-        template<> struct is_special_value_impl<dsl::pkt_data> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::current_pkts_sz> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::next_pkts_sz> : std::true_type {};
+        template<> struct is_special_value_impl<dsl::next_pkts_data> : std::true_type {};
 
-        template<class T> struct is_special_sz_impl : std::false_type {};
-        template<> struct is_special_sz_impl<dsl::pkt_sz> : std::true_type {};
-        template<> struct is_special_sz_impl<dsl::pkt_sz_with_self> : std::true_type {};
+        template<class T> struct is_special_buf_sz_impl : std::false_type {};
+        template<> struct is_special_buf_sz_impl<dsl::next_pkts_sz> : std::true_type {};
+        template<> struct is_special_buf_sz_impl<dsl::current_pkts_sz> : std::true_type {};
 
-        template<class T> struct is_special_data_impl : std::false_type {};
-        template<> struct is_special_data_impl<dsl::pkt_data> : std::true_type {};
+        template<class T> struct is_special_buf_data_impl : std::false_type {};
+        template<> struct is_special_buf_data_impl<dsl::next_pkts_data> : std::true_type {};
     }
 
     template<class T>
     using has_special_sz = brigand::any<
         get_arguments_t<T>,
-        brigand::call<detail::is_special_sz_impl>
+        brigand::call<detail::is_special_buf_sz_impl>
     >;
 
 
@@ -2133,13 +2133,13 @@ namespace proto
 
     template<class Ch, class Tr, class Desc>
     std::basic_ostream<Ch, Tr> &
-    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<special<dsl::pkt_sz, Desc>> const &)
-    { return out << named_dep<dsl::pkt_sz>{}; }
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<special<dsl::next_pkts_sz, Desc>> const &)
+    { return out << named_dep<dsl::next_pkts_sz>{}; }
 
     template<class Ch, class Tr, class Desc>
     std::basic_ostream<Ch, Tr> &
-    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<special<dsl::pkt_sz_with_self, Desc>> const &)
-    { return out << named_dep<dsl::pkt_sz_with_self>{}; }
+    operator<<(std::basic_ostream<Ch, Tr> & out, named_dep<special<dsl::current_pkts_sz, Desc>> const &)
+    { return out << named_dep<dsl::current_pkts_sz>{}; }
 
     namespace detail
     {
