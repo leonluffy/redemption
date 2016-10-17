@@ -154,9 +154,10 @@ namespace proto
     template<std::size_t N>
     using size_ = std::integral_constant<std::size_t, N>;
 
+    template<std::size_t n>
+    struct limited_size { static const std::size_t value = n; };
 
     struct dyn_size {};
-    template<std::size_t n> struct limited_size { static const std::size_t value = n; };
 
     namespace tags
     {

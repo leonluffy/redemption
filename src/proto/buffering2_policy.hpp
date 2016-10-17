@@ -96,10 +96,10 @@ auto const & larg(L const & l)
 { return l.apply([](auto const & ... v) PROTO_DECLTYPE_AUTO_RETURN(arg<i>(v...))); }
 
 
-template<class DescOrVal>
+template<class Desc>
 using is_buffer_delimiter = brigand::bool_<
-    proto::is_view_buffer<DescOrVal>::value or
-    (proto::is_limited_buffer<DescOrVal>::value and proto::has_pkts_sz<DescOrVal>::value)
+    proto::is_view_buffer<Desc>::value or
+    (proto::is_limited_buffer<Desc>::value and proto::has_pkts_sz<Desc>::value)
 >;
 
 
@@ -129,22 +129,13 @@ template<class Sz>
 using is_limited_size = typename detail::is_limited_size_impl<Sz>::type;
 
 template<class Val>
-using has_pkt_sz = typename std::is_same<
-    proto::get_arguments_t<desc_type_t<Val>>,
-    brigand::list<proto::dsl::next_pkts_sz>
->::type;
+using has_pkt_sz = proto::has_next_pkts_sz<desc_type_t<Val>>;
 
 template<class Val>
-using has_pkt_sz_with_self = typename std::is_same<
-    proto::get_arguments_t<desc_type_t<Val>>,
-    brigand::list<proto::dsl::current_pkts_sz>
->::type;
+using has_pkt_sz_with_self = proto::has_current_pkts_sz<desc_type_t<Val>>;
 
 template<class Val>
-using has_pkt_sz_cat = brigand::bool_<
-    has_pkt_sz<Val>{} ||
-    has_pkt_sz_with_self<Val>{}
->;
+using has_pkt_sz_cat = proto::has_pkts_sz<desc_type_t<Val>>;
 
 template<class Val>
 using has_pkt_data = proto::is_reserializer<desc_type_t<Val>>;
