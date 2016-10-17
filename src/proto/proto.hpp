@@ -249,7 +249,7 @@ namespace proto
         class limited_buffer {};
     }
 
-    template<class T> using sizeof_ = typename T::sizeof_;
+    template<class Desc> using sizeof_ = typename Desc::sizeof_;
 
     namespace detail
     {
@@ -265,15 +265,14 @@ namespace proto
         { using type = typename T::buffer_category; };
     }
 
-    template<class T> using buffer_category = typename detail::buffer_category_impl<T>::type;
+    template<class Desc> using buffer_category = typename detail::buffer_category_impl<Desc>::type;
 
-    // TODO has_*
-    template<class T> using is_static_buffer
-      = typename std::is_same<tags::static_buffer, buffer_category<T>>::type;
-    template<class T> using is_limited_buffer
-      = typename std::is_same<tags::limited_buffer, buffer_category<T>>::type;
-    template<class T> using is_view_buffer
-      = typename std::is_same<tags::view_buffer, buffer_category<T>>::type;
+    template<class Desc> using has_static_buffer
+      = typename std::is_same<tags::static_buffer, buffer_category<Desc>>::type;
+    template<class Desc> using has_limited_buffer
+      = typename std::is_same<tags::limited_buffer, buffer_category<Desc>>::type;
+    template<class Desc> using has_view_buffer
+      = typename std::is_same<tags::view_buffer, buffer_category<Desc>>::type;
 
     namespace detail
     {
@@ -1061,25 +1060,25 @@ namespace proto
     };
 
 
-    template<class T>
-    std::enable_if_t<is_static_buffer<T>::value, std::size_t>
-    static_or_limited_serialize(uint8_t * p, T const & x)
+    template<class Desc>
+    std::enable_if_t<has_static_buffer<Desc>::value, std::size_t>
+    static_or_limited_serialize(uint8_t * p, Desc const & x)
     { return x.static_serialize(p); }
 
-    template<class T>
-    std::enable_if_t<!is_static_buffer<T>::value, std::size_t>
-    static_or_limited_serialize(uint8_t * p, T const & x)
+    template<class Desc>
+    std::enable_if_t<!has_static_buffer<Desc>::value, std::size_t>
+    static_or_limited_serialize(uint8_t * p, Desc const & x)
     { return x.limited_serialize(p); }
 
 
-    template<class T, class AV, class... Sz>
-    std::enable_if_t<is_static_buffer<T>::value, std::size_t>
-    static_or_limited_reserialize(uint8_t * p, T const & x, AV av, Sz... sz)
+    template<class Desc, class AV, class... Sz>
+    std::enable_if_t<has_static_buffer<Desc>::value, std::size_t>
+    static_or_limited_reserialize(uint8_t * p, Desc const & x, AV av, Sz... sz)
     { return x.static_reserialize(p, av, sz...); }
 
-    template<class T, class AV, class... Sz>
-    std::enable_if_t<!is_static_buffer<T>::value, std::size_t>
-    static_or_limited_reserialize(uint8_t * p, T const & x, AV av, Sz... sz)
+    template<class Desc, class AV, class... Sz>
+    std::enable_if_t<!has_static_buffer<Desc>::value, std::size_t>
+    static_or_limited_reserialize(uint8_t * p, Desc const & x, AV av, Sz... sz)
     { return x.limited_reserialize(p, av, sz...); }
 
 
@@ -2020,7 +2019,7 @@ namespace proto
         {
             using sizeof_ = proto::common_size<proto::sizeof_<Desc>, proto::limited_size<0>>;
             using buffer_category = typename std::conditional_t<
-                proto::is_view_buffer<Desc>::value,
+                proto::has_view_buffer<Desc>::value,
                 proto::detail::buffer_category_impl<Desc>,
                 proto::detail::common_buffer_impl<
                     proto::tags::limited_buffer,
@@ -2047,7 +2046,7 @@ namespace proto
 
             std::size_t reserved_size() const
             {
-                static_assert(proto::is_static_buffer<Desc>{}, "unimplemented");
+                static_assert(proto::has_static_buffer<Desc>{}, "unimplemented");
                 return this->is_ok ? proto::sizeof_<Desc>::value : 0u;
             }
 
@@ -2080,7 +2079,7 @@ namespace proto
 
             std::size_t reserved_size() const
             {
-                static_assert(proto::is_static_buffer<desc_type_t<Val>>{}, "unimplemented");
+                static_assert(proto::has_static_buffer<desc_type_t<Val>>{}, "unimplemented");
                 return this->is_ok ? proto::sizeof_<desc_type_t<Val>>::value : 0u;
             }
         };

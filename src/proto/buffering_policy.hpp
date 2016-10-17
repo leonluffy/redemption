@@ -26,7 +26,7 @@ namespace proto_buffering {
 
 template<class T>
 using is_buffer_delimiter = brigand::bool_<
-    proto::is_view_buffer<T>::value
+    proto::has_view_buffer<T>::value
 >;
 
 template<class idx_var>

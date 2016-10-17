@@ -106,7 +106,7 @@ using keep_info_pkt_data_ptr = brigand::bool_<
 
 template<class Val, class Sz, class Sz2>
 using is_undeterministic_sizeof_special = brigand::bool_<
-    !proto::is_static_buffer<desc_type_t<Val>>::value
+    !proto::has_static_buffer<desc_type_t<Val>>::value
     and (
         (proto::v::has_current_pkts_sz<Val>::value and !proto::is_static_size<Sz>::value)
         or
@@ -134,9 +134,9 @@ using keep_info_special_pkt_ptr = brigand::bool_<
 
 template<class Val, class PrevVal, class PrevSz, class PrevSz2>
 using is_delimiter = brigand::bool_<
-    proto::is_view_buffer<desc_type_t<Val>>::value
+    proto::has_view_buffer<desc_type_t<Val>>::value
     or
-    proto::is_view_buffer<desc_type_t<PrevVal>>::value
+    proto::has_view_buffer<desc_type_t<PrevVal>>::value
     or
     is_undeterministic_sizeof_special<PrevVal, PrevSz, PrevSz2>::value
 >;
@@ -145,7 +145,7 @@ template<class IsEnd, class Val, class Sz, class Sz2>
 using is_pkt_sz_delimiter = brigand::bool_<
     !IsEnd::value
     and
-    proto::is_limited_buffer<desc_type_t<Val>>::value
+    proto::has_limited_buffer<desc_type_t<Val>>::value
     and
     ( ( proto::v::has_current_pkts_sz<Val>::value and !proto::is_static_size<Sz>::value )
           or
@@ -622,7 +622,7 @@ using convert_pkt_sz2 = Pkt;
 
 namespace detail
 {
-    template<class Val, bool = proto::is_static_buffer<desc_type_t<Val>>::value>
+    template<class Val, bool = proto::has_static_buffer<desc_type_t<Val>>::value>
     struct reserved_size_impl
     {
         static std::size_t _(Val const & val)
@@ -1229,7 +1229,7 @@ struct Buffering2
         template<class Info>
         void post_serialize_value(Info)
         {
-            using is_view = proto::is_view_buffer<desc_type_t<Info>>;
+            using is_view = proto::has_view_buffer<desc_type_t<Info>>;
             if (is_view{}) {
                 PROTO_TRACE(" [*psz: +" << this->piov->iov_len << "]");
                 *this->psize += this->piov->iov_len;
@@ -1320,8 +1320,8 @@ struct Buffering2
             using pkt_sz = typename Info::sz;
             using pkt_sz_self = typename Info::sz_self;
 
-            static_assert(proto::v::has_next_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
-            static_assert(proto::v::has_current_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz_self>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
+            static_assert(proto::v::has_next_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz>{} && proto::has_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
+            static_assert(proto::v::has_current_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz_self>{} && proto::has_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
 
             using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && proto::is_static_size<pkt_sz>{}>;
             using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && proto::is_static_size<pkt_sz_self>{}>;
@@ -1364,7 +1364,7 @@ struct Buffering2
         void serialize_type_reval_sz(
             Info info, Val const & val, std::true_type, Sz, Sp
         ) {
-            static_assert(!proto::is_view_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
+            static_assert(!proto::has_view_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
             PROTO_TRACE(" = " << Sz::value);
             auto get_sz = []{ return Sz::value; };
             auto szval = proto::val<Sp, decltype(get_sz)>{get_sz};

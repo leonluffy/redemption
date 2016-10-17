@@ -46,9 +46,9 @@ struct Printer
     static void print_buffer_cat()
     {
         std::cout
-            << "  static: " << proto::is_static_buffer<Desc>{}
-            << "  view: " << proto::is_view_buffer<Desc>{}
-            << "  limited: " << proto::is_limited_buffer<Desc>{}
+            << "  static: " << proto::has_static_buffer<Desc>{}
+            << "  view: " << proto::has_view_buffer<Desc>{}
+            << "  limited: " << proto::has_limited_buffer<Desc>{}
             << "\n";
     }
 
