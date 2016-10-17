@@ -32,6 +32,35 @@
 #include "utils/stream.hpp"
 #include "utils/get_printable_password.hpp"
 
+
+// 2.2.1.11.1 Client Info PDU Data (CLIENT_INFO_PDU)
+// =================================================
+
+// The CLIENT_INFO_PDU structure serves as a wrapper for a Security 
+// Header (section 2.2.8.1.1.2) and the actual client information 
+// contained in a TS_INFO_PACKET structure (section 2.2.1.11.1.1).
+
+// securityHeader (variable): Security header. The format of the 
+// security header depends on the Encryption Level and Encryption Method
+// selected by the server (sections 5.3.2 and 2.2.1.4.3). This field MUST
+// contain one of the following headers:
+
+//    Basic Security Header (section 2.2.8.1.1.2.1) if the Encryption
+// Level selected by the server is ENCRYPTION_LEVEL_NONE (0).
+
+//    Non-FIPS Security Header (section 2.2.8.1.1.2.2) if the Encryption
+// Method selected by the server is ENCRYPTION_METHOD_40BIT (0x00000001),
+// ENCRYPTION_METHOD_56BIT (0x00000008), or ENCRYPTION_METHOD_128BIT (0x00000002).
+
+//    FIPS Security Header (section 2.2.8.1.1.2.3) if the Encryption Method
+// selected by the server is ENCRYPTION_METHOD_FIPS (0x00000010).
+
+//    The flags field of the security header MUST contain the SEC_INFO_PKT
+// flag (section 2.2.8.1.1.2.1).
+
+// infoPacket (variable): Client information, as specified in TS_INFO_PACKET.
+
+
 // 2.2.1.11.1.1 Info Packet (TS_INFO_PACKET)
 // =========================================
 // The TS_INFO_PACKET structure contains sensitive information (such as
