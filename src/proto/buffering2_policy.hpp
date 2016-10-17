@@ -365,17 +365,6 @@ using not_equal_to = brigand::bool_<(A::value != B::value)>;
 template<class C, class True, class False>
 using eval = typename std::conditional_t<C::value, True, False>::type;
 
-namespace detail {
-    template<class T, std::size_t n> struct pkt_sz_with_size { using desc_type = T; };
-}
-
-}
-
-namespace proto {
-    template<class T, std::size_t n>
-    struct sizeof_impl<proto_buffering2::detail::pkt_sz_with_size<T, n>>
-    : sizeof_impl<T>
-    {};
 }
 
 namespace proto_buffering2

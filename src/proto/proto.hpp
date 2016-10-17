@@ -168,41 +168,49 @@ namespace meta
     namespace detail
     {
         template<template<class...> class Tpl, class T>
-        struct is_layout_impl : std::false_type
+        struct is_layout_impl
+        : std::false_type
         {};
 
         template<template<class...> class Tpl, class... Ts>
-        struct is_layout_impl<Tpl, Tpl<Ts...>> : std::true_type
+        struct is_layout_impl<Tpl, Tpl<Ts...>>
+        : std::true_type
         {};
-    }
-    template<template<class...> class Tpl, class T>
-    using is_layout = typename detail::is_layout_impl<Tpl, T>::type;
 
-    namespace detail
-    {
+
         template<class I, template<I> class Tpl, class T>
-        struct is_integral_layout_impl : std::false_type
+        struct is_integral_layout_impl
+        : std::false_type
         {};
 
         template<class I, template<I> class Tpl, I i>
-        struct is_integral_layout_impl<I, Tpl, Tpl<i>> : std::true_type
+        struct is_integral_layout_impl<I, Tpl, Tpl<i>>
+        : std::true_type
         {};
-    }
-    template<class I, template<I> class Tpl, class T>
-    using is_integral_layout = typename detail::is_integral_layout_impl<I, Tpl, T>::type;
 
-    namespace detail
-    {
+
         template<template<class T, T> class Tpl, class T>
-        struct is_integral_constant_layout_impl : std::false_type
+        struct is_integral_constant_layout_impl
+        : std::false_type
         {};
 
         template<template<class T, T> class Tpl, class T, T v>
-        struct is_integral_constant_layout_impl<Tpl, Tpl<T, v>> : std::true_type
+        struct is_integral_constant_layout_impl<Tpl, Tpl<T, v>>
+        : std::true_type
         {};
     }
+
+    template<template<class...> class Tpl, class T>
+    using is_layout = typename detail::is_layout_impl<Tpl, T>::type;
+
+    template<class I, template<I> class Tpl, class T>
+    using is_integral_layout = typename detail::is_integral_layout_impl<I, Tpl, T>::type;
+
     template<template<class T, T> class Tpl, class T>
     using is_integral_constant_layout = typename detail::is_integral_constant_layout_impl<Tpl, T>::type;
+
+
+    template<class...> using void_t = void;
 }
 
 #include "utils/sugar/array_view.hpp"
@@ -241,11 +249,7 @@ namespace proto
         class limited_buffer {};
     }
 
-    template<class T> struct sizeof_impl { using type = typename T::sizeof_; };
-
-    template<class T> using sizeof_ = typename sizeof_impl<T>::type;
-
-    template<class...> using void_t = void;
+    template<class T> using sizeof_ = typename T::sizeof_;
 
     namespace detail
     {
@@ -257,12 +261,11 @@ namespace proto
         struct buffer_category_impl : sizeof_to_buffer_cat<sizeof_<T>> {};
 
         template<class T>
-        struct buffer_category_impl<T, void_t<typename T::buffer_category>>
+        struct buffer_category_impl<T, meta::void_t<typename T::buffer_category>>
         { using type = typename T::buffer_category; };
     }
 
-    template<class T> struct buffer_category_impl : detail::buffer_category_impl<T> {};
-    template<class T> using buffer_category = typename buffer_category_impl<T>::type;
+    template<class T> using buffer_category = typename detail::buffer_category_impl<T>::type;
 
     // TODO has_*
     template<class T> using is_static_buffer
@@ -536,8 +539,6 @@ namespace proto
         };
     }
 
-    template<class...> using void_ = void;
-
 
     template<class... Ts>
     struct inherits : Ts...
@@ -592,7 +593,7 @@ namespace proto
         { using type = brigand::list<T...>; };
 
         template<class T>
-        struct get_dependencies_impl<T, void_t<typename T::dependencies>>
+        struct get_dependencies_impl<T, meta::void_t<typename T::dependencies>>
         { using type = typename T::dependencies; };
     }
     template<class T>
@@ -612,7 +613,7 @@ namespace proto
         { using type = R; };
 
         template<template<class> class Tpl, class T, class R>
-        struct get_or_impl<Tpl, T, R, void_t<Tpl<T>>>
+        struct get_or_impl<Tpl, T, R, meta::void_t<Tpl<T>>>
         { using type = Tpl<T>; };
     }
 
@@ -739,7 +740,7 @@ namespace proto
         {};
 
         template<class T, class Desc>
-        struct is_enum_to_int<T, Desc, void_t<typename Desc::type>, true>
+        struct is_enum_to_int<T, Desc, meta::void_t<typename Desc::type>, true>
         : std::is_integral<typename Desc::type>
         {};
     }
@@ -852,7 +853,7 @@ namespace proto
     { using type = brigand::list<>; };
 
     template<class T>
-    struct get_arguments<T, void_t<typename T::arguments>>
+    struct get_arguments<T, meta::void_t<typename T::arguments>>
     { using type = typename T::arguments; };
 
     // TODO get_arguments_t -> get_arguments
@@ -863,7 +864,7 @@ namespace proto
     namespace detail
     {
         template<class Desc, class = void> struct is_reserializer_impl : std::false_type {};
-        template<class Desc> struct is_reserializer_impl<Desc, proto::void_<typename Desc::is_reserializer>>
+        template<class Desc> struct is_reserializer_impl<Desc, meta::void_t<typename Desc::is_reserializer>>
         : brigand::bool_<Desc::is_reserializer::value> {};
     }
     template<class Desc>
