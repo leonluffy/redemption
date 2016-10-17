@@ -70,7 +70,7 @@ struct Buffering3
 
         using count_special_pkt = brigand::count_if<
             brigand::append<typename Pkts::type_list...>,
-            brigand::call<has_special_pkt>
+            brigand::call<proto::v::is_lazy_value>
         >;
 
         using pkt_ptr_is_first_list = brigand::wrap<
@@ -144,7 +144,7 @@ struct Buffering3
         }
 
         template<class VarInfo, class Val>
-        std::enable_if_t<has_special_pkt<Val>::value>
+        std::enable_if_t<proto::v::is_lazy_value<Val>::value>
         serialize_special_pkt(VarInfo, Val const & val)
         {
             PROTO_TRACE(name(val) << " = ");
@@ -152,7 +152,7 @@ struct Buffering3
             --this->special_pkt_iterator;
             PROTO_TRACE("[" << static_cast<void const *>(*this->special_pkt_iterator) << "] ");
 
-            cifv(has_pkt_sz<Val>{}, val, [this](auto const & val){
+            cexpr::cifv(proto::v::has_next_pkts_sz<Val>{}, val, [this](auto const & val){
                 this->serialize_eval_sz<VarInfo, proto::dsl::next_pkts_sz>([this]{
                     auto const sz = this->buf - this->next_pkt_ptr_or_end<VarInfo>();
                     PROTO_TRACE(sz);
@@ -160,7 +160,7 @@ struct Buffering3
                 }, val);
             });
 
-            cifv(has_pkt_sz_with_self<Val>{}, val, [this](auto const & val){
+            cexpr::cifv(proto::v::has_current_pkts_sz<Val>{}, val, [this](auto const & val){
                 constexpr std::size_t ipacket = VarInfo::ipacket::value;
                 this->serialize_eval_sz<VarInfo, proto::dsl::current_pkts_sz>([this]{
                     auto const sz = this->buf - this->pkt_ptrs[ipacket];
@@ -169,7 +169,7 @@ struct Buffering3
                 }, val);
             });
 
-            cifv(has_pkt_data<Val>{}, val, [this](auto const & val){
+            cexpr::cifv(proto::v::is_reserializer<Val>{}, val, [this](auto const & val){
                 PROTO_TRACE("{ptr, " << this->buf - this->next_pkt_ptr_or_end<VarInfo>() << "}");
                 this->reserializer(
                     proto::buffer_category<desc_type_t<VarInfo>>{},
@@ -192,7 +192,7 @@ struct Buffering3
         }
 
         template<class VarInfo, class Val>
-        std::enable_if_t<!has_special_pkt<Val>::value>
+        std::enable_if_t<!proto::v::is_lazy_value<Val>::value>
         serialize_special_pkt(VarInfo, Val const &)
         {}
 
@@ -237,7 +237,7 @@ struct Buffering3
         template<class IsFirstPkt, class VarInfo, class Val>
         void serialize_without_special_pkt(IsFirstPkt is_first_pkt, VarInfo, Val const & val)
         {
-            using is_special_value = has_special_pkt<Val>;
+            using is_special_value = proto::v::is_lazy_value<Val>;
             print_if_not_special(is_special_value{}, val);
             if (is_first_pkt) {
                 this->pkt_ptrs[VarInfo::ipacket::value] = this->buf;

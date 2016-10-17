@@ -104,6 +104,7 @@ using is_buffer_delimiter = brigand::bool_<
 
 
 using proto::desc_type_t;
+using proto::value_type_t;
 
 namespace detail {
     template<class T>
@@ -128,23 +129,6 @@ using is_size_ = typename detail::is_size_impl<Sz>::type;
 template<class Sz>
 using is_limited_size = typename detail::is_limited_size_impl<Sz>::type;
 
-template<class Val>
-using has_pkt_sz = proto::has_next_pkts_sz<desc_type_t<Val>>;
-
-template<class Val>
-using has_pkt_sz_with_self = proto::has_current_pkts_sz<desc_type_t<Val>>;
-
-template<class Val>
-using has_pkt_sz_cat = proto::has_pkts_sz<desc_type_t<Val>>;
-
-template<class Val>
-using has_pkt_data = proto::is_reserializer<desc_type_t<Val>>;
-
-template<class Val>
-using has_special_pkt = brigand::bool_<
-    has_pkt_sz_cat<Val>{} || has_pkt_data<Val>{}
->;
-
 template<class Info>
 using keep_info_pkt_data_ptr = brigand::bool_<
     !Info::is_begin_buf && Info::enable_pkt_data && Info::is_begin_pkt
@@ -154,11 +138,11 @@ template<class Val, class Sz, class Sz2>
 using is_undeterministic_sizeof_special = brigand::bool_<
     !proto::is_static_buffer<desc_type_t<Val>>::value
     and (
-        (has_pkt_sz_with_self<Val>::value and !is_size_<Sz>::value)
+        (proto::v::has_current_pkts_sz<Val>::value and !is_size_<Sz>::value)
         or
-        (has_pkt_sz<Val>::value and !is_size_<Sz2>::value)
+        (proto::v::has_next_pkts_sz<Val>::value and !is_size_<Sz2>::value)
         or
-        (has_pkt_data<Val>::value)
+        (proto::v::is_reserializer<Val>::value)
     )
 >;
 
@@ -166,15 +150,15 @@ template<class Info>
 using keep_info_special_pkt_ptr = brigand::bool_<
     !Info::is_begin_buf && (
         (
-            has_pkt_sz_with_self<typename Info::val>::value and
+            proto::v::has_current_pkts_sz<typename Info::val>::value and
             !is_size_<typename Info::sz_self>::value
         )
         or
         (
-            has_pkt_sz<typename Info::val>::value and
+            proto::v::has_next_pkts_sz<typename Info::val>::value and
             !is_size_<typename Info::sz>::value
         )
-        or has_pkt_data<typename Info::val>::value
+        or proto::v::is_reserializer<typename Info::val>::value
     )
 >;
 
@@ -193,9 +177,9 @@ using is_pkt_sz_delimiter = brigand::bool_<
     and
     proto::is_limited_buffer<desc_type_t<Val>>::value
     and
-    ( ( has_pkt_sz_with_self<Val>::value and !is_size_<Sz>::value )
+    ( ( proto::v::has_current_pkts_sz<Val>::value and !is_size_<Sz>::value )
           or
-          ( has_pkt_sz<Val>::value and !is_size_<Sz2>::value )
+          ( proto::v::has_next_pkts_sz<Val>::value and !is_size_<Sz2>::value )
     )
 >;
 
@@ -732,22 +716,6 @@ using to_is_last_list = brigand::push_back<
   std::true_type
 >;
 
-template<class T, class F>
-void cifv(std::true_type, T && v, F && f)
-{ f(std::forward<T>(v)); }
-
-template<class T, class F>
-void cifv(std::false_type, T &&, F &&)
-{}
-
-template<class T, class F, class FElse>
-void cifv(std::true_type, T && v, F && f, FElse &&)
-{ f(std::forward<T>(v)); }
-
-template<class T, class F, class FElse>
-void cifv(std::false_type, T && v, F &&, FElse && f)
-{ f(std::forward<T>(v)); }
-
 #ifdef IN_IDE_PARSER
 # define PROTO_UNPACK
 #else
@@ -832,7 +800,7 @@ struct Buffering2
                     flat_values,
                     brigand::push_front<
                         brigand::pop_back<flat_values>,
-                        proto::var<void, proto::types::u8>
+                        proto::val<void, proto::types::u8>
                     >,
                     brigand::push_front<
                         brigand::pop_back<
@@ -918,7 +886,7 @@ struct Buffering2
                     brigand::list<
                         brigand::any<
                         typename Pkts::type_list,
-                        brigand::call<has_pkt_data>
+                        brigand::call<proto::v::is_reserializer>
                         >...
                     >
                 >,
@@ -1049,10 +1017,10 @@ struct Buffering2
         void serialize_spe(brigand::list<Info...>, Pkts const & ... pkts)
         {
             PROTO_UNPACK(
-                has_special_pkt<typename Info::val>{}
+                proto::v::is_lazy_value<typename Info::val>{}
                 ? this->serialize_spe_value(
                     Info{},
-                    has_special_pkt<typename Info::val>{},
+                    proto::v::is_lazy_value<typename Info::val>{},
                     larg<Info::ivar>(arg<Info::ipacket>(pkts...))
                 )
                 : void()
@@ -1078,24 +1046,24 @@ struct Buffering2
             using pkt_sz = typename Info::sz;
             using pkt_sz_self = typename Info::sz_self;
 
-            using is_pkt_sz = brigand::bool_<has_pkt_sz<Val>{} && !is_size_<pkt_sz>{}>;
-            using is_pkt_sz_self = brigand::bool_<has_pkt_sz_with_self<Val>{} && !is_size_<pkt_sz_self>{}>;
+            using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && !is_size_<pkt_sz>{}>;
+            using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && !is_size_<pkt_sz_self>{}>;
 
-            cifv(is_pkt_sz{}, val, [this](auto const & val){
+            cexpr::cifv(is_pkt_sz{}, val, [this](auto const & val){
                 PROTO_TRACE(this->next_size_or_0<Info>() << " [pkt_sz]");
                 this->serialize_eval_sz<Info, proto::dsl::next_pkts_sz>([this]{
                     return this->next_size_or_0<Info>();
                 }, val);
             });
 
-            cifv(is_pkt_sz_self{}, val, [this](auto const & val){
+            cexpr::cifv(is_pkt_sz_self{}, val, [this](auto const & val){
                 PROTO_TRACE(this->sizes[Info::ipacket] << " [pkt_sz_with_self]");
                 this->serialize_eval_sz<Info, proto::dsl::current_pkts_sz>([this]{
                     return this->sizes[Info::ipacket];
                 }, val);
             });
 
-            cifv(has_pkt_data<Val>{}, val, [this](auto const & val){
+            cexpr::cifv(proto::v::is_reserializer<Val>{}, val, [this](auto const & val){
                 PROTO_TRACE(" [reserialize]");
                 auto const & new_val = val.to_proto_value(proto::utils::make_parameters());
                 PROTO_ENABLE_IF_TRACE(Printer::print(new_val, 1));
@@ -1110,7 +1078,7 @@ struct Buffering2
 
                 using buf_cat = proto::buffer_category<desc_type_t<Val>>;
 
-                cifv(
+                cexpr::cifv(
                     brigand::bool_<Info::ipacket + 1 == sizeof...(Pkts)>{},
                     brigand::size_t<Info::ipacket>{},
                     [&](auto){
@@ -1234,13 +1202,13 @@ struct Buffering2
             PROTO_TRACE("i" << Info::i << ".b" << Info::ibuf << ".p" << Info::ipacket << ". ");
             PROTO_TRACE(name(val));
             PROTO_ENABLE_IF_TRACE(
-                cifv(brigand::bool_<!has_special_pkt<Val>{}>{}, val, [this](auto const & v) {
+                cexpr::cifv(brigand::bool_<!proto::v::is_lazy_value<Val>{}>{}, val, [this](auto const & v) {
                     PROTO_TRACE(" = ");
                     PROTO_ENABLE_IF_TRACE(this->print(v));
                 })
             );
             PROTO_ENABLE_IF_TRACE(
-                cifv(has_special_pkt<Val>{}, val, [](auto const &) {
+                cexpr::cifv(proto::v::is_lazy_value<Val>{}, val, [](auto const &) {
                     PROTO_TRACE(" [spe]");
                 })
             );
@@ -1250,13 +1218,13 @@ struct Buffering2
                 using is_size = is_size_<sizeof_packet>;
                 assert(std::size_t(this->psize - std::begin(this->sizes)) < this->sizes.size());
                 if (is_size{}) {
-                    cifv(is_size{}, sizeof_packet{}, [this](auto sz){
+                    cexpr::cifv(is_size{}, sizeof_packet{}, [this](auto sz){
                         PROTO_TRACE(" [*psz: " << sz << "] ");
                         *this->psize = sz;
                     });
                 }
                 else {
-                    cifv(
+                    cexpr::cifv(
                         brigand::bool_<Info::is_begin_buf>{},
                         brigand::size_t<Info::ibuf>{},
                         [this](auto){
@@ -1295,7 +1263,7 @@ struct Buffering2
             this->pre_serialize_value(info, val);
             this->serialize_type(
                 info,
-                has_special_pkt<Val>{},
+                proto::v::is_lazy_value<Val>{},
                 proto::buffer_category<desc_type_t<Info>>{},
                 val
             );
@@ -1315,7 +1283,7 @@ struct Buffering2
                 using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
                 using is_size = is_size_<sizeof_packet>;
                 using is_limited = brigand::bool_<!is_size{} && !is_view{}>;
-                cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
+                cexpr::cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
                     using i = decltype(ibuf);
                     auto const inc_sz = this->iov_base() - get<i::value>(this->buffer_tuple).buf;
                     PROTO_TRACE(" [*psz: +" << inc_sz << "]");
@@ -1396,13 +1364,13 @@ struct Buffering2
             using pkt_sz = typename Info::sz;
             using pkt_sz_self = typename Info::sz_self;
 
-            static_assert(has_pkt_sz<Val>{} && !is_size_<pkt_sz>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
-            static_assert(has_pkt_sz_with_self<Val>{} && !is_size_<pkt_sz_self>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
+            static_assert(proto::v::has_next_pkts_sz<Val>{} && !is_size_<pkt_sz>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
+            static_assert(proto::v::has_current_pkts_sz<Val>{} && !is_size_<pkt_sz_self>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
 
-            using is_pkt_sz = brigand::bool_<has_pkt_sz<Val>{} && is_size_<pkt_sz>{}>;
-            using is_pkt_sz_self = brigand::bool_<has_pkt_sz_with_self<Val>{} && is_size_<pkt_sz_self>{}>;
+            using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && is_size_<pkt_sz>{}>;
+            using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && is_size_<pkt_sz_self>{}>;
 
-            cifv(is_pkt_sz{}, val, [this](auto & val) {
+            cexpr::cifv(is_pkt_sz{}, val, [this](auto & val) {
                 PROTO_TRACE(" [eval_sz]");
                 this->serialize_type_reval_sz(
                     Info{}, val,
@@ -1410,7 +1378,7 @@ struct Buffering2
                     proto::dsl::next_pkts_sz{}
                 );
             });
-            cifv(is_pkt_sz_self{}, val, [this](auto & val) {
+            cexpr::cifv(is_pkt_sz_self{}, val, [this](auto & val) {
                 PROTO_TRACE(" [eval_sz_with_self]");
                 this->serialize_type_reval_sz(
                     Info{}, val,
@@ -1420,7 +1388,7 @@ struct Buffering2
             });
 
             using is_undeterministic = is_undeterministic_sizeof_special<Val, pkt_sz_self, pkt_sz>;
-            cifv(is_undeterministic{}, val, [this](auto &) {
+            cexpr::cifv(is_undeterministic{}, val, [this](auto &) {
                 PROTO_TRACE(" [undeterministic reserve]");
             });
 
@@ -1429,7 +1397,7 @@ struct Buffering2
                 !is_pkt_sz_self{} and
                 !is_undeterministic{}
             >;
-            cifv(is_reservable{}, val, [this](auto & val) {
+            cexpr::cifv(is_reservable{}, val, [this](auto & val) {
                 auto const sz = reserved_size(val);
                 PROTO_TRACE(" [reserved: " << sz << "]");
                 this->piov->iov_base = this->iov_base() + sz;

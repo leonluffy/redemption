@@ -57,10 +57,6 @@ namespace detail
     template<template<class, class, class> class F>
     bind<F, _1, _2, _3> get_call_impl(call_<F>, int);
 
-//     template<template<
-//       class, class, class, class, class, class, class, class> class F>
-//     bind<F, _1, _2, _3, _4, _5, _6, _7, _8> get_call_impl(call_<F>, int);
-
     template<class F>
     F get_call_impl(F, char);
 }
@@ -138,6 +134,34 @@ namespace detail
     >;
 }
 
+namespace cexpr
+{
+    template<class T, class F>
+    void cifv(std::true_type, T && v, F && f)
+    { f(std::forward<T>(v)); }
+
+    template<class T, class F>
+    void cifv(std::false_type, T &&, F &&)
+    {}
+
+    template<class T, class True, class False>
+    constexpr decltype(auto)
+    cifv(std::true_type, T && v, True && f, False &&)
+    { return f(std::forward<T>(v)); }
+
+    template<class T, class True, class False>
+    constexpr decltype(auto)
+    cifv(std::false_type, T && v, True &&, False && f)
+    { return f(std::forward<T>(v)); }
+
+    template<class True, class False>
+    constexpr True select(std::true_type, True && r, False &&)
+    { return std::forward<True>(r); }
+
+    template<class True, class False>
+    constexpr False select(std::false_type, True &&, False && r)
+    { return std::forward<False>(r); }
+}
 
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/bytes_t.hpp"
@@ -151,6 +175,23 @@ namespace detail
 
 namespace proto
 {
+    namespace meta
+    {
+        namespace detail
+        {
+            template<template<class...> class Tpl, class T>
+            struct is_layout_impl : std::false_type
+            {};
+
+            template<template<class...> class Tpl, class... Ts>
+            struct is_layout_impl<Tpl, Tpl<Ts...>> : std::true_type
+            {};
+        }
+        template<template<class...> class Tpl, class T>
+        using is_layout = typename detail::is_layout_impl<Tpl, T>::type;
+    }
+
+
     template<std::size_t N>
     using size_ = std::integral_constant<std::size_t, N>;
 
@@ -548,6 +589,9 @@ namespace proto
     using desc_type_t = typename T::desc_type;
 
     template<class T>
+    using value_type_t = typename T::value_type;
+
+    template<class T>
     using desc_or_t = get_or_t<desc_type_t, T>;
 
     template<class Deps, class Value, class Desc = desc_or_t<Value>>
@@ -668,24 +712,6 @@ namespace proto
 
     template<class T, class Desc>
     using is_enum_to_int = typename detail::is_enum_to_int<std::decay_t<T>, Desc>::type;
-
-
-    template<class T, class True, class False>
-    constexpr auto cifv(std::true_type, T && v, True && f, False &&)
-    { return f(std::forward<T>(v)); }
-
-    template<class T, class True, class False>
-    constexpr auto cifv(std::false_type, T && v, True &&, False && f)
-    { return f(std::forward<T>(v)); }
-
-    template<class True, class False>
-    constexpr True && select(std::true_type, True && r, False &&)
-    { return r; }
-
-    template<class True, class False>
-    constexpr False && select(std::false_type, True &&, False && r)
-    { return r; }
-
 
     // for more readable errors
     template<class Dep, class Desc, class T>
@@ -889,23 +915,42 @@ namespace proto
         template<> struct is_special_buf_sz_impl<dsl::current_pkts_sz> : std::true_type {};
     }
 
-    template<class ValOrDesc, class T>
+    template<class Val, class T>
     using has_argument_of = brigand::any<
-        get_arguments_t<ValOrDesc>,
+        get_arguments_t<Val>,
         brigand::bind<std::is_same, brigand::_1, brigand::pin<T>>
     >;
 
-    template<class ValOrDesc>
-    using has_next_pkts_sz = has_argument_of<ValOrDesc, dsl::next_pkts_sz>;
+    template<class Desc>
+    using has_next_pkts_sz = has_argument_of<Desc, dsl::next_pkts_sz>;
 
-    template<class ValOrDesc>
-    using has_current_pkts_sz = has_argument_of<ValOrDesc, dsl::current_pkts_sz>;
+    template<class Desc>
+    using has_current_pkts_sz = has_argument_of<Desc, dsl::current_pkts_sz>;
 
-    template<class ValOrDesc>
-    using has_pkts_sz = brigand::bool_<has_next_pkts_sz<ValOrDesc>{} or has_current_pkts_sz<ValOrDesc>{}>;
+    template<class Desc>
+    using has_pkts_sz = brigand::bool_<has_next_pkts_sz<Desc>{} or has_current_pkts_sz<Desc>{}>;
 
-    template<class ValOrDesc>
-    using is_lazy_value = brigand::bool_<is_reserializer<ValOrDesc>{} or has_pkts_sz<ValOrDesc>{}>;
+    template<class Desc>
+    using is_lazy_value = brigand::bool_<is_reserializer<Desc>{} or has_pkts_sz<Desc>{}>;
+
+    // alias on val<>
+    namespace v
+    {
+        template<class Val>
+        using has_next_pkts_sz = proto::has_next_pkts_sz<value_type_t<Val>>;
+
+        template<class Val>
+        using has_current_pkts_sz = proto::has_current_pkts_sz<value_type_t<Val>>;
+
+        template<class Val>
+        using has_pkts_sz = proto::has_pkts_sz<value_type_t<Val>>;
+
+        template<class Val>
+        using is_reserializer = proto::is_reserializer<desc_type_t<Val>>;
+
+        template<class Val>
+        using is_lazy_value = brigand::bool_<is_reserializer<Val>{} or has_pkts_sz<Val>{}>;
+    }
 
 
     // TODO deprecated
@@ -1122,26 +1167,31 @@ namespace proto
         { return {x...}; }
     }
 
-    template<class Deps, class... Ts>
+    template<class T>
+    using is_val = meta::is_layout<val, T>;
+
+    template<class Deps, class... Vals>
     struct packet
     {
-        using dependencies = get_dependencies<Deps>;
-        using type_list = brigand::list<Ts...>;
+        static_assert(brigand::all<brigand::list<Vals...>, brigand::call<is_val>>::value, "is not a proto::val");
 
-        inherits<Ts...> values;
+        using dependencies = get_dependencies<Deps>;
+        using type_list = brigand::list<Vals...>;
+
+        inherits<Vals...> values;
 
         template<class F>
         void apply_for_each(F f) const
         {
             (void)std::initializer_list<int>{
-                (void(f(static_cast<Ts const &>(this->values))), 1)...
+                (void(f(static_cast<Vals const &>(this->values))), 1)...
             };
         }
 
         template<class F>
         decltype(auto) apply(F f) const
         {
-            return f(static_cast<Ts const &>(this->values)...);
+            return f(static_cast<Vals const &>(this->values)...);
         }
     };
 
@@ -1197,7 +1247,7 @@ namespace proto
         sizeof_ static_reserialize(uint8_t *, T... args) const
         {
             auto cond = brigand::bool_<sizeof...(args) == 1>{};
-            select(cond, this->f, this->ff)(args...);
+            cexpr::select(cond, this->f, this->ff)(args...);
             return sizeof_{};
         }
 
