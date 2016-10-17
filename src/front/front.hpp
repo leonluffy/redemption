@@ -1793,6 +1793,212 @@ public:
         this->state = WAITING_FOR_LOGON_INFO;
     }
 
+
+        // Secure Settings Exchange
+        // ------------------------
+
+        // Secure Settings Exchange: Secure client data (such as the username,
+        // password and auto-reconnect cookie) is sent to the server using the Client
+        // Info PDU.
+
+        // Client                                                     Server
+        //    |------ Client Info PDU      ---------------------------> |
+
+    void waiting_for_logon_info()
+    {
+        LOG(LOG_INFO, "Front::incoming::Secure Settings Exchange");
+
+        constexpr size_t array_size = AUTOSIZE;
+        uint8_t array[array_size];
+        uint8_t * end = array;
+        X224::RecvFactory fx224(this->trans, &end, array_size);
+        InStream stream(array, end - array);
+        X224::DT_TPDU_Recv x224(stream);
+
+        int mcs_type = MCS::peekPerEncodedMCSType(x224.payload);
+        if (mcs_type == MCS::MCSPDU_DisconnectProviderUltimatum) {
+            LOG(LOG_INFO, "Front::incoming::DisconnectProviderUltimatum received");
+            MCS::DisconnectProviderUltimatum_Recv mcs(x224.payload, MCS::PER_ENCODING);
+            const char * reason = MCS::get_reason(mcs.reason);
+            LOG(LOG_INFO, "Front DisconnectProviderUltimatum: reason=%s [%d]", reason, mcs.reason);
+            this->is_client_disconnected = true;
+            throw Error(ERR_MCS_APPID_IS_MCS_DPUM);
+        }
+
+        MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
+        SEC::SecSpecialPacket_Recv sec(mcs.payload, this->decrypt, this->encryptionLevel);
+        if (this->verbose & 128) {
+            LOG(LOG_INFO, "sec decrypted payload:");
+            hexdump_d(sec.payload.get_data(), sec.payload.get_capacity());
+        }
+
+        if (!(sec.flags & SEC::SEC_INFO_PKT)) {
+            throw Error(ERR_SEC_EXPECTED_LOGON_INFO);
+        }
+
+        /* this is the first test that the decrypt is working */
+        this->client_info.process_logon_info( sec.payload
+                                            , ini.get<cfg::client::ignore_logon_password>()
+                                            , ini.get<cfg::client::performance_flags_default>()
+                                            , ini.get<cfg::client::performance_flags_force_present>()
+                                            , ini.get<cfg::client::performance_flags_force_not_present>()
+                                            , ini.get<cfg::debug::password>()
+                                            , (this->verbose & 128)
+                                            );
+
+        if (sec.payload.in_remain()) {
+            LOG(LOG_ERR, "Front::incoming::process_logon all data should have been consumed %zu bytes trailing",
+                sec.payload.in_remain());
+        }
+
+        this->keymap.init_layout(this->client_info.keylayout);
+        LOG(LOG_INFO, "Front Keyboard Layout = 0x%x", this->client_info.keylayout);
+        this->ini.set_acl<cfg::client::keyboard_layout>(this->client_info.keylayout);
+        if (this->client_info.is_mce) {
+            if (this->verbose & 2) {
+                LOG(LOG_INFO, "Front::incoming::licencing client_info.is_mce");
+                LOG(LOG_INFO, "Front::incoming::licencing send_media_lic_response");
+            }
+
+            this->send_data_indication(
+                GCC::MCS_GLOBAL_CHANNEL,
+                [this](StreamSize<24>, OutStream & sec_header) {
+                    /* mce */
+                    /* some compilers need unsigned char to avoid warnings */
+                    uint8_t lic3[] = {
+                        0xff, 0x03, 0x10, 0x00,
+                        0x07, 0x00, 0x00, 0x00,
+                        0x02, 0x00, 0x00, 0x00,
+                        0xf3, 0x99, 0x00, 0x00
+                    };
+                    static_assert(sizeof(lic3) == 16, "");
+
+                    SEC::Sec_Send sec(
+                        sec_header, lic3, sizeof(lic3),
+                        SEC::SEC_LICENSE_PKT | 0x00100200, this->encrypt, 0
+                    );
+                    (void)sec;
+
+                    sec_header.out_copy_bytes(lic3, sizeof(lic3));
+
+                    if ((this->verbose & (128 | 2)) == (128 | 2)) {
+                        LOG(LOG_INFO, "Sec clear payload to send:");
+                        hexdump_d(lic3, sizeof(lic3));
+                    }
+                }
+            );
+
+            // proceed with capabilities exchange
+
+            // Capabilities Exchange
+            // ---------------------
+
+            // Capabilities Negotiation: The server sends the set of capabilities it
+            // supports to the client in a Demand Active PDU. The client responds with its
+            // capabilities by sending a Confirm Active PDU.
+
+            // Client                                                     Server
+            //    | <------- Demand Active PDU ---------------------------- |
+            //    |--------- Confirm Active PDU --------------------------> |
+
+            if (this->verbose & 1) {
+                LOG(LOG_INFO, "Front::incoming::send_demand_active");
+            }
+            this->send_demand_active();
+            this->send_monitor_layout();
+
+            LOG(LOG_INFO, "Front::incoming::ACTIVATED (mce)");
+            this->state = ACTIVATE_AND_PROCESS_DATA;
+        }
+        else {
+            if (this->verbose & 16) {
+                LOG(LOG_INFO, "Front::incoming::licencing not client_info.is_mce");
+                LOG(LOG_INFO, "Front::incoming::licencing send_lic_initial");
+            }
+
+            this->send_data_indication(
+                GCC::MCS_GLOBAL_CHANNEL,
+                [this](StreamSize<314+8+4>, OutStream & sec_header) {
+                    /* some compilers need unsigned char to avoid warnings */
+                    static const uint8_t lic1[] = {
+                        // SEC_RANDOM ?
+                        0x7b, 0x3c, 0x31, 0xa6, 0xae, 0xe8, 0x74, 0xf6,
+                        0xb4, 0xa5, 0x03, 0x90, 0xe7, 0xc2, 0xc7, 0x39,
+                        0xba, 0x53, 0x1c, 0x30, 0x54, 0x6e, 0x90, 0x05,
+                        0xd0, 0x05, 0xce, 0x44, 0x18, 0x91, 0x83, 0x81,
+                        //
+                        0x00, 0x00, 0x04, 0x00, 0x2c, 0x00, 0x00, 0x00,
+                        0x4d, 0x00, 0x69, 0x00, 0x63, 0x00, 0x72, 0x00,
+                        0x6f, 0x00, 0x73, 0x00, 0x6f, 0x00, 0x66, 0x00,
+                        0x74, 0x00, 0x20, 0x00, 0x43, 0x00, 0x6f, 0x00,
+                        0x72, 0x00, 0x70, 0x00, 0x6f, 0x00, 0x72, 0x00,
+                        0x61, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6f, 0x00,
+                        0x6e, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+                        0x32, 0x00, 0x33, 0x00, 0x36, 0x00, 0x00, 0x00,
+                        0x0d, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
+                        0x03, 0x00, 0xb8, 0x00, 0x01, 0x00, 0x00, 0x00,
+                        0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                        0x06, 0x00, 0x5c, 0x00, 0x52, 0x53, 0x41, 0x31,
+                        0x48, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+                        0x3f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+                        0x01, 0xc7, 0xc9, 0xf7, 0x8e, 0x5a, 0x38, 0xe4,
+                        0x29, 0xc3, 0x00, 0x95, 0x2d, 0xdd, 0x4c, 0x3e,
+                        0x50, 0x45, 0x0b, 0x0d, 0x9e, 0x2a, 0x5d, 0x18,
+                        0x63, 0x64, 0xc4, 0x2c, 0xf7, 0x8f, 0x29, 0xd5,
+                        0x3f, 0xc5, 0x35, 0x22, 0x34, 0xff, 0xad, 0x3a,
+                        0xe6, 0xe3, 0x95, 0x06, 0xae, 0x55, 0x82, 0xe3,
+                        0xc8, 0xc7, 0xb4, 0xa8, 0x47, 0xc8, 0x50, 0x71,
+                        0x74, 0x29, 0x53, 0x89, 0x6d, 0x9c, 0xed, 0x70,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x08, 0x00, 0x48, 0x00, 0xa8, 0xf4, 0x31, 0xb9,
+                        0xab, 0x4b, 0xe6, 0xb4, 0xf4, 0x39, 0x89, 0xd6,
+                        0xb1, 0xda, 0xf6, 0x1e, 0xec, 0xb1, 0xf0, 0x54,
+                        0x3b, 0x5e, 0x3e, 0x6a, 0x71, 0xb4, 0xf7, 0x75,
+                        0xc8, 0x16, 0x2f, 0x24, 0x00, 0xde, 0xe9, 0x82,
+                        0x99, 0x5f, 0x33, 0x0b, 0xa9, 0xa6, 0x94, 0xaf,
+                        0xcb, 0x11, 0xc3, 0xf2, 0xdb, 0x09, 0x42, 0x68,
+                        0x29, 0x56, 0x58, 0x01, 0x56, 0xdb, 0x59, 0x03,
+                        0x69, 0xdb, 0x7d, 0x37, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                        0x0e, 0x00, 0x0e, 0x00, 0x6d, 0x69, 0x63, 0x72,
+                        0x6f, 0x73, 0x6f, 0x66, 0x74, 0x2e, 0x63, 0x6f,
+                        0x6d, 0x00
+                    };
+                    static_assert(sizeof(lic1) == 314, "");
+
+                    OutReservedStreamHelper hstream(sec_header.get_data(), 8, sec_header.get_capacity());
+                    OutStream & stream = hstream.get_data_stream();
+
+                    stream.out_uint8(LIC::LICENSE_REQUEST);
+                    stream.out_uint8(2); // preamble flags : PREAMBLE_VERSION_2_0 (RDP 4.0)
+                    stream.out_uint16_le(318); // wMsgSize = 318 including preamble
+
+                    stream.out_copy_bytes(lic1, sizeof(lic1));
+
+                    if ((this->verbose & (128 | 2)) == (128 | 2)) {
+                        LOG(LOG_INFO, "Sec clear payload to send:");
+                        hexdump_d(stream.get_data(), stream.get_offset());
+                    }
+
+                    StaticOutStream<8> tmp_sec_header;
+                    SEC::Sec_Send sec(
+                        tmp_sec_header, stream.get_data(), stream.get_offset(),
+                        SEC::SEC_LICENSE_PKT, this->encrypt, 0
+                    );
+                    (void)sec;
+
+                    auto packet = hstream.copy_to_head(tmp_sec_header);
+                    sec_header = OutStream(packet.data(), packet.size(), packet.size());
+                }
+            );
+
+            if (this->verbose & 2) {
+                LOG(LOG_INFO, "Front::incoming::waiting for answer to lic_initial");
+            }
+            this->state = WAITING_FOR_ANSWER_TO_LICENCE;
+        }
+    }
+
     void incoming(Callback & cb, time_t now)
     {
         switch(this->timeout.check(now)) {
@@ -1826,207 +2032,8 @@ public:
         break;
 
         case WAITING_FOR_LOGON_INFO:
-        // Secure Settings Exchange
-        // ------------------------
-
-        // Secure Settings Exchange: Secure client data (such as the username,
-        // password and auto-reconnect cookie) is sent to the server using the Client
-        // Info PDU.
-
-        // Client                                                     Server
-        //    |------ Client Info PDU      ---------------------------> |
         {
-            LOG(LOG_INFO, "Front::incoming::Secure Settings Exchange");
-
-            constexpr size_t array_size = AUTOSIZE;
-            uint8_t array[array_size];
-            uint8_t * end = array;
-            X224::RecvFactory fx224(this->trans, &end, array_size);
-            InStream stream(array, end - array);
-            X224::DT_TPDU_Recv x224(stream);
-
-            int mcs_type = MCS::peekPerEncodedMCSType(x224.payload);
-            if (mcs_type == MCS::MCSPDU_DisconnectProviderUltimatum) {
-                LOG(LOG_INFO, "Front::incoming::DisconnectProviderUltimatum received");
-                MCS::DisconnectProviderUltimatum_Recv mcs(x224.payload, MCS::PER_ENCODING);
-                const char * reason = MCS::get_reason(mcs.reason);
-                LOG(LOG_INFO, "Front DisconnectProviderUltimatum: reason=%s [%d]", reason, mcs.reason);
-                this->is_client_disconnected = true;
-                throw Error(ERR_MCS_APPID_IS_MCS_DPUM);
-            }
-
-            MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
-            SEC::SecSpecialPacket_Recv sec(mcs.payload, this->decrypt, this->encryptionLevel);
-            if (this->verbose & 128) {
-                LOG(LOG_INFO, "sec decrypted payload:");
-                hexdump_d(sec.payload.get_data(), sec.payload.get_capacity());
-            }
-
-            if (!(sec.flags & SEC::SEC_INFO_PKT)) {
-                throw Error(ERR_SEC_EXPECTED_LOGON_INFO);
-            }
-
-            /* this is the first test that the decrypt is working */
-            this->client_info.process_logon_info( sec.payload
-                                                , ini.get<cfg::client::ignore_logon_password>()
-                                                , ini.get<cfg::client::performance_flags_default>()
-                                                , ini.get<cfg::client::performance_flags_force_present>()
-                                                , ini.get<cfg::client::performance_flags_force_not_present>()
-                                                , ini.get<cfg::debug::password>()
-                                                , (this->verbose & 128)
-                                                );
-
-            if (sec.payload.in_remain()) {
-                LOG(LOG_ERR, "Front::incoming::process_logon all data should have been consumed %zu bytes trailing",
-                    sec.payload.in_remain());
-            }
-
-            this->keymap.init_layout(this->client_info.keylayout);
-            LOG(LOG_INFO, "Front Keyboard Layout = 0x%x", this->client_info.keylayout);
-            this->ini.set_acl<cfg::client::keyboard_layout>(this->client_info.keylayout);
-            if (this->client_info.is_mce) {
-                if (this->verbose & 2) {
-                    LOG(LOG_INFO, "Front::incoming::licencing client_info.is_mce");
-                    LOG(LOG_INFO, "Front::incoming::licencing send_media_lic_response");
-                }
-
-                this->send_data_indication(
-                    GCC::MCS_GLOBAL_CHANNEL,
-                    [this](StreamSize<24>, OutStream & sec_header) {
-                        /* mce */
-                        /* some compilers need unsigned char to avoid warnings */
-                        uint8_t lic3[] = {
-                            0xff, 0x03, 0x10, 0x00,
-                            0x07, 0x00, 0x00, 0x00,
-                            0x02, 0x00, 0x00, 0x00,
-                            0xf3, 0x99, 0x00, 0x00
-                        };
-                        static_assert(sizeof(lic3) == 16, "");
-
-                        SEC::Sec_Send sec(
-                            sec_header, lic3, sizeof(lic3),
-                            SEC::SEC_LICENSE_PKT | 0x00100200, this->encrypt, 0
-                        );
-                        (void)sec;
-
-                        sec_header.out_copy_bytes(lic3, sizeof(lic3));
-
-                        if ((this->verbose & (128 | 2)) == (128 | 2)) {
-                            LOG(LOG_INFO, "Sec clear payload to send:");
-                            hexdump_d(lic3, sizeof(lic3));
-                        }
-                    }
-                );
-
-                // proceed with capabilities exchange
-
-                // Capabilities Exchange
-                // ---------------------
-
-                // Capabilities Negotiation: The server sends the set of capabilities it
-                // supports to the client in a Demand Active PDU. The client responds with its
-                // capabilities by sending a Confirm Active PDU.
-
-                // Client                                                     Server
-                //    | <------- Demand Active PDU ---------------------------- |
-                //    |--------- Confirm Active PDU --------------------------> |
-
-                if (this->verbose & 1) {
-                    LOG(LOG_INFO, "Front::incoming::send_demand_active");
-                }
-                this->send_demand_active();
-                this->send_monitor_layout();
-
-                LOG(LOG_INFO, "Front::incoming::ACTIVATED (mce)");
-                this->state = ACTIVATE_AND_PROCESS_DATA;
-            }
-            else {
-                if (this->verbose & 16) {
-                    LOG(LOG_INFO, "Front::incoming::licencing not client_info.is_mce");
-                    LOG(LOG_INFO, "Front::incoming::licencing send_lic_initial");
-                }
-
-                this->send_data_indication(
-                    GCC::MCS_GLOBAL_CHANNEL,
-                    [this](StreamSize<314+8+4>, OutStream & sec_header) {
-                        /* some compilers need unsigned char to avoid warnings */
-                        static const uint8_t lic1[] = {
-                            // SEC_RANDOM ?
-                            0x7b, 0x3c, 0x31, 0xa6, 0xae, 0xe8, 0x74, 0xf6,
-                            0xb4, 0xa5, 0x03, 0x90, 0xe7, 0xc2, 0xc7, 0x39,
-                            0xba, 0x53, 0x1c, 0x30, 0x54, 0x6e, 0x90, 0x05,
-                            0xd0, 0x05, 0xce, 0x44, 0x18, 0x91, 0x83, 0x81,
-                            //
-                            0x00, 0x00, 0x04, 0x00, 0x2c, 0x00, 0x00, 0x00,
-                            0x4d, 0x00, 0x69, 0x00, 0x63, 0x00, 0x72, 0x00,
-                            0x6f, 0x00, 0x73, 0x00, 0x6f, 0x00, 0x66, 0x00,
-                            0x74, 0x00, 0x20, 0x00, 0x43, 0x00, 0x6f, 0x00,
-                            0x72, 0x00, 0x70, 0x00, 0x6f, 0x00, 0x72, 0x00,
-                            0x61, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6f, 0x00,
-                            0x6e, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
-                            0x32, 0x00, 0x33, 0x00, 0x36, 0x00, 0x00, 0x00,
-                            0x0d, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x03, 0x00, 0xb8, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x06, 0x00, 0x5c, 0x00, 0x52, 0x53, 0x41, 0x31,
-                            0x48, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
-                            0x3f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
-                            0x01, 0xc7, 0xc9, 0xf7, 0x8e, 0x5a, 0x38, 0xe4,
-                            0x29, 0xc3, 0x00, 0x95, 0x2d, 0xdd, 0x4c, 0x3e,
-                            0x50, 0x45, 0x0b, 0x0d, 0x9e, 0x2a, 0x5d, 0x18,
-                            0x63, 0x64, 0xc4, 0x2c, 0xf7, 0x8f, 0x29, 0xd5,
-                            0x3f, 0xc5, 0x35, 0x22, 0x34, 0xff, 0xad, 0x3a,
-                            0xe6, 0xe3, 0x95, 0x06, 0xae, 0x55, 0x82, 0xe3,
-                            0xc8, 0xc7, 0xb4, 0xa8, 0x47, 0xc8, 0x50, 0x71,
-                            0x74, 0x29, 0x53, 0x89, 0x6d, 0x9c, 0xed, 0x70,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                            0x08, 0x00, 0x48, 0x00, 0xa8, 0xf4, 0x31, 0xb9,
-                            0xab, 0x4b, 0xe6, 0xb4, 0xf4, 0x39, 0x89, 0xd6,
-                            0xb1, 0xda, 0xf6, 0x1e, 0xec, 0xb1, 0xf0, 0x54,
-                            0x3b, 0x5e, 0x3e, 0x6a, 0x71, 0xb4, 0xf7, 0x75,
-                            0xc8, 0x16, 0x2f, 0x24, 0x00, 0xde, 0xe9, 0x82,
-                            0x99, 0x5f, 0x33, 0x0b, 0xa9, 0xa6, 0x94, 0xaf,
-                            0xcb, 0x11, 0xc3, 0xf2, 0xdb, 0x09, 0x42, 0x68,
-                            0x29, 0x56, 0x58, 0x01, 0x56, 0xdb, 0x59, 0x03,
-                            0x69, 0xdb, 0x7d, 0x37, 0x00, 0x00, 0x00, 0x00,
-                            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                            0x0e, 0x00, 0x0e, 0x00, 0x6d, 0x69, 0x63, 0x72,
-                            0x6f, 0x73, 0x6f, 0x66, 0x74, 0x2e, 0x63, 0x6f,
-                            0x6d, 0x00
-                        };
-                        static_assert(sizeof(lic1) == 314, "");
-
-                        OutReservedStreamHelper hstream(sec_header.get_data(), 8, sec_header.get_capacity());
-                        OutStream & stream = hstream.get_data_stream();
-
-                        stream.out_uint8(LIC::LICENSE_REQUEST);
-                        stream.out_uint8(2); // preamble flags : PREAMBLE_VERSION_2_0 (RDP 4.0)
-                        stream.out_uint16_le(318); // wMsgSize = 318 including preamble
-
-                        stream.out_copy_bytes(lic1, sizeof(lic1));
-
-                        if ((this->verbose & (128 | 2)) == (128 | 2)) {
-                            LOG(LOG_INFO, "Sec clear payload to send:");
-                            hexdump_d(stream.get_data(), stream.get_offset());
-                        }
-
-                        StaticOutStream<8> tmp_sec_header;
-                        SEC::Sec_Send sec(
-                            tmp_sec_header, stream.get_data(), stream.get_offset(),
-                            SEC::SEC_LICENSE_PKT, this->encrypt, 0
-                        );
-                        (void)sec;
-
-                        auto packet = hstream.copy_to_head(tmp_sec_header);
-                        sec_header = OutStream(packet.data(), packet.size(), packet.size());
-                    }
-                );
-
-                if (this->verbose & 2) {
-                    LOG(LOG_INFO, "Front::incoming::waiting for answer to lic_initial");
-                }
-                this->state = WAITING_FOR_ANSWER_TO_LICENCE;
-            }
+            this->waiting_for_logon_info();
         }
         break;
 
