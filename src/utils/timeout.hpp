@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <sys/time.h>
+
 class Timeout {
     time_t timeout;
 
