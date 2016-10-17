@@ -26,6 +26,21 @@ namespace proto_buffering3 {
 
 using namespace proto_buffering2;
 
+template<class IPacket, class IVar, class DescType>
+struct var_info {
+    using ipacket = IPacket;
+    using ivar = IVar;
+    using desc_type = DescType;
+};
+
+template<class L>
+using sizeof_packet = brigand::fold<
+    brigand::transform<L, brigand::call<proto::sizeof_>>,
+    static_size<0>,
+    brigand::call<add_size>
+>;
+
+
 template<class Policy>
 struct Buffering3
 {

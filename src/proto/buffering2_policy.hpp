@@ -151,13 +151,6 @@ using mk_seq2 = brigand::range<std::size_t, 0, n::value>;
 template<class T, class Size>
 using mk_filled_list = brigand::filled_list<T, Size::value>;
 
-template<class IPacket, class IVar, class DescType>
-struct var_info {
-    using ipacket = IPacket;
-    using ivar = IVar;
-    using desc_type = DescType;
-};
-
 template<
     class I,
     class Val,
@@ -228,79 +221,11 @@ namespace lazy {
 template<class i1, class i2>
 using add_size = typename lazy::add_size_impl<i1, i2>::type;
 
-template<class L>
-using sizeof_packet = brigand::fold<
-    brigand::transform<L, brigand::call<proto::sizeof_>>,
-    static_size<0>,
-    brigand::call<add_size>
->;
-
-
-namespace lazy {
-    template<class, class>
-    struct sizeof_packet_add2_impl
-    { using type = proto::dyn_size; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::static_size<n1>, proto::static_size<n2>>
-    { using type = proto::static_size<n1+n2>; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::limited_size<n2>>
-    { using type = proto::limited_size<n1+n2>; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::static_size<n1>, proto::limited_size<n2>>
-    { using type = proto::limited_size<n1+n2>; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::static_size<n2>>
-    { using type = proto::limited_size<n1+n2>; };
-}
 template<class i1, class i2>
-using sizeof_packet_add2 = typename lazy::sizeof_packet_add2_impl<i1, i2>::type;
+using sizeof_packet_add2 = proto::sizeof_packet_add<i1, i2>;
 
 template<class L>
-using sizeof_packet2 = brigand::fold<
-    brigand::transform<L, brigand::call<proto::sizeof_>>,
-    proto::static_size<0>,
-    brigand::call<sizeof_packet_add2>
->;
-
-namespace detail {
-    template<class Sz>
-    struct limited_to_dyn_impl
-    { using type = Sz; };
-
-    template<std::size_t n>
-    struct limited_to_dyn_impl<proto::limited_size<n>>
-    { using type = proto::dyn_size; };
-}
-
-template<class Sz>
-using limited_to_dyn = typename detail::limited_to_dyn_impl<Sz>::type;
-
-namespace detail {
-    template<class T>
-    struct limited_size_to_dyn_size
-    { using type = T; };
-
-    template<std::size_t n>
-    struct limited_size_to_dyn_size<proto::limited_size<n>>
-    { using type = proto::dyn_size; };
-}
-template<class T>
-using limited_size_to_dyn_size = typename detail::limited_size_to_dyn_size<T>::type;
-
-template<class L>
-using sizeof_packet_with_limited_size_to_dyn_size = brigand::fold<
-    brigand::transform<
-        brigand::transform<L, brigand::call<proto::sizeof_>>,
-        brigand::call<limited_size_to_dyn_size>
-    >,
-    static_size<0>,
-    brigand::call<add_size>
->;
+using sizeof_packet2 = proto::sizeof_packet<L>;
 
 namespace lazy {
     template<class L, class Add>
@@ -703,7 +628,7 @@ struct Buffering2
         using accu_sizeof_by_packet = accu_add_size_list<
             brigand::transform<
                 sizeof_by_packet,
-                brigand::call<limited_to_dyn>
+                brigand::call<proto::limited_size_to_dyn_size>
             >
         >;
         // [ size_<n> | dyn_size ... ]
