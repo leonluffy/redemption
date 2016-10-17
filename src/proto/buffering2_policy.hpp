@@ -96,10 +96,10 @@ auto const & larg(L const & l)
 { return l.apply([](auto const & ... v) PROTO_DECLTYPE_AUTO_RETURN(arg<i>(v...))); }
 
 
-template<class T>
+template<class DescOrVal>
 using is_buffer_delimiter = brigand::bool_<
-    proto::is_view_buffer<T>::value or
-    (proto::is_limited_buffer<T>::value and proto::has_special_sz<T>::value)
+    proto::is_view_buffer<DescOrVal>::value or
+    (proto::is_limited_buffer<DescOrVal>::value and proto::has_pkts_sz<DescOrVal>::value)
 >;
 
 

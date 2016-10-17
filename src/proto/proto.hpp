@@ -801,32 +801,18 @@ namespace proto
 
     namespace detail
     {
-        template<class T, class = void> struct is_reserializer_impl : std::false_type {};
-        template<class T> struct is_reserializer_impl<T, proto::void_<typename T::is_reserializer>>
-        : brigand::bool_<T::is_reserializer::value> {};
+        template<class Desc, class = void> struct is_reserializer_impl : std::false_type {};
+        template<class Desc> struct is_reserializer_impl<Desc, proto::void_<typename Desc::is_reserializer>>
+        : brigand::bool_<Desc::is_reserializer::value> {};
     }
-    template<class T>
-    using is_reserializer = typename detail::is_reserializer_impl<T>::type;
-
-    namespace detail
-    {
-        template<class T> struct is_special_value_impl : std::false_type {};
-    }
-
-    template<class T>
-    using is_special_value = brigand::bool_<(is_reserializer<T>::value or (
-        brigand::any<
-            get_arguments_t<T>,
-            brigand::call<detail::is_special_value_impl>
-        >::value
-    ))>;
+    template<class Desc>
+    using is_reserializer = typename detail::is_reserializer_impl<Desc>::type;
 
 
     namespace dsl
     {
         struct current_pkts_sz {};
         struct next_pkts_sz {};
-        struct next_pkts_data {};
     }
 
     template<class Sp, class Desc>
@@ -874,35 +860,51 @@ namespace proto
     template<class Desc>
     using sz_with_self = special<dsl::current_pkts_sz, Desc>;
 
-    // TODO Deps, Desc
-    template<class Desc>
-    using data = special<dsl::next_pkts_data, Desc>;
-
     namespace types {
         using ::proto::dsl::next_pkts_sz;
         using ::proto::dsl::current_pkts_sz;
-        using ::proto::dsl::next_pkts_data;
     }
+
+    namespace detail
+    {
+        template<class T> struct is_special_value_impl : std::false_type {};
+    }
+
+    template<class T>
+    using is_special_value = brigand::bool_<(is_reserializer<T>::value or (
+        brigand::any<
+            get_arguments_t<T>,
+            brigand::call<detail::is_special_value_impl>
+        >::value
+    ))>;
 
     namespace detail
     {
         template<> struct is_special_value_impl<dsl::current_pkts_sz> : std::true_type {};
         template<> struct is_special_value_impl<dsl::next_pkts_sz> : std::true_type {};
-        template<> struct is_special_value_impl<dsl::next_pkts_data> : std::true_type {};
 
         template<class T> struct is_special_buf_sz_impl : std::false_type {};
         template<> struct is_special_buf_sz_impl<dsl::next_pkts_sz> : std::true_type {};
         template<> struct is_special_buf_sz_impl<dsl::current_pkts_sz> : std::true_type {};
-
-        template<class T> struct is_special_buf_data_impl : std::false_type {};
-        template<> struct is_special_buf_data_impl<dsl::next_pkts_data> : std::true_type {};
     }
 
-    template<class T>
-    using has_special_sz = brigand::any<
-        get_arguments_t<T>,
-        brigand::call<detail::is_special_buf_sz_impl>
+    template<class ValOrDesc, class T>
+    using has_argument_of = brigand::any<
+        get_arguments_t<ValOrDesc>,
+        brigand::bind<std::is_same, brigand::_1, brigand::pin<T>>
     >;
+
+    template<class ValOrDesc>
+    using has_next_pkts_sz = has_argument_of<ValOrDesc, dsl::next_pkts_sz>;
+
+    template<class ValOrDesc>
+    using has_current_pkts_sz = has_argument_of<ValOrDesc, dsl::current_pkts_sz>;
+
+    template<class ValOrDesc>
+    using has_pkts_sz = brigand::bool_<has_next_pkts_sz<ValOrDesc>{} or has_current_pkts_sz<ValOrDesc>{}>;
+
+    template<class ValOrDesc>
+    using is_lazy_value = brigand::bool_<is_reserializer<ValOrDesc>{} or has_pkts_sz<ValOrDesc>{}>;
 
 
     // TODO deprecated
@@ -967,7 +969,7 @@ namespace proto
         template<class... V>
         constexpr
         std::conditional_t<
-            brigand::any<brigand::list<has_special_sz<V>...>>::value,
+            brigand::any<brigand::list<has_pkts_sz<V>...>>::value,
             val<Deps, lazy_creator<Deps, Desc, V...>, lazy_creator<Deps, Desc, V...>>,
             val<Deps, Desc>
         >
@@ -1876,9 +1878,9 @@ namespace proto
                     desc_type_t<proto_val_else>
                 >;
 
-                static_assert(!is_special_value<decltype(cond.to_proto_value(params))>::value, "unimplemented special value with if_else");
-                static_assert(!is_special_value<decltype(value)>::value, "unimplemented special value with if_else");
-                static_assert(!is_special_value<decltype(value_else)>::value, "unimplemented special value with if_else");
+                static_assert(!is_lazy_value<decltype(cond.to_proto_value(params))>::value, "unimplemented special value with if_else");
+                static_assert(!is_lazy_value<decltype(value)>::value, "unimplemented special value with if_else");
+                static_assert(!is_lazy_value<decltype(value_else)>::value, "unimplemented special value with if_else");
 
                 return to_proto_value_(
                     typename is_same::type{},
@@ -2030,8 +2032,8 @@ namespace proto
         private:
             template<class DescCond, class Desc>
             constexpr std::enable_if_t<
-                !proto::has_special_sz<Desc>::value and
-                !proto::has_special_sz<DescCond>::value,
+                !proto::has_pkts_sz<Desc>::value and
+                !proto::has_pkts_sz<DescCond>::value,
                 proto::val<dependencies, only_if_true<Desc>>
             >
             to_proto_value_(DescCond const & cond, Desc && value) const
@@ -2041,13 +2043,13 @@ namespace proto
 
             template<class DescCond, class Desc>
             constexpr std::enable_if_t<
-                proto::has_special_sz<Desc>::value or
-                proto::has_special_sz<DescCond>::value,
+                proto::has_pkts_sz<Desc>::value or
+                proto::has_pkts_sz<DescCond>::value,
                 proto::val<dependencies, lazy_only_if_true<Desc>, lazy_only_if_true<Desc>>
             >
             to_proto_value_(DescCond cond, Desc && value) const
             {
-                static_assert(!proto::has_special_sz<DescCond>::value, "unimplemented");
+                static_assert(!proto::has_pkts_sz<DescCond>::value, "unimplemented");
                 return {bool(cond.val), std::move(value)};
             }
         };
