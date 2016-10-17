@@ -108,7 +108,7 @@ struct ModRDPParamsConfig
                       , std::string name
                       )
     : param(param)
-    , default_value(default_value)
+    , default_value(false)
     , cmd(cmd)
     , descrpt(descrpt)
     , name(name)
@@ -526,36 +526,42 @@ public:
     virtual void draw(const RDPOpaqueRect & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPOpaqueRect color=" << int(cmd.color) << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPScrBlt & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
-            std::cout << "server >> RDPScrBlt " << std::endl;
+            std::cout << "server >> RDPScrBlt rop=" << int(cmd.rop) <<  std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPMemBlt & cmd, const Rect & clip, const Bitmap & bitmap) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
-            std::cout << "server >> RDPMemBlt " << std::endl;
+            std::cout << "server >> RDPMemBlt rop=" << int(cmd.rop) << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPLineTo & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPLineTo " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPPatBlt & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
-            std::cout << "server >> RDPPatBlt " << std::endl;
+            std::cout << "server >> RDPPatBlt rop=" << int(cmd.rop) << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPMem3Blt & cmd, const Rect & clip, const Bitmap & bitmap) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
-            std::cout << "server >> RDPMem3Blt " << std::endl;
+            std::cout << "server >> RDPMem3Blt rop=" << int(cmd.rop) << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
@@ -567,67 +573,78 @@ public:
 
     virtual void draw(const RDPDestBlt & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
-            std::cout << "server >> RDPDestBlt " << std::endl;
+            std::cout << "server >> RDPDestBlt rop=" << int(cmd.rop) << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPMultiDstBlt & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiDstBlt " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPMultiOpaqueRect & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiOpaqueRect " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDP::RDPMultiPatBlt & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiPatBlt " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDP::RDPMultiScrBlt & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiScrBlt " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPGlyphIndex & cmd, const Rect & clip, const GlyphCache & gly_cache) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPGlyphIndex " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     void draw(const RDPPolygonSC & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPolygonSC " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     void draw(const RDPPolygonCB & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPolygonCB " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     void draw(const RDPPolyline & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPolyline " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPEllipseSC & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPEllipseSC " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
     virtual void draw(const RDPEllipseCB & cmd, const Rect & clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPEllipseCB " << std::endl;
+            std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
@@ -764,6 +781,7 @@ struct EventConfig
     TestClientCLI * front;
     long trigger_time;
 
+
     EventConfig(TestClientCLI * front)
     : front(front)
     , trigger_time(0)
@@ -785,12 +803,22 @@ struct ClipboardChange : EventConfig
                    , uint32_t * formatIDs
                    , std::string * formatListDataLongName
                    , size_t size)
-    : EventConfig(front)
-    , size(size)
+        : EventConfig(front)
+        , size(size)
     {
         for (size_t i = 0; i < this->size; i++) {
             this->formatIDs[i] = formatIDs[i];
             this->formatListDataLongName[i] = formatListDataLongName[i];
+        }
+    }
+
+    ClipboardChange( ClipboardChange & clipboardChange)
+      : EventConfig(clipboardChange.front)
+      , size(clipboardChange.size)
+    {
+        for (size_t i = 0; i < this->size; i++) {
+            this->formatIDs[i] = clipboardChange.formatIDs[i];
+            this->formatListDataLongName[i] = clipboardChange.formatListDataLongName[i];
         }
     }
 
@@ -813,12 +841,13 @@ struct MouseButton : public EventConfig
                , uint32_t y
                , bool isPressed
                )
-    : EventConfig(front)
-    , button(button)
-    , x(x)
-    , y(y)
-    , isPressed(isPressed)
+        : EventConfig(front)
+        , button(button)
+        , x(x)
+        , y(y)
+        , isPressed(isPressed)
     {}
+
 
     virtual void emit() override {
         this->front->mouseButtons(button, x, y, isPressed);
@@ -835,9 +864,9 @@ struct MouseMove : public EventConfig
              , uint32_t x
              , uint32_t y
              )
-    : EventConfig(front)
-    , x(x)
-    , y(y)
+        : EventConfig(front)
+        , x(x)
+        , y(y)
     {}
 
     void emit() override {
@@ -905,13 +934,9 @@ public:
 
     ~EventList()
     {
-        for (size_t i = 0; i < this->list.size(); i++) {
-            delete(this->list[i]);
-        }
 
         this->list.clear();
     }
-
 
     void setAction(EventConfig * action) {
         action->trigger_time = this->wait_time;
@@ -939,6 +964,7 @@ public:
             if (triggger <= current_time) {
                 this->list[i]->emit();
                 this->index++;
+                delete(this->list[i]);
 
             } else {
                 next = false;

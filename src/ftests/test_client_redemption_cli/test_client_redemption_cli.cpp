@@ -23,7 +23,7 @@
 #include "test_client_redemption_cli.hpp"
 
 
-// bjam -a rdpclientcli && bin/gcc-4.9.2/release/rdpclientcli --user admin --pwd admin --ip 10.10.40.22 --port 3389 --show_clpbrd --show_cursor --show_keyboard --script /home/cmoroldo/Bureau/redemption/script_rdp_test.txt
+// bjam -a rdpclientcli && bin/gcc-4.9.2/release/rdpclientcli --user QA\\proxyuser --pwd $mdp --ip 10.10.46.88 --port 3389 --show_clpbrd --show_cursor --show_keyboard --script /home/cmoroldo/Bureau/redemption/script_rdp_test.txt
 
 void run_mod(mod_api *, TestClientCLI &, SocketTransport *, EventList &);
 void print_help(ModRDPParamsConfig *, size_t);
@@ -60,7 +60,6 @@ int main(int argc, char** argv){
 
 
     std::string script_file_path;
-
     uint8_t input_connection_data_complete(0);
     for (int i = 0; i <  argc; i++) {
 
@@ -616,7 +615,6 @@ void run_mod(mod_api * mod, TestClientCLI & front, SocketTransport * st_mod, Eve
             if (front.is_running()) {
                 al.emit();
             }
-
 
         } catch (Error & e) {
             LOG(LOG_ERR, "RDP CLIENT :: Exception raised = %d!\n", e.id);

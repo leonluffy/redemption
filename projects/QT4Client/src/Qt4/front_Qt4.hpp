@@ -28,6 +28,8 @@
 #include <openssl/ssl.h>
 #include <iostream>
 #include <stdint.h>
+#include <unistd.h>
+#include <limits.h>
 
 #include "core/RDP/caches/brushcache.hpp"
 #include "core/RDP/capabilities/colcache.hpp"
@@ -61,6 +63,7 @@
 
 #include "core/RDP/pointer.hpp"
 #include "core/RDP/clipboard.hpp"
+#include "core/RDP/channels/rdpdr.hpp"
 #include "core/RDP/MonitorLayoutPDU.hpp"
 #include "core/front_api.hpp"
 #include "core/channel_list.hpp"
