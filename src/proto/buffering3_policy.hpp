@@ -40,6 +40,52 @@ using sizeof_packet = brigand::fold<
     brigand::call<add_size>
 >;
 
+namespace lazy {
+    template<class L, class Add>
+    struct mk_list_accu;
+
+    template<template<class...> class L, class... Ts, class add>
+    struct mk_list_accu<L<Ts...>, add>
+    { using type = L<add_size<Ts, add>..., add>; };
+}
+template<class L, class x>
+using mk_list_accu = typename lazy::mk_list_accu<L, x>::type;
+
+template<class L>
+using make_accumulate_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<mk_list_accu>>;
+
+namespace detail {
+    template<template<class> class IsPktSz, class Pkt, class Sz>
+    struct convert_pkt_sz2
+    { using type = Pkt; };
+
+    template<template<class> class IsPktSz, class... Ts, std::size_t n>
+    struct convert_pkt_sz2<IsPktSz, brigand::list<Ts...>, proto::static_size<n>>
+    { using type = brigand::list<std::conditional_t<IsPktSz<Ts>{}, proto::types::static_value<Ts, n>, Ts>...>; };
+}
+
+template<class Pkt, class Sz, class SzNext>
+using convert_pkt_sz2 = Pkt;
+
+namespace detail
+{
+    using namespace proto_buffering2::detail;
+
+    template<class>
+    struct to_is_pkt_first_list;
+
+    template<class T, class...>
+    using enable_type = T;
+
+    template<class T, class... Ts>
+    struct to_is_pkt_first_list<brigand::list<T, Ts...>>
+    { using type = brigand::list<brigand::bool_<1>, enable_type<brigand::bool_<0>, Ts>...>; };
+}
+
+template<class L>
+using to_is_pkt_first_list = typename detail::to_is_pkt_first_list<L>::type;
+
+struct special_op {};
 
 template<class Policy>
 struct Buffering3

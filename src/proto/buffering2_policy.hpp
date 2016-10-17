@@ -222,83 +222,21 @@ template<class i1, class i2>
 using add_size = typename lazy::add_size_impl<i1, i2>::type;
 
 template<class i1, class i2>
-using sizeof_packet_add2 = proto::sizeof_packet_add<i1, i2>;
+using sizeof_packet_add2 = proto::plus_sizeof<i1, i2>;
 
 template<class L>
 using sizeof_packet2 = proto::sizeof_packet<L>;
 
-namespace lazy {
-    template<class L, class Add>
-    struct mk_list_accu;
-
-    template<template<class...> class L, class... Ts, class add>
-    struct mk_list_accu<L<Ts...>, add>
-    { using type = L<add_size<Ts, add>..., add>; };
-}
-template<class L, class x>
-using mk_list_accu = typename lazy::mk_list_accu<L, x>::type;
-
 template<class L>
-using make_accumulate_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<mk_list_accu>>;
+using accu_add_size_list = proto::accu_sizeof_list<L>;
 
-namespace detail {
-    template<class L, class Add>
-    struct mk_list_accu_impl2;
-
-    template<template<class...> class L, class... Ts, class n>
-    struct mk_list_accu_impl2<L<Ts...>, n>
-    { using type = L<sizeof_packet_add2<Ts, n>..., n>; };
-}
-template<class L, class x>
-using mk_list_accu2 = typename detail::mk_list_accu_impl2<L, x>::type;
-
-namespace detail {
-    template<class L, class Add>
-    struct laccu_impl;
-
-    template<template<class...> class L, class... Ts, class n>
-    struct laccu_impl<L<Ts...>, n>
-    { using type = L<brigand::size_t<Ts::value + n::value>..., n>; };
-}
-template<class L, class T>
-using laccu = typename detail::laccu_impl<L, T>::type;
-
-template<class L>
-using accu_add_size_list = brigand::fold<L, brigand::list<>, brigand::call<mk_list_accu2>>;
-
-template <class A, class B>
-using plus = std::integral_constant<std::size_t, A::value + B::value>;
-
-template <class A, class B>
-using minus = std::integral_constant<std::size_t, A::value - B::value>;
-
-template <class A, class B>
-using not_equal_to = brigand::bool_<(A::value != B::value)>;
-
-template<class C, class True, class False>
-using eval = typename std::conditional_t<C::value, True, False>::type;
-
-}
-
-namespace proto_buffering2
-{
 
 template<std::size_t i>
 using i_ = std::integral_constant<std::size_t, i>;
 
-template<class L>
-using mk_sizeof_var_info_list = brigand::transform<
-    brigand::transform<L, brigand::call<proto::desc_type_t>>,
-    brigand::call<proto::sizeof_>
->;
-
 namespace detail {
     template<class>
     struct sizeof_to_buffer;
-
-    template<std::size_t n>
-    struct sizeof_to_buffer<dynamic_size<n>>
-    { using type = proto::dyn_size; };
 
     template<>
     struct sizeof_to_buffer<proto::dyn_size>
@@ -313,14 +251,6 @@ namespace detail {
     };
 
     template<std::size_t n>
-    struct sizeof_to_buffer<static_size<n>>
-    { using type = uninitialized_buf<n>; };
-
-    template<std::size_t n>
-    struct sizeof_to_buffer<limited_size<n>>
-    { using type = uninitialized_buf<n>; };
-
-    template<std::size_t n>
     struct sizeof_to_buffer<proto::static_size<n>>
     { using type = uninitialized_buf<n>; };
 
@@ -331,47 +261,6 @@ namespace detail {
 template<class T>
 using sizeof_to_buffer = typename detail::sizeof_to_buffer<T>::type;
 
-template<class L>
-using sizeof_var_infos = brigand::fold<
-    mk_sizeof_var_info_list<L>,
-    static_size<0>,
-    brigand::call<add_size>
->;
-
-template<class L>
-using buffer_from_var_infos = sizeof_to_buffer<sizeof_var_infos<L>>;
-
-namespace detail {
-    template<class T>
-    struct is_static_size : std::false_type
-    {};
-
-    template<std::size_t n>
-    struct is_static_size<static_size<n>> : std::true_type
-    {};
-
-    template<class T>
-    struct is_not_static_size : std::true_type
-    {};
-
-    template<std::size_t n>
-    struct is_not_static_size<static_size<n>> : std::false_type
-    {};
-
-    template<class T>
-    struct is_dynamic_size : std::false_type
-    {};
-
-    template<std::size_t n>
-    struct is_dynamic_size<dynamic_size<n>> : std::true_type
-    {};
-}
-template<class T>
-using is_dynamic_size = typename detail::is_dynamic_size<T>::type;
-template<class T>
-using is_static_size = typename detail::is_static_size<T>::type;
-template<class T>
-using is_not_static_size = typename detail::is_not_static_size<T>::type;
 
 template<class T, std::size_t n>
 struct static_array_view;
@@ -520,19 +409,6 @@ namespace detail
     };
 }
 
-namespace detail {
-    template<template<class> class IsPktSz, class Pkt, class Sz>
-    struct convert_pkt_sz2
-    { using type = Pkt; };
-
-    template<template<class> class IsPktSz, class... Ts, std::size_t n>
-    struct convert_pkt_sz2<IsPktSz, brigand::list<Ts...>, proto::static_size<n>>
-    { using type = brigand::list<std::conditional_t<IsPktSz<Ts>{}, proto::types::static_value<Ts, n>, Ts>...>; };
-}
-
-template<class Pkt, class Sz, class SzNext>
-using convert_pkt_sz2 = Pkt;
-
 namespace detail
 {
     template<class Val, bool = proto::has_static_buffer<desc_type_t<Val>>::value>
@@ -554,24 +430,6 @@ template<class Val>
 std::size_t reserved_size(Val const & val)
 { return detail::reserved_size_impl<Val>::_(val); }
 
-namespace detail
-{
-    using namespace proto_buffering2::detail;
-
-    template<class>
-    struct to_is_pkt_first_list;
-
-    template<class T, class...>
-    using enable_type = T;
-
-    template<class T, class... Ts>
-    struct to_is_pkt_first_list<brigand::list<T, Ts...>>
-    { using type = brigand::list<brigand::bool_<1>, enable_type<brigand::bool_<0>, Ts>...>; };
-}
-
-template<class L>
-using to_is_pkt_first_list = typename detail::to_is_pkt_first_list<L>::type;
-
 
 template<class L>
 using to_is_first_list = brigand::push_front<
@@ -592,15 +450,6 @@ using to_is_last_list = brigand::push_back<
   (void)std::initializer_list<int>{(void((__VA_ARGS__)), 1)...}
 #endif
 
-template<class... T, class F>
-void mpl_for_each(brigand::list<T...>, F && f)
-{ PROTO_UNPACK(f(T{})); }
-
-template<class... T, class... U, class F>
-void mpl_for_each(brigand::list<T...>, brigand::list<U...>, F && f)
-{ PROTO_UNPACK(f(T{}, U{})); }
-
-struct special_op {};
 
 template<class Policy>
 struct Buffering2

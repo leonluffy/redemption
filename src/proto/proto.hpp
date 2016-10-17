@@ -2300,35 +2300,51 @@ namespace proto
     namespace detail
     {
         template<class, class>
-        struct sizeof_packet_add_impl
+        struct plus_sizeof_impl
         { using type = dyn_size; };
 
         template<std::size_t n1, std::size_t n2>
-        struct sizeof_packet_add_impl<static_size<n1>, static_size<n2>>
+        struct plus_sizeof_impl<static_size<n1>, static_size<n2>>
         { using type = static_size<n1+n2>; };
 
         template<std::size_t n1, std::size_t n2>
-        struct sizeof_packet_add_impl<limited_size<n1>, limited_size<n2>>
+        struct plus_sizeof_impl<limited_size<n1>, limited_size<n2>>
         { using type = limited_size<n1+n2>; };
 
         template<std::size_t n1, std::size_t n2>
-        struct sizeof_packet_add_impl<static_size<n1>, limited_size<n2>>
+        struct plus_sizeof_impl<static_size<n1>, limited_size<n2>>
         { using type = limited_size<n1+n2>; };
 
         template<std::size_t n1, std::size_t n2>
-        struct sizeof_packet_add_impl<limited_size<n1>, static_size<n2>>
+        struct plus_sizeof_impl<limited_size<n1>, static_size<n2>>
         { using type = limited_size<n1+n2>; };
     }
 
     template<class i1, class i2>
-    using sizeof_packet_add = typename detail::sizeof_packet_add_impl<i1, i2>::type;
+    using plus_sizeof = typename detail::plus_sizeof_impl<i1, i2>::type;
 
     template<class L>
     using sizeof_packet = brigand::fold<
         brigand::transform<L, brigand::call<sizeof_>>,
         static_size<0>,
-        brigand::call<sizeof_packet_add>
+        brigand::call<plus_sizeof>
     >;
+
+    namespace detail
+    {
+        template<class L, class Add>
+        struct accu_plus_sizeof_list_impl;
+
+        template<class... Ts, class n>
+        struct accu_plus_sizeof_list_impl<brigand::list<Ts...>, n>
+        { using type = brigand::list<plus_sizeof<Ts, n>..., n>; };
+    }
+
+    template<class L, class x>
+    using accu_plus_sizeof_list = typename detail::accu_plus_sizeof_list_impl<L, x>::type;
+
+    template<class L>
+    using accu_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<accu_plus_sizeof_list>>;
 
     namespace detail
     {
@@ -2365,11 +2381,7 @@ namespace proto
         >;
 
         // [ static_size<n> | dyn_size ... ]
-        using accu_sizeof_by_packet = brigand::fold<
-            sizeof_by_packet,
-            static_size<0>,
-            brigand::call<sizeof_packet_add>
-        >;
+        using accu_sizeof_by_packet = accu_sizeof_list<sizeof_by_packet>;
 
         // [ static_size<n> | dyn_size ... 0 ]
         using accu_next_sizeof_by_packet = brigand::push_back<
