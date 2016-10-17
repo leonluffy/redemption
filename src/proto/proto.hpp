@@ -833,17 +833,18 @@ namespace proto
     }
 
 
-    template<class T, class = void>
-    struct get_arguments
-    { using type = brigand::list<>; };
+    namespace detail
+    {
+        template<class T, class = void>
+        struct get_arguments_impl
+        { using type = brigand::list<>; };
 
+        template<class T>
+        struct get_arguments_impl<T, meta::void_t<typename T::arguments>>
+        { using type = typename T::arguments; };
+    }
     template<class T>
-    struct get_arguments<T, meta::void_t<typename T::arguments>>
-    { using type = typename T::arguments; };
-
-    // TODO get_arguments_t -> get_arguments
-    template<class T>
-    using get_arguments_t = typename get_arguments<T>::type;
+    using get_arguments = typename detail::get_arguments_impl<T>::type;
 
 
     namespace detail
@@ -920,7 +921,7 @@ namespace proto
     template<class T>
     using is_special_value = brigand::bool_<(is_reserializer<T>::value or (
         brigand::any<
-            get_arguments_t<T>,
+            get_arguments<T>,
             brigand::call<detail::is_special_value_impl>
         >::value
     ))>;
@@ -937,7 +938,7 @@ namespace proto
 
     template<class Val, class T>
     using has_argument_of = brigand::any<
-        get_arguments_t<Val>,
+        get_arguments<Val>,
         brigand::bind<std::is_same, brigand::_1, brigand::pin<T>>
     >;
 
@@ -992,14 +993,6 @@ namespace proto
     }
 
 
-    // TODO deprecated
-    template<class T>
-    struct value_wrapper
-    {
-        T x;
-    };
-
-    // TODO deprecated ?
     template<class Var, class T>
     constexpr T get_value(val<Var, T> v)
     { return v.desc; }
@@ -1014,7 +1007,7 @@ namespace proto
     {
         using dependencies = get_dependencies<Deps>;
         using desc_type = Desc;
-        using arguments = brigand::append<get_arguments_t<Vars>...>;
+        using arguments = brigand::append<get_arguments<Vars>...>;
 
         using sizeof_ = proto::sizeof_<desc_type>;
         using buffer_category = proto::buffer_category<desc_type>;
@@ -1036,7 +1029,7 @@ namespace proto
     {
         using dependencies = get_dependencies<Deps>;
         using desc_type = Desc;
-        using arguments = brigand::append<get_arguments_t<Vars>...>;
+        using arguments = brigand::append<get_arguments<Vars>...>;
 
         // TODO tuple
         inherits<Vars...> values;
@@ -1344,7 +1337,7 @@ namespace proto
     struct packet_description
     {
         using dependencies = get_dependencies<Deps>;
-        using arguments = brigand::append<get_arguments_t<Ts>...>;
+        using arguments = brigand::append<get_arguments<Ts>...>;
 
         inherits<Ts...> values;
 
@@ -1397,7 +1390,7 @@ namespace proto
         static_assert(brigand::all<brigand::list<PktDescs...>, brigand::call<is_packet_description>>{}, "");
 
         using dependencies = get_dependencies<Deps>;
-        using arguments = brigand::append<get_arguments_t<PktDescs>...>;
+        using arguments = brigand::append<get_arguments<PktDescs>...>;
 
         inherits<PktDescs...> subpkts;
 
@@ -1409,7 +1402,7 @@ namespace proto
             return make_subpacket<Deps>(
                 this->eval_subpkt(
                     static_cast<PktDescs const &>(this->subpkts),
-                    get_arguments_t<PktDescs>{},
+                    get_arguments<PktDescs>{},
                     params
                 )...
             );
@@ -1472,7 +1465,7 @@ namespace proto
     template<class Deps, class Desc, class Expr>
     struct retype_impl
     {
-        using arguments = get_arguments_t<Expr>;
+        using arguments = get_arguments<Expr>;
         using dependencies = brigand::push_back<
             get_dependencies<Expr>,
             get_dependencies_if_void<Deps, brigand::list<>>
@@ -1541,8 +1534,8 @@ namespace proto
         {
             using dependencies = get_dependencies_if_void<Deps, T, U>;
             using arguments = brigand::append<
-                get_arguments_t<T>,
-                get_arguments_t<U>
+                get_arguments<T>,
+                get_arguments<U>
             >;
 
             template<class Params>
@@ -1585,8 +1578,8 @@ namespace proto
         {
             using dependencies = get_dependencies_if_void<Deps, T, U>;
             using arguments = brigand::append<
-                get_arguments_t<T>,
-                get_arguments_t<U>
+                get_arguments<T>,
+                get_arguments<U>
             >;
 
             template<class Params>
@@ -1628,7 +1621,7 @@ namespace proto
         struct expr<Deps, Op, true, T, void>
         {
             using dependencies = get_dependencies_if_void<Deps, T>;
-            using arguments = get_arguments_t<T>;
+            using arguments = get_arguments<T>;
 
             template<class Params>
             constexpr auto
@@ -1660,7 +1653,7 @@ namespace proto
         struct expr<Deps, Op, false, T, void>
         {
             using dependencies = get_dependencies_if_void<Deps, T>;
-            using arguments = get_arguments_t<T>;
+            using arguments = get_arguments<T>;
 
             template<class Params>
             constexpr auto
@@ -1915,9 +1908,9 @@ namespace proto
         {
             using dependencies = get_dependencies_if_void<Deps, Cond, Var, VarElse>;
             using arguments = brigand::append<
-                proto::get_arguments_t<Cond>,
-                proto::get_arguments_t<Var>,
-                proto::get_arguments_t<VarElse>
+                proto::get_arguments<Cond>,
+                proto::get_arguments<Var>,
+                proto::get_arguments<VarElse>
             >;
 
             template<class Params>
@@ -2029,7 +2022,7 @@ namespace proto
         struct lazy_only_if_true
         {
             using desc_type = only_if_true<proto::desc_type_t<Val>>;
-            using arguments = proto::get_arguments_t<Val>;
+            using arguments = proto::get_arguments<Val>;
 
             using sizeof_ = proto::sizeof_<desc_type>;
             using buffer_category = proto::buffer_category<desc_type>;
@@ -2060,8 +2053,8 @@ namespace proto
         {
             using dependencies = get_dependencies_if_void<Deps, Cond, Var>;
             using arguments = brigand::append<
-                proto::get_arguments_t<Cond>,
-                proto::get_arguments_t<Var>
+                proto::get_arguments<Cond>,
+                proto::get_arguments<Var>
             >;
 
             template<class Params>
@@ -2333,18 +2326,18 @@ namespace proto
     namespace detail
     {
         template<class L, class Add>
-        struct accu_plus_sizeof_list_impl;
+        struct plus_sizeof_and_push_back_impl;
 
         template<class... Ts, class n>
-        struct accu_plus_sizeof_list_impl<brigand::list<Ts...>, n>
+        struct plus_sizeof_and_push_back_impl<brigand::list<Ts...>, n>
         { using type = brigand::list<plus_sizeof<Ts, n>..., n>; };
     }
 
     template<class L, class x>
-    using accu_plus_sizeof_list = typename detail::accu_plus_sizeof_list_impl<L, x>::type;
+    using plus_sizeof_and_push_back = typename detail::plus_sizeof_and_push_back_impl<L, x>::type;
 
     template<class L>
-    using accu_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<accu_plus_sizeof_list>>;
+    using accu_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<plus_sizeof_and_push_back>>;
 
     namespace detail
     {

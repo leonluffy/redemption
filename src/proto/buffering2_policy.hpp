@@ -185,52 +185,6 @@ struct val_info
 
 using cvoidp = void const *;
 
-
-template<std::size_t n> struct static_size : brigand::size_t<n> {};
-template<std::size_t n> struct dynamic_size : brigand::size_t<n> {};
-template<std::size_t n> struct limited_size : brigand::size_t<n> {};
-
-namespace lazy {
-    template<class p, class i>
-    struct add_size_impl;
-
-    template<template<std::size_t> class Size, std::size_t n, class add>
-    struct add_size_impl<Size<n>, add>
-    { using type = Size<(n+add::value)>; };
-
-    template<template<std::size_t> class Size, std::size_t n>
-    struct add_size_impl<Size<n>, proto::dyn_size>
-    { using type = dynamic_size<n>; };
-
-    template<template<std::size_t> class Size, std::size_t n1, std::size_t n2>
-    struct add_size_impl<Size<n1>, proto::limited_size<n2>>
-    { using type = Size<n1+n2>; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct add_size_impl<brigand::size_t<n1>, proto::limited_size<n2>>
-    { using type = limited_size<n1+n2>; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct add_size_impl<static_size<n1>, proto::limited_size<n2>>
-    { using type = limited_size<n1+n2>; };
-
-    template<std::size_t n1, std::size_t n2>
-    struct add_size_impl<brigand::size_t<n1>, brigand::size_t<n2>>
-    { using type = brigand::size_t<n1+n2>; };
-}
-template<class i1, class i2>
-using add_size = typename lazy::add_size_impl<i1, i2>::type;
-
-template<class i1, class i2>
-using sizeof_packet_add2 = proto::plus_sizeof<i1, i2>;
-
-template<class L>
-using sizeof_packet2 = proto::sizeof_packet<L>;
-
-template<class L>
-using accu_add_size_list = proto::accu_sizeof_list<L>;
-
-
 template<std::size_t i>
 using i_ = std::integral_constant<std::size_t, i>;
 
@@ -245,7 +199,7 @@ namespace detail {
     template<std::size_t n>
     struct uninitialized_buf
     {
-        uninitialized_buf() {}
+        uninitialized_buf() = default;
         uninitialized_buf(uninitialized_buf const &) = delete;
         alignas(4) uint8_t buf [n];
     };
@@ -311,7 +265,7 @@ void each_element_with_index(
     (void)std::initializer_list<int>{
         (f(
             static_cast<detail::tuple_element<Ints, Ts>&>(t).elem,
-            std::integral_constant<std::size_t, Ints>{}
+            i_<Ints>{}
         ), 1)...
     };
 }
@@ -458,33 +412,19 @@ struct Buffering2
     struct Impl
     {
         // [ [ desc_type ... ] ... ]
-        using desc_list_by_packet = brigand::list<
-            brigand::transform<
-                typename Pkts::type_list,
-                brigand::call<desc_type_t>
-            >...
-        >;
+        using desc_list_by_packet = typename proto::sizeof_pkt_ctx<Pkts...>::desc_list_by_packet;
+
+        // [ static_size<n> | dyn_size ... ]
+        using sizeof_by_packet = typename proto::sizeof_pkt_ctx<Pkts...>::sizeof_by_packet;
+
+        // [ static_size<n> | dyn_size ... ]
+        using accu_sizeof_by_packet = typename proto::sizeof_pkt_ctx<Pkts...>::accu_sizeof_by_packet;
+
+        // [ static_size<n> | dyn_size ..., 0 ]
+        using accu_next_sizeof_by_packet = typename proto::sizeof_pkt_ctx<Pkts...>::accu_next_sizeof_by_packet;
+
 
         using flat_values = brigand::append<typename Pkts::type_list...>;
-
-        // [ size_<n> | limited_size<n> | dyn_size ... ]
-        using sizeof_by_packet = brigand::transform<
-            desc_list_by_packet,
-            brigand::call<sizeof_packet2>
-        >;
-
-        // [ size_<n> | dyn_size ... ]
-        using accu_sizeof_by_packet = accu_add_size_list<
-            brigand::transform<
-                sizeof_by_packet,
-                brigand::call<proto::limited_size_to_dyn_size>
-            >
-        >;
-        // [ size_<n> | dyn_size ... ]
-        using accu_sizeof_by_packet2 = brigand::push_back<
-            brigand::pop_front<accu_sizeof_by_packet>,
-            proto::static_size<0>
-        >;
 
 
         // [ size<pkt> ... ]
@@ -494,7 +434,7 @@ struct Buffering2
         >;
 
 
-        // [ size_<n> | dyn_size ... ]
+        // [ static_size<n> | dyn_size ... ]
         using flat_accu_sizeof_by_packet_by_packet = brigand::join<
             brigand::transform<
                 accu_sizeof_by_packet,
@@ -502,10 +442,10 @@ struct Buffering2
                 brigand::call<mk_filled_list>
             >
         >;
-        // [ size_<n> | dyn_size ... ]
+        // [ static_size<n> | dyn_size ... ]
         using flat_accu_sizeof_by_packet_by_packet2 = brigand::join<
             brigand::transform<
-                accu_sizeof_by_packet2,
+                accu_next_sizeof_by_packet,
                 packet_size_list,
                 brigand::call<mk_filled_list>
             >
@@ -644,10 +584,10 @@ struct Buffering2
             brigand::call<keep_info_pkt_data_ptr>
         >;
 
-        // [ size_<n> | limited_size<n> | dyn_size ... ]
+        // [ static_size<n> | limited_size<n> | dyn_size ... ]
         using sizeof_by_buffer = brigand::transform<
             desc_list_by_buffer,
-            brigand::call<sizeof_packet2>
+            brigand::call<proto::sizeof_packet>
         >;
 
         // [ uninitialized_buf | dyn_size ... ]

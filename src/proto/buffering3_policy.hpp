@@ -33,6 +33,41 @@ struct var_info {
     using desc_type = DescType;
 };
 
+template<std::size_t n> struct static_size : brigand::size_t<n> {};
+template<std::size_t n> struct dynamic_size : brigand::size_t<n> {};
+template<std::size_t n> struct limited_size : brigand::size_t<n> {};
+
+namespace lazy {
+    template<class p, class i>
+    struct add_size_impl;
+
+    template<template<std::size_t> class Size, std::size_t n, class add>
+    struct add_size_impl<Size<n>, add>
+    { using type = Size<(n+add::value)>; };
+
+    template<template<std::size_t> class Size, std::size_t n>
+    struct add_size_impl<Size<n>, proto::dyn_size>
+    { using type = dynamic_size<n>; };
+
+    template<template<std::size_t> class Size, std::size_t n1, std::size_t n2>
+    struct add_size_impl<Size<n1>, proto::limited_size<n2>>
+    { using type = Size<n1+n2>; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct add_size_impl<brigand::size_t<n1>, proto::limited_size<n2>>
+    { using type = limited_size<n1+n2>; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct add_size_impl<static_size<n1>, proto::limited_size<n2>>
+    { using type = limited_size<n1+n2>; };
+
+    template<std::size_t n1, std::size_t n2>
+    struct add_size_impl<brigand::size_t<n1>, brigand::size_t<n2>>
+    { using type = brigand::size_t<n1+n2>; };
+}
+template<class i1, class i2>
+using add_size = typename lazy::add_size_impl<i1, i2>::type;
+
 template<class L>
 using sizeof_packet = brigand::fold<
     brigand::transform<L, brigand::call<proto::sizeof_>>,
