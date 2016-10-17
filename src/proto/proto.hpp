@@ -913,29 +913,6 @@ namespace proto
         using ::proto::dsl::current_pkts_sz;
     }
 
-    namespace detail
-    {
-        template<class T> struct is_special_value_impl : std::false_type {};
-    }
-
-    template<class T>
-    using is_special_value = brigand::bool_<(is_reserializer<T>::value or (
-        brigand::any<
-            get_arguments<T>,
-            brigand::call<detail::is_special_value_impl>
-        >::value
-    ))>;
-
-    namespace detail
-    {
-        template<> struct is_special_value_impl<dsl::current_pkts_sz> : std::true_type {};
-        template<> struct is_special_value_impl<dsl::next_pkts_sz> : std::true_type {};
-
-        template<class T> struct is_special_buf_sz_impl : std::false_type {};
-        template<> struct is_special_buf_sz_impl<dsl::next_pkts_sz> : std::true_type {};
-        template<> struct is_special_buf_sz_impl<dsl::current_pkts_sz> : std::true_type {};
-    }
-
     template<class Val, class T>
     using has_argument_of = brigand::any<
         get_arguments<Val>,
