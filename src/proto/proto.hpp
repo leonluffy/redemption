@@ -163,6 +163,48 @@ namespace cexpr
     { return std::forward<False>(r); }
 }
 
+namespace meta
+{
+    namespace detail
+    {
+        template<template<class...> class Tpl, class T>
+        struct is_layout_impl : std::false_type
+        {};
+
+        template<template<class...> class Tpl, class... Ts>
+        struct is_layout_impl<Tpl, Tpl<Ts...>> : std::true_type
+        {};
+    }
+    template<template<class...> class Tpl, class T>
+    using is_layout = typename detail::is_layout_impl<Tpl, T>::type;
+
+    namespace detail
+    {
+        template<class I, template<I> class Tpl, class T>
+        struct is_integral_layout_impl : std::false_type
+        {};
+
+        template<class I, template<I> class Tpl, I i>
+        struct is_integral_layout_impl<I, Tpl, Tpl<i>> : std::true_type
+        {};
+    }
+    template<class I, template<I> class Tpl, class T>
+    using is_integral_layout = typename detail::is_integral_layout_impl<I, Tpl, T>::type;
+
+    namespace detail
+    {
+        template<template<class T, T> class Tpl, class T>
+        struct is_integral_constant_layout_impl : std::false_type
+        {};
+
+        template<template<class T, T> class Tpl, class T, T v>
+        struct is_integral_constant_layout_impl<Tpl, Tpl<T, v>> : std::true_type
+        {};
+    }
+    template<template<class T, T> class Tpl, class T>
+    using is_integral_constant_layout = typename detail::is_integral_constant_layout_impl<Tpl, T>::type;
+}
+
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/bytes_t.hpp"
 
@@ -175,30 +217,22 @@ namespace cexpr
 
 namespace proto
 {
-    namespace meta
-    {
-        namespace detail
-        {
-            template<template<class...> class Tpl, class T>
-            struct is_layout_impl : std::false_type
-            {};
-
-            template<template<class...> class Tpl, class... Ts>
-            struct is_layout_impl<Tpl, Tpl<Ts...>> : std::true_type
-            {};
-        }
-        template<template<class...> class Tpl, class T>
-        using is_layout = typename detail::is_layout_impl<Tpl, T>::type;
-    }
-
-
     template<std::size_t N>
-    using size_ = std::integral_constant<std::size_t, N>;
+    using static_size = std::integral_constant<std::size_t, N>;
 
     template<std::size_t n>
     struct limited_size { static const std::size_t value = n; };
 
     struct dyn_size {};
+
+    template<class T>
+    using is_static_size = meta::is_integral_constant_layout<std::integral_constant, T>;
+
+    template<class T>
+    using is_limited_size = meta::is_integral_layout<std::size_t, limited_size, T>;
+
+    template<class T>
+    using is_dynamic_size = typename std::is_same<T, dyn_size>::type;
 
     namespace tags
     {
@@ -216,7 +250,7 @@ namespace proto
     namespace detail
     {
         template<class T> struct sizeof_to_buffer_cat;
-        template<std::size_t n> struct sizeof_to_buffer_cat<size_<n>> { using type = tags::static_buffer; };
+        template<std::size_t n> struct sizeof_to_buffer_cat<static_size<n>> { using type = tags::static_buffer; };
         template<std::size_t n> struct sizeof_to_buffer_cat<limited_size<n>> { using type = tags::limited_buffer; };
 
         template<class T, class = void>
@@ -302,7 +336,7 @@ namespace proto
         struct integer
         {
             using type = T;
-            using sizeof_ = size_<sizeof(T)>;
+            using sizeof_ = static_size<sizeof(T)>;
 
             static_assert(std::is_integral<T>::value, "");
 
@@ -403,7 +437,7 @@ namespace proto
         struct u16_encoding_force_u16
         {
             using type = uint16_t;
-            using sizeof_ = size_<sizeof(type)>;
+            using sizeof_ = static_size<sizeof(type)>;
 
             safe_int<type> val;
 
@@ -518,17 +552,17 @@ namespace proto
     namespace detail
     {
         template<std::size_t n>
-        struct common_size_impl<size_<n>, size_<n>> { using type = size_<n>; };
+        struct common_size_impl<static_size<n>, static_size<n>> { using type = static_size<n>; };
 
         template<std::size_t n1, std::size_t n2>
-        struct common_size_impl<size_<n1>, size_<n2>> { using type = limited_size<std::max(n1, n2)>; };
+        struct common_size_impl<static_size<n1>, static_size<n2>> { using type = limited_size<std::max(n1, n2)>; };
 
         template<std::size_t n1, std::size_t n2>
         struct common_size_impl<limited_size<n1>, limited_size<n2>> { using type = limited_size<std::max(n1, n2)>; };
         template<std::size_t n1, std::size_t n2>
-        struct common_size_impl<size_<n1>, limited_size<n2>> { using type = limited_size<std::max(n1, n2)>; };
+        struct common_size_impl<static_size<n1>, limited_size<n2>> { using type = limited_size<std::max(n1, n2)>; };
         template<std::size_t n1, std::size_t n2>
-        struct common_size_impl<limited_size<n1>, size_<n2>> { using type = limited_size<std::max(n1, n2)>; };
+        struct common_size_impl<limited_size<n1>, static_size<n2>> { using type = limited_size<std::max(n1, n2)>; };
 
         template<class T> struct common_size_impl<T, dyn_size> { using type = dyn_size; };
         template<class U> struct common_size_impl<dyn_size, U> { using type = dyn_size; };
@@ -1062,14 +1096,14 @@ namespace proto
         struct add_size_impl;
 
         template<std::size_t n1, std::size_t n2>
-        struct add_size_impl<size_<n1>, size_<n2>> { using type = limited_size<n1 + n2>; };
+        struct add_size_impl<static_size<n1>, static_size<n2>> { using type = limited_size<n1 + n2>; };
 
         template<std::size_t n1, std::size_t n2>
         struct add_size_impl<limited_size<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
         template<std::size_t n1, std::size_t n2>
-        struct add_size_impl<size_<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
+        struct add_size_impl<static_size<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
         template<std::size_t n1, std::size_t n2>
-        struct add_size_impl<limited_size<n1>, size_<n2>> { using type = limited_size<n1 + n2>; };
+        struct add_size_impl<limited_size<n1>, static_size<n2>> { using type = limited_size<n1 + n2>; };
 
         template<class Sz1, class Sz2>
         using add_size = typename add_size_impl<Sz1, Sz2>::type;
@@ -1240,7 +1274,7 @@ namespace proto
     template<class F, class FF = void>
     struct hook_impl
     {
-        using sizeof_ = size_<0>;
+        using sizeof_ = static_size<0>;
         using is_reserializer = std::true_type;
 
         template<class... T>
@@ -1258,7 +1292,7 @@ namespace proto
     template<class F>
     struct hook_impl<F, void>
     {
-        using sizeof_ = size_<0>;
+        using sizeof_ = static_size<0>;
         using is_reserializer = std::true_type;
 
         template<class... T>
@@ -2301,19 +2335,19 @@ namespace proto
             { using type = dyn_size; };
 
             template<std::size_t n1, std::size_t n2>
-            struct sizeof_packet_add_impl<size_<n1>, size_<n2>>
-            { using type = size_<n1+n2>; };
+            struct sizeof_packet_add_impl<static_size<n1>, static_size<n2>>
+            { using type = static_size<n1+n2>; };
 
             template<std::size_t n1, std::size_t n2>
             struct sizeof_packet_add_impl<limited_size<n1>, limited_size<n2>>
             { using type = limited_size<n1+n2>; };
 
             template<std::size_t n1, std::size_t n2>
-            struct sizeof_packet_add_impl<size_<n1>, limited_size<n2>>
+            struct sizeof_packet_add_impl<static_size<n1>, limited_size<n2>>
             { using type = limited_size<n1+n2>; };
 
             template<std::size_t n1, std::size_t n2>
-            struct sizeof_packet_add_impl<limited_size<n1>, size_<n2>>
+            struct sizeof_packet_add_impl<limited_size<n1>, static_size<n2>>
             { using type = limited_size<n1+n2>; };
         }
 
@@ -2323,7 +2357,7 @@ namespace proto
         template<class L>
         using sizeof_packet = brigand::fold<
             brigand::transform<L, brigand::call<sizeof_>>,
-            size_<0>,
+            static_size<0>,
             brigand::call<sizeof_packet_add>
         >;
 
@@ -2352,7 +2386,7 @@ namespace proto
                 >...
             >;
 
-            // [ size_<n> | dyn_size ... ]
+            // [ static_size<n> | dyn_size ... ]
             using sizeof_by_packet = brigand::transform<
                 brigand::transform<
                     desc_list_by_packet,
@@ -2361,17 +2395,17 @@ namespace proto
                 brigand::call<limited_size_to_dyn_size>
             >;
 
-            // [ size_<n> | dyn_size ... ]
+            // [ static_size<n> | dyn_size ... ]
             using accu_sizeof_by_packet = brigand::fold<
                 sizeof_by_packet,
-                size_<0>,
+                static_size<0>,
                 brigand::call<sizeof_packet_add>
             >;
 
-            // [ size_<n> | dyn_size ... 0 ]
+            // [ static_size<n> | dyn_size ... 0 ]
             using accu_next_sizeof_by_packet = brigand::push_back<
                 brigand::pop_front<accu_sizeof_by_packet>,
-                proto::size_<0>
+                proto::static_size<0>
             >;
         };
     }

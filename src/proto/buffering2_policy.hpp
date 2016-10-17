@@ -96,38 +96,8 @@ auto const & larg(L const & l)
 { return l.apply([](auto const & ... v) PROTO_DECLTYPE_AUTO_RETURN(arg<i>(v...))); }
 
 
-template<class Desc>
-using is_buffer_delimiter = brigand::bool_<
-    proto::is_view_buffer<Desc>::value or
-    (proto::is_limited_buffer<Desc>::value and proto::has_pkts_sz<Desc>::value)
->;
-
-
 using proto::desc_type_t;
 using proto::value_type_t;
-
-namespace detail {
-    template<class T>
-    struct is_size_impl : std::false_type
-    {};
-
-    template<std::size_t n>
-    struct is_size_impl<proto::size_<n>> : std::true_type
-    {};
-
-    template<class T>
-    struct is_limited_size_impl : std::false_type
-    {};
-
-    template<std::size_t n>
-    struct is_limited_size_impl<proto::limited_size<n>> : std::true_type
-    {};
-}
-template<class Sz>
-using is_size_ = typename detail::is_size_impl<Sz>::type;
-
-template<class Sz>
-using is_limited_size = typename detail::is_limited_size_impl<Sz>::type;
 
 template<class Info>
 using keep_info_pkt_data_ptr = brigand::bool_<
@@ -138,9 +108,9 @@ template<class Val, class Sz, class Sz2>
 using is_undeterministic_sizeof_special = brigand::bool_<
     !proto::is_static_buffer<desc_type_t<Val>>::value
     and (
-        (proto::v::has_current_pkts_sz<Val>::value and !is_size_<Sz>::value)
+        (proto::v::has_current_pkts_sz<Val>::value and !proto::is_static_size<Sz>::value)
         or
-        (proto::v::has_next_pkts_sz<Val>::value and !is_size_<Sz2>::value)
+        (proto::v::has_next_pkts_sz<Val>::value and !proto::is_static_size<Sz2>::value)
         or
         (proto::v::is_reserializer<Val>::value)
     )
@@ -151,12 +121,12 @@ using keep_info_special_pkt_ptr = brigand::bool_<
     !Info::is_begin_buf && (
         (
             proto::v::has_current_pkts_sz<typename Info::val>::value and
-            !is_size_<typename Info::sz_self>::value
+            !proto::is_static_size<typename Info::sz_self>::value
         )
         or
         (
             proto::v::has_next_pkts_sz<typename Info::val>::value and
-            !is_size_<typename Info::sz>::value
+            !proto::is_static_size<typename Info::sz>::value
         )
         or proto::v::is_reserializer<typename Info::val>::value
     )
@@ -177,9 +147,9 @@ using is_pkt_sz_delimiter = brigand::bool_<
     and
     proto::is_limited_buffer<desc_type_t<Val>>::value
     and
-    ( ( proto::v::has_current_pkts_sz<Val>::value and !is_size_<Sz>::value )
+    ( ( proto::v::has_current_pkts_sz<Val>::value and !proto::is_static_size<Sz>::value )
           or
-          ( proto::v::has_next_pkts_sz<Val>::value and !is_size_<Sz2>::value )
+          ( proto::v::has_next_pkts_sz<Val>::value and !proto::is_static_size<Sz2>::value )
     )
 >;
 
@@ -234,9 +204,6 @@ struct val_info
 
 using cvoidp = void const *;
 
-template<class var_info>
-using var_info_is_buffer_delimiter = is_buffer_delimiter<typename var_info::desc_type>;
-
 
 template<std::size_t n> struct static_size : brigand::size_t<n> {};
 template<std::size_t n> struct dynamic_size : brigand::size_t<n> {};
@@ -287,19 +254,19 @@ namespace lazy {
     { using type = proto::dyn_size; };
 
     template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::size_<n1>, proto::size_<n2>>
-    { using type = proto::size_<n1+n2>; };
+    struct sizeof_packet_add2_impl<proto::static_size<n1>, proto::static_size<n2>>
+    { using type = proto::static_size<n1+n2>; };
 
     template<std::size_t n1, std::size_t n2>
     struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::limited_size<n2>>
     { using type = proto::limited_size<n1+n2>; };
 
     template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::size_<n1>, proto::limited_size<n2>>
+    struct sizeof_packet_add2_impl<proto::static_size<n1>, proto::limited_size<n2>>
     { using type = proto::limited_size<n1+n2>; };
 
     template<std::size_t n1, std::size_t n2>
-    struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::size_<n2>>
+    struct sizeof_packet_add2_impl<proto::limited_size<n1>, proto::static_size<n2>>
     { using type = proto::limited_size<n1+n2>; };
 }
 template<class i1, class i2>
@@ -308,7 +275,7 @@ using sizeof_packet_add2 = typename lazy::sizeof_packet_add2_impl<i1, i2>::type;
 template<class L>
 using sizeof_packet2 = brigand::fold<
     brigand::transform<L, brigand::call<proto::sizeof_>>,
-    proto::size_<0>,
+    proto::static_size<0>,
     brigand::call<sizeof_packet_add2>
 >;
 
@@ -452,7 +419,7 @@ namespace detail {
     { using type = uninitialized_buf<n>; };
 
     template<std::size_t n>
-    struct sizeof_to_buffer<proto::size_<n>>
+    struct sizeof_to_buffer<proto::static_size<n>>
     { using type = uninitialized_buf<n>; };
 
     template<std::size_t n>
@@ -657,7 +624,7 @@ namespace detail {
     { using type = Pkt; };
 
     template<template<class> class IsPktSz, class... Ts, std::size_t n>
-    struct convert_pkt_sz2<IsPktSz, brigand::list<Ts...>, proto::size_<n>>
+    struct convert_pkt_sz2<IsPktSz, brigand::list<Ts...>, proto::static_size<n>>
     { using type = brigand::list<std::conditional_t<IsPktSz<Ts>{}, proto::types::static_value<Ts, n>, Ts>...>; };
 }
 
@@ -765,7 +732,7 @@ struct Buffering2
         // [ size_<n> | dyn_size ... ]
         using accu_sizeof_by_packet2 = brigand::push_back<
             brigand::pop_front<accu_sizeof_by_packet>,
-            proto::size_<0>
+            proto::static_size<0>
         >;
 
 
@@ -806,7 +773,7 @@ struct Buffering2
                         brigand::pop_back<
                           flat_accu_sizeof_by_packet_by_packet
                         >,
-                        proto::size_<0>
+                        proto::static_size<0>
                     >,
                     flat_accu_sizeof_by_packet_by_packet,
                     brigand::call<brigand::list>
@@ -1046,8 +1013,8 @@ struct Buffering2
             using pkt_sz = typename Info::sz;
             using pkt_sz_self = typename Info::sz_self;
 
-            using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && !is_size_<pkt_sz>{}>;
-            using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && !is_size_<pkt_sz_self>{}>;
+            using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz>{}>;
+            using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz_self>{}>;
 
             cexpr::cifv(is_pkt_sz{}, val, [this](auto const & val){
                 PROTO_TRACE(this->next_size_or_0<Info>() << " [pkt_sz]");
@@ -1215,7 +1182,7 @@ struct Buffering2
 
             if (Info::is_begin_pkt) {
                 using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
-                using is_size = is_size_<sizeof_packet>;
+                using is_size = proto::is_static_size<sizeof_packet>;
                 assert(std::size_t(this->psize - std::begin(this->sizes)) < this->sizes.size());
                 if (is_size{}) {
                     cexpr::cifv(is_size{}, sizeof_packet{}, [this](auto sz){
@@ -1281,7 +1248,7 @@ struct Buffering2
 
             if (Info::is_end_pkt || Info::is_end_buf) {
                 using sizeof_packet = brigand::at_c<sizeof_by_packet, Info::ipacket>;
-                using is_size = is_size_<sizeof_packet>;
+                using is_size = proto::is_static_size<sizeof_packet>;
                 using is_limited = brigand::bool_<!is_size{} && !is_view{}>;
                 cexpr::cifv(is_limited{}, i_<Info::ibuf>{}, [this](auto ibuf){
                     using i = decltype(ibuf);
@@ -1364,11 +1331,11 @@ struct Buffering2
             using pkt_sz = typename Info::sz;
             using pkt_sz_self = typename Info::sz_self;
 
-            static_assert(proto::v::has_next_pkts_sz<Val>{} && !is_size_<pkt_sz>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
-            static_assert(proto::v::has_current_pkts_sz<Val>{} && !is_size_<pkt_sz_self>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
+            static_assert(proto::v::has_next_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
+            static_assert(proto::v::has_current_pkts_sz<Val>{} && !proto::is_static_size<pkt_sz_self>{} && proto::is_limited_buffer<desc_type_t<Info>>{} ? Info::is_end_buf : true, "internal error to split_if");
 
-            using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && is_size_<pkt_sz>{}>;
-            using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && is_size_<pkt_sz_self>{}>;
+            using is_pkt_sz = brigand::bool_<proto::v::has_next_pkts_sz<Val>{} && proto::is_static_size<pkt_sz>{}>;
+            using is_pkt_sz_self = brigand::bool_<proto::v::has_current_pkts_sz<Val>{} && proto::is_static_size<pkt_sz_self>{}>;
 
             cexpr::cifv(is_pkt_sz{}, val, [this](auto & val) {
                 PROTO_TRACE(" [eval_sz]");

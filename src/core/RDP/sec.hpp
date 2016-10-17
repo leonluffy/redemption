@@ -1888,7 +1888,7 @@ namespace sec
     {
         proto::types::value<CryptContext&> crypt;
 
-        using sizeof_ = proto::size_<8>;
+        using sizeof_ = proto::static_size<8>;
         using is_reserializer = std::true_type;
 
         auto static_reserialize(uint8_t * p, array_view_u8 av) const

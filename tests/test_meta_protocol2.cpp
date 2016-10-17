@@ -202,7 +202,7 @@ void test_new()
 struct lazy {
     proto::types::u8 a;
 
-    using sizeof_ = proto::size_<2>;
+    using sizeof_ = proto::static_size<2>;
     using is_reserializer = std::true_type;
 
     void static_reserialize(uint8_t * p, array_view_u8 /*av*/) const
@@ -225,7 +225,7 @@ struct lazy2 {
     proto::types::u8 a;
     proto::types::u8 b;
 
-    using sizeof_ = proto::size_<2>;
+    using sizeof_ = proto::static_size<2>;
 
     void static_serialize(uint8_t * p) const
     {

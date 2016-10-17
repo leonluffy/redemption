@@ -45,7 +45,7 @@ struct Buffering3
         using packet_list = brigand::transform<
             packet_list_,
             accu_sizeof_by_packet,
-            brigand::push_back<brigand::pop_front<accu_sizeof_by_packet>, proto::size_<0>>,
+            brigand::push_back<brigand::pop_front<accu_sizeof_by_packet>, proto::static_size<0>>,
             brigand::call<convert_pkt_sz2>
         >;
 
