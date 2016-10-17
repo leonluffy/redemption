@@ -172,8 +172,6 @@ enum {
     SEC_FLAGSHI_VALID      = 0x8000
 };
 
-
-
 // flagsHi (2 bytes): A 16-bit, unsigned integer. This field is reserved for
 // future RDP needs. It is currently unused and all values are ignored. This
 // field MUST contain valid data only if the SEC_FLAGSHI_VALID bit (0x8000) is
@@ -1439,6 +1437,34 @@ enum {
 // See sections 2.2.8.1 and 2.2.9.1 for more details on slow and 
 // fast-path packet formats and the structure of the Security Header in
 // both of these scenarios.
+
+
+    // Predictor Only read 
+    struct SecPredictor_Recv
+    {
+        uint32_t basicSecurityHeader;
+
+        explicit SecPredictor_Recv(InStream stream)
+            : basicSecurityHeader([&stream](){
+                const unsigned expected = 8; /* basicSecurityHeader(4) + length(4) */
+                if (!stream.in_check_rem(expected)){
+                    LOG(LOG_ERR, "Truncated SEC_PKT, expected=%u remains %zu",
+                       expected, stream.in_remain());
+                    throw Error(ERR_SEC);
+                }
+
+                uint32_t basicSecurityHeader = stream.in_uint32_le();
+                if (!(basicSecurityHeader & SEC_EXCHANGE_PKT)) {
+                    LOG(LOG_ERR, "Expecting SEC_PKT, got (%x)", basicSecurityHeader);
+                    throw Error(ERR_SEC);
+                }
+                basicSecurityHeader &= (basicSecurityHeader & SEC_FLAGSHI_VALID)?0xFFFFFFFF:0xFFFF;
+                return basicSecurityHeader;
+            }())
+        {
+        }
+    };
+
 
 
     struct SecExchangePacket_Recv

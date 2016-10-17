@@ -1258,8 +1258,8 @@ public:
             uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED;
             uint32_t rdp_neg_code = (this->tls_client_active)
                                   ? (this->clientRequestedProtocols & X224::PROTOCOL_TLS)
-                                  ? X224::PROTOCOL_TLS
-                                  : X224::SSL_REQUIRED_BY_SERVER
+                                  ? static_cast<uint32_t>(X224::PROTOCOL_TLS)
+                                  : static_cast<uint32_t>(X224::SSL_REQUIRED_BY_SERVER)
                                   : 0;
 
             if ((this->tls_client_active)
@@ -1769,6 +1769,9 @@ public:
             }
 
             MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
+            SEC::SecPredictor_Recv secpred(mcs.payload.clone());
+            
+            
             SEC::SecExchangePacket_Recv sec(mcs.payload);
 
             uint8_t client_random[64] = {};
