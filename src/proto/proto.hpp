@@ -495,10 +495,6 @@ namespace proto
         using enum_u32_encoding = enum_<E, u32_encoding>;
         /** @} */
 
-        template<class Obj, class T>
-        using enable_if_not_default_ctor_argument_t
-            = std::enable_if_t<(!std::is_same<Obj, std::remove_reference_t<T>>::value)>;
-
         struct bytes
         {
             using type = const_bytes_array;
@@ -631,7 +627,7 @@ namespace proto
     template<class Deps, class Value, class Desc = desc_or_t<Value>>
     struct val
     {
-        using var_type = Deps;
+        using deps_type = Deps;
         using dependencies = get_dependencies<Deps>;
         using value_type = Value;
         using desc_type = Desc;
@@ -645,23 +641,10 @@ namespace proto
     };
 
     template<class T>
-    using is_integral_or_enum = brigand::bool_<std::is_integral<T>{} or std::is_enum<T>{}>;
-
-    namespace detail
-    {
-        template<class T>
-        struct is_integral_constant_impl
-        : std::false_type
-        {};
-
-        template<class T, T x>
-        struct is_integral_constant_impl<std::integral_constant<T, x>>
-        : std::true_type
-        {};
-    }
+    using is_integral_or_enum = brigand::bool_<(std::is_integral<T>{} or std::is_enum<T>{})>;
 
     template<class T>
-    using is_integral_constant = typename detail::is_integral_constant_impl<T>::type;
+    using is_integral_constant = meta::is_integral_constant_layout<std::integral_constant, T>;
 
     template<class T>
     using is_integral_or_enum_or_constant = brigand::bool_<is_integral_or_enum<T>{} or is_integral_constant<T>{}>;
@@ -747,15 +730,18 @@ namespace proto
     template<class T, class Desc>
     using is_enum_to_int = typename detail::is_enum_to_int<std::decay_t<T>, Desc>::type;
 
-    // for more readable errors
-    template<class Dep, class Desc, class T>
-    constexpr auto make_val(T && x, int)
-    -> decltype(Desc::make(std::forward<T>(x)))
-    { return Desc::make(std::forward<T>(x)); }
+    namespace detail
+    {
+        // Dep for more readable errors
+        template<class Dep, class Desc, class T>
+        constexpr auto make_val(T && x, int)
+        -> decltype(Desc::make(std::forward<T>(x)))
+        { return Desc::make(std::forward<T>(x)); }
 
-    template<class Dep, class Desc, class T>
-    constexpr auto make_val(T && x, char)
-    { return Desc{std::forward<T>(x)}; }
+        template<class Dep, class Desc, class T>
+        constexpr auto make_val(T && x, char)
+        { return Desc{std::forward<T>(x)}; }
+    }
 
     template<class Dep, class Desc>
     struct var
@@ -805,15 +791,15 @@ namespace proto
 
         template<class U>
         static constexpr auto impl(U && x)
-        -> val<Dep, decltype(make_val<Dep, Desc>(std::forward<U>(x), 1))>
-        { return {make_val<Dep, Desc>(std::forward<U>(x), 1)}; }
+        -> val<Dep, decltype(detail::make_val<Dep, Desc>(std::forward<U>(x), 1))>
+        { return {detail::make_val<Dep, Desc>(std::forward<U>(x), 1)}; }
     };
 
     template<class T, class = void> struct check;
     template<class T> struct check<T, std::enable_if_t<T::value>> { constexpr operator bool () { return 0; } };
 
 
-    template<class T> using var_type_t = typename T::var_type;
+    template<class T> using deps_type_t = typename T::deps_type;
 
     namespace cexp
     {
@@ -968,6 +954,25 @@ namespace proto
     using is_lazy_value = brigand::bool_<is_reserializer<Desc>{} or has_pkts_sz<Desc>{}>;
 
     // alias on val<>
+    namespace v
+    {
+        template<class Val>
+        using has_next_pkts_sz = proto::has_next_pkts_sz<value_type_t<Val>>;
+
+        template<class Val>
+        using has_current_pkts_sz = proto::has_current_pkts_sz<value_type_t<Val>>;
+
+        template<class Val>
+        using has_pkts_sz = proto::has_pkts_sz<value_type_t<Val>>;
+
+        template<class Val>
+        using is_reserializer = proto::is_reserializer<desc_type_t<Val>>;
+
+        template<class Val>
+        using is_lazy_value = brigand::bool_<is_reserializer<Val>{} or has_pkts_sz<Val>{}>;
+    }
+
+    // alias on trait<desc_type_t<T>>
     namespace v
     {
         template<class Val>
@@ -1328,32 +1333,12 @@ namespace proto
             brigand::bind<
                 std::is_same,
                 brigand::_1,
-                brigand::pin<var_type_t<Val>>
+                brigand::pin<deps_type_t<Val>>
             >
         >::value,
         Val
     >;
 
-    namespace detail
-    {
-        template<class T>
-        struct is_packet_description_impl : std::false_type
-        {};
-    }
-    template<class T>
-    using is_packet_description = typename detail::is_packet_description_impl<T>::type;
-//                 brigand::index_if<
-//                     brigand::list<Ts...>,
-//                     brigand::call<is_packet_description>,
-//                     brigand::size_t<sizeof...(Ts)>
-//                 >{},
-
-// #ifdef IN_IDE_PARSER
-// # define PROTO_FOR_IDE(...)
-// #else
-// # define PROTO_FOR_IDE(...) __VA_ARGS__
-// #endif
-// #define PROTO_EXPAND PROTO_FOR_IDE(...)
 
     template<class Deps, class... Ts>
     struct packet_description
@@ -1383,6 +1368,10 @@ namespace proto
             >{{(static_cast<Ts const &>(this->values).to_proto_value(params))...}};
         }
     };
+
+    template<class T>
+    using is_packet_description = meta::is_layout<packet_description, T>;
+
 
     template<class Deps = void, class... Def>
     constexpr auto
@@ -1442,13 +1431,6 @@ namespace proto
         return subpacket_description<Deps, PktDesc...>{{d...}};
     }
 
-    namespace detail
-    {
-        template<class Deps, class... Ts>
-        struct is_packet_description_impl<packet_description<Deps, Ts...>> : std::true_type
-        {};
-    }
-
 
     template<class Desc, class... Val>
     constexpr auto
@@ -1480,22 +1462,11 @@ namespace proto
         return creator<Deps, subtype, Val...>{{v...}};
     }
 
-    namespace detail
-    {
-        template<class T> struct is_proto_packet_impl : std::false_type {};
-        template<class... Ts>
-        struct is_proto_packet_impl<packet<Ts...>> : std::true_type {};
-
-        template<class T> struct is_proto_subpacket_impl : std::false_type {};
-        template<class... Ts>
-        struct is_proto_subpacket_impl<subpacket<Ts...>> : std::true_type {};
-    }
+    template<class T>
+    using is_proto_packet = meta::is_layout<packet, T>;
 
     template<class T>
-    using is_proto_packet = typename detail::is_proto_packet_impl<T>::type;
-
-    template<class T>
-    using is_proto_subpacket = typename detail::is_proto_subpacket_impl<T>::type;
+    using is_proto_subpacket = meta::is_layout<subpacket, T>;
 
 
     template<class Deps, class Desc, class Expr>

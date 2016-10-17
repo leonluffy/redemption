@@ -141,18 +141,6 @@ using is_delimiter = brigand::bool_<
     is_undeterministic_sizeof_special<PrevVal, PrevSz, PrevSz2>::value
 >;
 
-template<class IsEnd, class Val, class Sz, class Sz2>
-using is_pkt_sz_delimiter = brigand::bool_<
-    !IsEnd::value
-    and
-    proto::has_limited_buffer<desc_type_t<Val>>::value
-    and
-    ( ( proto::v::has_current_pkts_sz<Val>::value and !proto::is_static_size<Sz>::value )
-          or
-          ( proto::v::has_next_pkts_sz<Val>::value and !proto::is_static_size<Sz2>::value )
-    )
->;
-
 
 template<std::size_t n>
 using mk_seq = brigand::range<std::size_t, 0, n>;
