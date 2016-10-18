@@ -806,7 +806,7 @@ struct Buffering2
         template<class Info, class Sp, class Get, class Val>
         void serialize_eval_sz(Get get, Val const & val)
         {
-            auto get_val = proto::val<Sp, Get>{get};
+            auto get_val = proto::val<Sp, Get, desc_type_t<Info>>{get};
             auto const & new_val = val.desc.to_proto_value(proto::utils::make_parameters(get_val));
             using new_val_type = std::remove_reference_t<decltype(new_val)>;
             PROTO_ENABLE_IF_TRACE(Printer::print(new_val, 1));
@@ -1069,7 +1069,7 @@ struct Buffering2
             static_assert(!proto::has_view_buffer<desc_type_t<Info>>{}, "unimplemented view_buffer + pkt_sz_cat");
             PROTO_TRACE(" = " << Sz::value);
             auto get_sz = []{ return Sz::value; };
-            auto szval = proto::val<Sp, decltype(get_sz)>{get_sz};
+            auto szval = proto::val<Sp, decltype(get_sz), desc_type_t<Info>>{get_sz};
             this->serialize_type(
                 info,
                 std::false_type{},
@@ -1093,8 +1093,8 @@ struct Buffering2
         }
 
 
-        template<class Var, class T>
-        static void print(proto::val<Var, T> const & x)
+        template<class Var, class T, class Desc>
+        static void print(proto::val<Var, T, Desc> const & x)
         {
             PROTO_ENABLE_IF_TRACE(Printer::print(x.desc, 1));
             (void)x;

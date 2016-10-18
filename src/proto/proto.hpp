@@ -530,6 +530,9 @@ namespace proto
         template<class T>
         struct value
         {
+            using sizeof_ = void;
+            using buffer_category = void;
+
             T val;
         };
     }
@@ -624,13 +627,39 @@ namespace proto
     template<class T>
     using desc_or_t = get_or_t<desc_type_t, T>;
 
+    namespace detail
+    {
+        template<class Desc, class = void> struct is_reserializer_impl : std::false_type {};
+        template<class Desc> struct is_reserializer_impl<Desc, meta::void_t<typename Desc::is_reserializer>>
+        : brigand::bool_<Desc::is_reserializer::value> {};
+    }
+    template<class Desc>
+    using is_reserializer = typename detail::is_reserializer_impl<Desc>::type;
+
+    // TODO desc_type
+    template<class Sizeof, class BufCat, class IsReserializer>
+    struct desc_type
+    {
+        using sizeof_ = Sizeof;
+        using buffer_category = BufCat;
+        using is_reserializer = IsReserializer;
+    };
+
+    template<class Desc>
+    using desc_traits_t = desc_type<
+        proto::sizeof_<Desc>,
+        proto::buffer_category<Desc>,
+        proto::is_reserializer<Desc>
+    >;
+
+    // TODO val = val_impl<..., minimal_desc_def<Desc>>, with minimal_desc_def<u8> == minimal_desc_def<s8>, traits?
     template<class Deps, class Value, class Desc = desc_or_t<Value>>
     struct val
     {
         using deps_type = Deps;
         using dependencies = get_dependencies<Deps>;
         using value_type = Value;
-        using desc_type = Desc;
+        using desc_type = desc_traits_t<Desc>;
 
         Value desc;
 
@@ -847,16 +876,6 @@ namespace proto
     using get_arguments = typename detail::get_arguments_impl<T>::type;
 
 
-    namespace detail
-    {
-        template<class Desc, class = void> struct is_reserializer_impl : std::false_type {};
-        template<class Desc> struct is_reserializer_impl<Desc, meta::void_t<typename Desc::is_reserializer>>
-        : brigand::bool_<Desc::is_reserializer::value> {};
-    }
-    template<class Desc>
-    using is_reserializer = typename detail::is_reserializer_impl<Desc>::type;
-
-
     namespace dsl
     {
         struct current_pkts_sz {};
@@ -883,7 +902,8 @@ namespace proto
             constexpr val<Sp, Desc> to_proto_value(Params p) const
             {
                 return {checked_cast<typename Desc::type>(
-                  p.get_proto_value(Sp{}).desc()
+                    // TODO desc() -> desc
+                    p.get_proto_value(Sp{}).desc()
                 )};
             }
 
@@ -894,7 +914,7 @@ namespace proto
         };
 
         template<class Params>
-        constexpr val<Sp, lazy, lazy> to_proto_value(Params) const
+        constexpr val<Sp, lazy, Desc> to_proto_value(Params) const
         {
             return {};
         }
@@ -970,8 +990,8 @@ namespace proto
     }
 
 
-    template<class Var, class T>
-    constexpr T get_value(val<Var, T> v)
+    template<class Var, class T, class Desc>
+    constexpr T get_value(val<Var, T, Desc> v)
     { return v.desc; }
 
     template<class T>
@@ -1025,7 +1045,7 @@ namespace proto
         constexpr
         std::conditional_t<
             brigand::any<brigand::list<has_pkts_sz<V>...>>::value,
-            val<Deps, lazy_creator<Deps, Desc, V...>, lazy_creator<Deps, Desc, V...>>,
+            val<Deps, lazy_creator<Deps, Desc, V...>, Desc>,
             val<Deps, Desc>
         >
         to_proto_value_(V && ... values) const
@@ -1140,9 +1160,9 @@ namespace proto
             struct ref
             { Val & x; };
 
-            template<class Deps, class Desc>
-            constexpr val<Deps, Desc>
-            ref_to_val(ref<val<Deps, Desc>> r)
+            template<class Deps, class Value, class Desc>
+            constexpr val<Deps, Value, Desc>
+            ref_to_val(ref<val<Deps, Value, Desc>> r)
             { return r.x; }
         }
 
@@ -1520,8 +1540,8 @@ namespace proto
             to_proto_value(Params p) const
             {
                 auto ret = this->x_.to_proto_value(p);
-                using desc_type = desc_type_t<decltype(ret)>;
-                using type = typename desc_type::type;
+                // TODO integral_type2 ; safe_int<T> = T
+                using type = decltype(ret.desc.val.val);
                 using dst = integral_type<type>;
                 ret.desc.val = static_cast<type>(
                     checked_cast<dst>(Op{}(
@@ -1542,10 +1562,10 @@ namespace proto
             to_value(value<Dep, Desc> v)
             { return {v.desc}; }
 
-            template<class Dep, class Desc>
+            template<class Dep, class Value, class Desc>
             static constexpr
-            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
-            to_value(proto::val<Dep, Desc> v)
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Value, Desc>
+            to_value(proto::val<Dep, Value, Desc> v)
             { return {v.desc}; }
         };
 
@@ -1563,11 +1583,10 @@ namespace proto
             constexpr auto
             to_proto_value(Params p) const
             {
-                auto val = Op{}(
+                return to_value(Op{}(
                     this->x_.to_proto_value(p).desc.val,
                     this->y_.to_proto_value(p).desc.val
-                );
-                return to_value(val);
+                ));
             }
 
             T x_;
@@ -1580,10 +1599,10 @@ namespace proto
             to_value(value<Dep, Desc> v)
             { return {v.desc}; }
 
-            template<class Dep, class Desc>
+            template<class Dep, class Value, class Desc>
             static constexpr
-            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
-            to_value(proto::val<Dep, Desc> v)
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Value, Desc>
+            to_value(proto::val<Dep, Value, Desc> v)
             { return {v.desc}; }
 
             template<class V>
@@ -1618,10 +1637,10 @@ namespace proto
             to_value(value<Dep, Desc> v)
             { return {v.desc}; }
 
-            template<class Dep, class Desc>
+            template<class Dep, class Value, class Desc>
             static constexpr
-            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
-            to_value(proto::val<Dep, Desc> v)
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Value, Desc>
+            to_value(proto::val<Dep, Value, Desc> v)
             { return {v.desc}; }
         };
 
@@ -1636,8 +1655,7 @@ namespace proto
             constexpr auto
             to_proto_value(Params p) const
             {
-                auto val = Op{}(this->x_.to_proto_value(p).desc.val);
-                return to_value(val);
+                return to_value(Op{}(this->x_.to_proto_value(p).desc.val));
             }
 
             T x_;
@@ -1649,10 +1667,10 @@ namespace proto
             to_value(value<Dep, Desc> v)
             { return {v.desc}; }
 
-            template<class Dep, class Desc>
+            template<class Dep, class Value, class Desc>
             static constexpr
-            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Desc>
-            to_value(proto::val<Dep, Desc> v)
+            proto::val<brigand::append<dependencies, get_dependencies<Dep>>, Value, Desc>
+            to_value(proto::val<Dep, Value, Desc> v)
             { return {v.desc}; }
 
             template<class V>
@@ -1934,7 +1952,7 @@ namespace proto
                 std::true_type, bool test,
                 Value & value, ValueElse & value_else
             ) const {
-                return val<void, Value>{
+                return val<void, Value, desc_type_t<Value>>{
                     test ? std::move(value.desc) : std::move(value_else.desc)
                 };
             }
@@ -2012,6 +2030,7 @@ namespace proto
             constexpr auto
             to_proto_value(Params params) const
             {
+                // TODO Deps
                 return proto::val<void, desc_type>{
                     this->is_ok,
                     this->var.to_proto_value(params).desc

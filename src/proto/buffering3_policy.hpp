@@ -279,7 +279,7 @@ struct Buffering3
         template<class VarInfo, class Sp, class Get, class Val>
         void serialize_eval_sz(Get get, Val const & val)
         {
-            auto get_val = proto::val<Sp, decltype(get)>{get};
+            auto get_val = proto::val<Sp, decltype(get), desc_type_t<VarInfo>>{get};
             this->serialize_type2(
                 proto::buffer_category<desc_type_t<VarInfo>>{},
                 *this->special_pkt_iterator,
@@ -401,8 +401,8 @@ struct Buffering3
             return proto::named_dep<deps>{};
         }
 
-        template<class Var, class T>
-        static void print(proto::val<Var, T> const & x)
+        template<class Var, class T, class Desc>
+        static void print(proto::val<Var, T, Desc> const & x)
         {
             PROTO_ENABLE_IF_TRACE(Printer::print(x.desc, 1));
             (void)x;
