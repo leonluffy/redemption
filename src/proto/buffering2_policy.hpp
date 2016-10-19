@@ -587,7 +587,7 @@ struct Buffering2
         // [ static_size<n> | limited_size<n> | dyn_size ... ]
         using sizeof_by_buffer = brigand::transform<
             desc_list_by_buffer,
-            brigand::call<proto::sizeof_packet>
+            brigand::call<proto::sizeof_desc_list>
         >;
 
         // [ uninitialized_buf | dyn_size ... ]

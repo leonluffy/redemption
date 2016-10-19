@@ -1079,19 +1079,13 @@ namespace proto
 
     namespace detail
     {
-        template<class Ints, class... Ts>
-        struct compose_impl;
-
-        template<std::size_t, class T>
-        struct indexed_value
-        { T x; };
-
 
         template<class, class>
-        struct add_size_impl;
+        struct add_size_impl
+        { using type = dyn_size; };
 
         template<std::size_t n1, std::size_t n2>
-        struct add_size_impl<static_size<n1>, static_size<n2>> { using type = limited_size<n1 + n2>; };
+        struct add_size_impl<static_size<n1>, static_size<n2>> { using type = static_size<n1 + n2>; };
 
         template<std::size_t n1, std::size_t n2>
         struct add_size_impl<limited_size<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
@@ -1099,9 +1093,29 @@ namespace proto
         struct add_size_impl<static_size<n1>, limited_size<n2>> { using type = limited_size<n1 + n2>; };
         template<std::size_t n1, std::size_t n2>
         struct add_size_impl<limited_size<n1>, static_size<n2>> { using type = limited_size<n1 + n2>; };
+    }
 
-        template<class Sz1, class Sz2>
-        using add_size = typename add_size_impl<Sz1, Sz2>::type;
+    template<class Sz1, class Sz2>
+    using add_size = typename detail::add_size_impl<Sz1, Sz2>::type;
+
+    template<class L>
+    using sizeof_desc_list = brigand::fold<
+        brigand::transform<L, brigand::call<sizeof_>>,
+        static_size<0>,
+        brigand::call<add_size>
+    >;
+
+    template<class... Desc>
+    using sizeof_descs = sizeof_desc_list<brigand::list<Desc...>>;
+
+    namespace detail
+    {
+        template<class Ints, class... Ts>
+        struct compose_impl;
+
+        template<std::size_t, class T>
+        struct indexed_value
+        { T x; };
 
         template<std::size_t... Ints, class... Desc>
         struct compose_impl<
@@ -1109,11 +1123,10 @@ namespace proto
             Desc...
         >
         {
-            using sizeof_ = brigand::fold<
-                brigand::pop_front<brigand::list<proto::sizeof_<Desc>...>>,
-                proto::sizeof_<brigand::front<brigand::list<Desc...>>>,
-                brigand::call<add_size>
-            >;
+            using sizeof_ = sizeof_descs<Desc...>;
+
+            static_assert(!is_dynamic_size<sizeof_>{}, "not implemented");
+            static_assert(!brigand::any<brigand::list<Desc...>, brigand::call<is_lazy_value>>{}, "not implemented");
 
             constexpr compose_impl(Desc... d) : descs{d...} {}
 
@@ -1140,7 +1153,6 @@ namespace proto
         template<class Ints, class... Ts>
         std::ostream & operator <<(std::ostream & os, compose_impl<Ints, Ts...> const &)
         { return os << "compose"; }
-
     }
 
     template<class... Ts>
@@ -2136,46 +2148,12 @@ namespace proto
         return if_<Deps>(v)[v];
     }
 
-
-    namespace detail
-    {
-        template<class, class>
-        struct plus_sizeof_impl
-        { using type = dyn_size; };
-
-        template<std::size_t n1, std::size_t n2>
-        struct plus_sizeof_impl<static_size<n1>, static_size<n2>>
-        { using type = static_size<n1+n2>; };
-
-        template<std::size_t n1, std::size_t n2>
-        struct plus_sizeof_impl<limited_size<n1>, limited_size<n2>>
-        { using type = limited_size<n1+n2>; };
-
-        template<std::size_t n1, std::size_t n2>
-        struct plus_sizeof_impl<static_size<n1>, limited_size<n2>>
-        { using type = limited_size<n1+n2>; };
-
-        template<std::size_t n1, std::size_t n2>
-        struct plus_sizeof_impl<limited_size<n1>, static_size<n2>>
-        { using type = limited_size<n1+n2>; };
-    }
-
-    template<class i1, class i2>
-    using plus_sizeof = typename detail::plus_sizeof_impl<i1, i2>::type;
-
-    template<class L>
-    using sizeof_packet = brigand::fold<
-        brigand::transform<L, brigand::call<sizeof_>>,
-        static_size<0>,
-        brigand::call<plus_sizeof>
-    >;
-
     namespace detail
     {
         template<class Deps, class... Vals>
         struct optseq_desc
         {
-            using sizeof_ = sizeof_packet<brigand::list<Vals...>>;
+            using sizeof_ = sizeof_descs<Vals...>;
         };
 
         template<class Deps, class... Vals>
@@ -2183,22 +2161,16 @@ namespace proto
         {
             using dependencies = get_dependencies_if_void<Deps, Vals...>;
             using arguments = brigand::append<proto::get_arguments<Vals>...>;
+            using desc_type = desc_traits_t<compose_t<Vals...>>;
 
             static_assert(!brigand::any<brigand::list<Vals...>, brigand::call<is_lazy_value>>{}, "");
             static_assert(!brigand::any<brigand::list<desc_type_t<Vals>...>, brigand::call<has_view_buffer>>{}, "");
-            static_assert(
-                std::is_same<
-                    brigand::transform<brigand::list<get_arguments<Vals>...>, brigand::call<brigand::size>>,
-                    brigand::filled_list<brigand::size_t<1>, sizeof...(Vals)>
-                >{}, ""
-            );
 
             inherits<Vals...> values;
 
             template<class Params>
             decltype(auto) to_proto_value(Params params) noexcept
             {
-                // TODO check sequence
                 //return {static_cast<Vars const &>(this->values).to_proto_value(params)...};
             }
         };
@@ -2368,18 +2340,18 @@ namespace proto
     namespace detail
     {
         template<class L, class Add>
-        struct plus_sizeof_and_push_back_impl;
+        struct add_size_and_push_back_impl;
 
         template<class... Ts, class n>
-        struct plus_sizeof_and_push_back_impl<brigand::list<Ts...>, n>
-        { using type = brigand::list<plus_sizeof<Ts, n>..., n>; };
+        struct add_size_and_push_back_impl<brigand::list<Ts...>, n>
+        { using type = brigand::list<add_size<Ts, n>..., n>; };
     }
 
     template<class L, class x>
-    using plus_sizeof_and_push_back = typename detail::plus_sizeof_and_push_back_impl<L, x>::type;
+    using add_size_and_push_back = typename detail::add_size_and_push_back_impl<L, x>::type;
 
     template<class L>
-    using accu_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<plus_sizeof_and_push_back>>;
+    using accu_sizeof_list = brigand::fold<L, brigand::list<>, brigand::call<add_size_and_push_back>>;
 
     namespace detail
     {
@@ -2410,7 +2382,7 @@ namespace proto
         using sizeof_by_packet = brigand::transform<
             brigand::transform<
                 desc_list_by_packet,
-                brigand::call<sizeof_packet>
+                brigand::call<sizeof_desc_list>
             >,
             brigand::call<limited_size_to_dyn_size>
         >;
