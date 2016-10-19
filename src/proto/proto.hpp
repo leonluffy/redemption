@@ -27,6 +27,7 @@
 #include <limits>
 #include <utility>
 #include <functional> // plus, bit_and, etc
+#include <tuple> // ignore_t
 #include <cstdint>
 
 // (standalone version): https://github.com/edouarda/brigand
@@ -645,6 +646,8 @@ namespace proto
         using is_reserializer = IsReserializer;
     };
 
+    using nodesc = desc_type<void, void, std::false_type>;
+
     template<class Desc>
     using desc_traits_t = desc_type<
         proto::sizeof_<Desc>,
@@ -772,6 +775,23 @@ namespace proto
         { return Desc{std::forward<T>(x)}; }
     }
 
+    // NOTE std::optional
+    template<class T>
+    struct maybe_impl
+    {
+        bool enable;
+        T value;
+    };
+
+    template<class T>
+    maybe_impl<std::remove_reference_t<T>>
+    maybe(bool enable, T && value)
+    {
+        return {enable, std::forward<T>(value)};
+    }
+
+    using ignore_t = decltype(std::ignore);
+
     template<class Dep, class Desc>
     struct var
     {
@@ -782,6 +802,16 @@ namespace proto
         template<class U>
         constexpr auto operator = (U && v) const
         { return this->lax_impl(is_enum_to_int<U, desc_type>{}, std::forward<U>(v)); }
+
+        template<class U>
+        constexpr auto operator = (ignore_t) const
+        { return val<Dep, ignore_t, nodesc>{}; }
+
+        template<class U>
+        constexpr auto operator = (maybe_impl<U> && o) const = delete; // TODO unimplemented
+
+        template<class U>
+        constexpr auto operator = (maybe_impl<U> const & o) const = delete; // TODO unimplemented
 
         template<class U>
         constexpr auto operator = (unsafe_cast_impl<U> o) const
@@ -825,7 +855,9 @@ namespace proto
     };
 
     template<class T, class = void> struct check;
-    template<class T> struct check<T, std::enable_if_t<T::value>> { constexpr operator bool () { return 0; } };
+    template<class T> struct check<T, std::enable_if_t<T::value>>
+    : std::true_type
+    {};
 
 
     template<class T> using deps_type_t = typename T::deps_type;
@@ -2150,28 +2182,75 @@ namespace proto
 
     namespace detail
     {
-        template<class Deps, class... Vals>
-        struct optseq_desc
+        template<class T>
+        using has_ignore_or_maybe_ignore_value = brigand::bool_<
+            std::is_same<ignore_t, T>{} or meta::is_layout<maybe_impl, T>{}
+        >;
+
+        struct ignore_desc
         {
-            using sizeof_ = sizeof_descs<Vals...>;
+            ignore_t ignored;
+
+            constexpr static static_size<0> static_serialize(uint8_t *)
+            {
+                return {};
+            }
         };
 
-        template<class Deps, class... Vals>
-        struct optseq
+        template<class... Ts>
+        struct check_seq_value
         {
-            using dependencies = get_dependencies_if_void<Deps, Vals...>;
-            using arguments = brigand::append<proto::get_arguments<Vals>...>;
-            using desc_type = desc_traits_t<compose_t<Vals...>>;
+            using list = brigand::transform<brigand::list<Ts...>, brigand::call<value_type_t>>;
+            using i = brigand::index_if<
+                list,
+                brigand::bind<std::is_same, ignore_t, brigand::_1>,
+                brigand::size_t<sizeof...(Ts)>
+            >;
+            using splitted = brigand::split_at<list, i>;
+            using right = brigand::front<brigand::pop_front<splitted>>;
+            using type = brigand::all<right, brigand::call<has_ignore_or_maybe_ignore_value>>;
 
-            static_assert(!brigand::any<brigand::list<Vals...>, brigand::call<is_lazy_value>>{}, "");
-            static_assert(!brigand::any<brigand::list<desc_type_t<Vals>...>, brigand::call<has_view_buffer>>{}, "");
+            static const bool value = type::value;
 
-            inherits<Vals...> values;
+            static_assert(value, "ignored value following a not ignored value");
+        };
+
+        template<class Deps, class... Vars>
+        struct optseq_impl
+        {
+            using dependencies = get_dependencies_if_void<Deps, Vars...>;
+            using arguments = brigand::append<proto::get_arguments<Vars>...>;
+
+            static_assert(!is_dynamic_size<sizeof_descs<desc_or_t<Vars>...>>{}, "not implemented");
+            static_assert(brigand::none<brigand::list<desc_or_t<Vars>...>, brigand::call<has_view_buffer>>{}, "");
+
+            inherits<Vars...> values;
 
             template<class Params>
-            decltype(auto) to_proto_value(Params params) noexcept
+            auto to_proto_value(Params params) const
             {
-                //return {static_cast<Vars const &>(this->values).to_proto_value(params)...};
+                return impl_check(static_cast<Vars const &>(this->values).to_proto_value(params)...);
+            }
+
+        private:
+            template<class... Vals>
+            static auto impl_check(Vals && ... values)
+            {
+                // TODO assertion (is_ignored(at, values))
+                return impl(check<check_seq_value<Vals...>>{}, std::forward<Vals>(values)...);
+            }
+
+            template<class... Vals>
+            static auto impl(std::true_type, Vals && ... values)
+            {
+                using value_type = compose_t<
+                    std::conditional_t<
+                        std::is_same<ignore_t, value_type_t<Vals>>{},
+                        ignore_desc,
+                        value_type_t<Vals>
+                    >...
+                >;
+                return val<dependencies, value_type>{{std::forward<Vals>(values).desc...}};
             }
         };
     }
@@ -2179,7 +2258,13 @@ namespace proto
     template<class... Vals>
     constexpr auto optseq(Vals... vals)
     {
-        return detail::optseq<Vals...>{{vals...}};
+        return detail::optseq_impl<brigand::list<Vals...>, Vals...>{{vals...}};
+    }
+
+    template<class Dep, class... Vals>
+    constexpr auto optseq(Vals... vals)
+    {
+        return detail::optseq_impl<Dep, Vals...>{{vals...}};
     }
 
 

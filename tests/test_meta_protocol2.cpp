@@ -238,6 +238,21 @@ struct lazy2 {
 };
 
 
+template<class Checker>
+auto buffering2_checker(Checker checker)
+{
+    struct Policy : log_policy
+    {
+        void send(iovec_array iovs) const {
+            checker(iovs);
+        }
+
+        Policy(Checker & checker) : checker(checker) {}
+        Checker checker;
+    };
+    return Buffering2<Policy>{checker};
+}
+
 void other_test()
 {
     PROTO_VAR(proto::types::u8, a);
@@ -419,7 +434,7 @@ void other_test()
             std::cout << " [hook av{0x" << voidp(av.data()) << ", " << av.size() << "}] [data:";
             BOOST_CHECK(false);
         }, [](iovec_array iovs, std::size_t total){
-            std::cout << " [hook.sz: " << iovs.size() << "}] [data:";
+            std::cout << " [hook.sz: " << iovs.size() << "}] [total: " << total << "] [data:";
             for (auto iov : iovs) {
                 for (auto byte : array_view_u8{static_cast<uint8_t *>(iov.iov_base), iov.iov_len}) {
                     std::cout << " " << int(byte);
@@ -505,8 +520,26 @@ void other_test()
     BOOST_CHECK(used);
 
 
+    used = false;
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
+            BOOST_REQUIRE_EQUAL(iovs.size(), 1);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 3);
+            CHECK_RANGE(
+                iov2av(iovs[0]),
+                cstr_array_view("\x02\x03\x00")
+            );
+            used = true;
+        }),
+        proto::desc(
+            proto::optseq(XXX::b, XXX::d)
+        )(XXX::b = 2_c, XXX::d = 3_c)
+    );
+    BOOST_CHECK(used);
+
+
 //     auto desc_optseq = proto::desc(
-//         proto::optseq_sz<proto::types::u8>(),
+//         proto::pkt_sz<proto::types::u8>(),
 //         XXX::a,
 //         proto::optseq(XXX::b, XXX::d)
 //     );
