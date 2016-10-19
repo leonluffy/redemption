@@ -152,6 +152,38 @@ inline array_view_const_u8 iov2av(iovec const iov)
     };
 }
 
+
+template<class Checker>
+auto buffering2_checker(Checker checker)
+{
+    struct Policy : log_policy
+    {
+        void send(iovec_array iovs) const {
+            checker(iovs);
+        }
+
+        Policy(Checker & checker) : checker(checker) {}
+        Checker checker;
+    };
+    return Buffering2<Policy>{checker};
+}
+
+template<class Checker>
+auto buffering3_checker(Checker checker, array_view_u8 av)
+{
+    struct Policy : log_policy
+    {
+        void send(array_view_u8 av) const {
+            checker(av);
+        }
+
+        Policy(Checker & checker) : checker(checker) {}
+        Checker checker;
+    };
+    return Buffering3<Policy>{checker, av};
+}
+
+
 void test_new()
 {
     auto packet1 = x224::dt_tpdu();
@@ -162,40 +194,35 @@ void test_new()
         sec::crypt = crypt
     );
 
-    struct Policy : log_policy {
-        void send(iovec_array iovs) const {
+    bool used = false;
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
             BOOST_CHECK_EQUAL(iovs.size(), 1);
             CHECK_RANGE(
                 iov2av(iovs[0]),
                 cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
             );
             log_policy::send(iovs);
-            this->used = true;
-        }
-
-        Policy(bool & used) : used(used) {}
-        bool & used;
-    };
-
-    bool used = false;
-    proto::apply(Buffering2<Policy>{used}, packet1, packet2);
+            used = true;
+        }),
+        packet1,
+        packet2
+    );
     BOOST_CHECK(used);
 
 
-    struct Policy2 : log_policy {
-        void send(array_view_u8 av) const {
+    uint8_t buf[1024];
+    used = false;
+    proto::apply(
+        buffering3_checker([&used](array_view_u8 av) {
             CHECK_RANGE(av, cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff"));
             iovec iov{av.data(), av.size()};
             log_policy::send(iovec_array{&iov, 1u});
-            this->used = true;
-        }
-        Policy2(bool & used) : used(used) {}
-        bool & used;
-    };
-
-    uint8_t buf[1024];
-    used = false;
-    proto::apply(Buffering3<Policy2>{{used}, {buf}}, packet1, packet2);
+            used = true;
+        }, {buf}),
+        packet1,
+        packet2
+    );
     BOOST_CHECK(used);
 }
 
@@ -238,21 +265,6 @@ struct lazy2 {
 };
 
 
-template<class Checker>
-auto buffering2_checker(Checker checker)
-{
-    struct Policy : log_policy
-    {
-        void send(iovec_array iovs) const {
-            checker(iovs);
-        }
-
-        Policy(Checker & checker) : checker(checker) {}
-        Checker checker;
-    };
-    return Buffering2<Policy>{checker};
-}
-
 void other_test()
 {
     PROTO_VAR(proto::types::u8, a);
@@ -288,14 +300,11 @@ void other_test()
     );
 
     uint8_t data[1024];
-    struct Policy3 : log_policy {
-        void send(array_view_u8 av) const {
+    proto::apply(
+        buffering3_checker([](array_view_u8 av) {
             iovec iov{av.data(), av.size()};
             log_policy::send(iovec_array{&iov, 1u});
-        }
-    };
-    proto::apply(
-        Buffering3<Policy3>{{}, array_view_u8{data}},
+        }, array_view_u8{data}),
         bl(a = 1_c, b = 3_c),
         proto::value(proto::types::u8{2_c}),
         proto::hook<class hook>([](auto...){}),
@@ -320,38 +329,33 @@ void other_test()
     auto b2 = proto::desc(proto::sz<proto::types::u16_encoding>{});
     auto b3 = proto::desc(c);
 
-    struct PolicyLL : log_policy {
-        void send(iovec_array iovs) const {
-            log_policy::send(iovs);
-            BOOST_REQUIRE_EQUAL(iovs.size(), 2);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
-            BOOST_CHECK_EQUAL(iovs[1].iov_len, 2);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x02")
-            );
-            CHECK_RANGE(
-                iov2av(iovs[1]),
-                cstr_array_view("\x03\x02")
-            );
-            this->used = true;
-        }
-
-        PolicyLL(bool & used) : used(used) {}
-        bool & used;
-    };
-
     bool used = false;
+    auto buffuring2_ll = buffering2_checker([&used](iovec_array iovs){
+        log_policy::send(iovs);
+        BOOST_REQUIRE_EQUAL(iovs.size(), 2);
+        BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
+        BOOST_CHECK_EQUAL(iovs[1].iov_len, 2);
+        CHECK_RANGE(
+            iov2av(iovs[0]),
+            cstr_array_view("\x02")
+        );
+        CHECK_RANGE(
+            iov2av(iovs[1]),
+            cstr_array_view("\x03\x02")
+        );
+        used = true;
+    });
     proto::apply(
-        Buffering2<PolicyLL>{used},
+        buffuring2_ll,
         b2(),
         b3(c = proto::cast(3_c)),
         proto::value(proto::types::u8{2_c})
     );
     BOOST_CHECK(used);
 
-    struct PolicyLL2 : log_policy {
-        void send(iovec_array iovs) const {
+    used = false;
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
             BOOST_CHECK_EQUAL(iovs[0].iov_len, 3);
@@ -359,16 +363,8 @@ void other_test()
                 iov2av(iovs[0]),
                 cstr_array_view("\x02\x03\x02")
             );
-            this->used = true;
-        }
-
-        PolicyLL2(bool & used) : used(used) {}
-        bool & used;
-    };
-
-    used = false;
-    proto::apply(
-        Buffering2<PolicyLL2>{used},
+            used = true;
+        }),
         b2(),
         b3(c = 3_c),
         proto::value(proto::types::u8{2_c})
@@ -376,7 +372,7 @@ void other_test()
     BOOST_CHECK(used);
 
     proto::apply(
-        Buffering2<PolicyLL>{used},
+        buffuring2_ll,
         b2(),
         b3(c = proto::cast(3_c)),
         proto::hook<class hook>([](array_view_u8 av){
@@ -397,9 +393,9 @@ void other_test()
         proto::value(proto::types::u8{2_c})
     );
 
-    struct Policy2 : log_policy
-    {
-        void send(iovec_array iovs) const {
+    used = false;
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 3);
             BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
@@ -417,15 +413,8 @@ void other_test()
                 iov2av(iovs[2]),
                 cstr_array_view("abc")
             );
-            this->used = true;
-        }
-
-        Policy2(bool & used) : used(used) {}
-        bool & used;
-    };
-    used = false;
-    proto::apply(
-        Buffering2<Policy2>{used},
+            used = true;
+        }),
         b2(),
         b3(c = 3_c),
         proto::hook<class hook>([](array_view_u8 av){
@@ -451,9 +440,9 @@ void other_test()
     );
     BOOST_CHECK(used);
 
-    struct Policy4 : log_policy
-    {
-        void send(iovec_array iovs) const {
+    used = false;
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 3);
             BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
@@ -471,15 +460,8 @@ void other_test()
                 iov2av(iovs[2]),
                 cstr_array_view("abc")
             );
-            this->used = true;
-        }
-
-        Policy4(bool & used) : used(used) {}
-        bool & used;
-    };
-    used = false;
-    proto::apply(
-        Buffering2<Policy4>{used},
+            used = true;
+        }),
         proto::desc(
             proto::sz_with_self<proto::types::u16_encoding>{},
             c
@@ -496,9 +478,9 @@ void other_test()
         proto::desc<class desc_d>(proto::val<class sub_a, proto::types::u8>{{7_c}})
     );
 
-    struct Policy5 : log_policy
-    {
-        void send(iovec_array iovs) const {
+    used = false;
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
             BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
@@ -506,15 +488,8 @@ void other_test()
                 iov2av(iovs[0]),
                 cstr_array_view("\x03\x02\x01\x07")
             );
-            this->used = true;
-        }
-
-        Policy5(bool & used) : used(used) {}
-        bool & used;
-    };
-    used = false;
-    proto::apply(
-        Buffering2<Policy5>{used},
+            used = true;
+        }),
         desc_subpkt()
     );
     BOOST_CHECK(used);
