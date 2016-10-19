@@ -954,11 +954,11 @@ namespace proto
 
     // TODO Deps, Desc
     template<class Desc>
-    using sz = special<dsl::next_pkts_sz, Desc>;
+    using next_pkts_sz = special<dsl::next_pkts_sz, Desc>;
 
     // TODO Deps, Desc
     template<class Desc>
-    using sz_with_self = special<dsl::current_pkts_sz, Desc>;
+    using current_pkts_sz = special<dsl::current_pkts_sz, Desc>;
 
     namespace types {
         using ::proto::dsl::next_pkts_sz;

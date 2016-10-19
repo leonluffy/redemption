@@ -644,6 +644,6 @@ namespace GCC
 //         proto::val<class server_to_client_h221_key, proto::types::bytes>{cstr_array_view("McDn")},
 //
 //         // set user_data_len (TWO_BYTE_UNSIGNED_ENCODING)
-//         proto::sz<proto::types::u16_encoding_force_u16>{}
+//         proto::next_pkts_sz<proto::types::u16_encoding_force_u16>{}
 //     );
 // }

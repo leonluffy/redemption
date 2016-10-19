@@ -3021,7 +3021,7 @@ namespace mcs
         channel_id,
         proto::retype<proto::types::u8>
             ((data_priority << 6) | (segmentation << 4)),
-        proto::sz<proto::types::u16_encoding>{}
+        proto::next_pkts_sz<proto::types::u16_encoding>{}
     );
 
     constexpr auto data_indication = proto::desc(
@@ -3030,7 +3030,7 @@ namespace mcs
         channel_id,
         proto::retype<proto::types::u8>
             ((data_priority << 6) | (segmentation << 4)),
-        proto::sz<proto::types::u16_encoding>{}
+        proto::next_pkts_sz<proto::types::u16_encoding>{}
     );
 
 
@@ -3064,7 +3064,7 @@ namespace mcs
 //         // BER: Application-Defined Type = APPLICATION 102 = Connect-Response
 //         proto::desc(
 //             type = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00_c),
-//             proto::sz
+//             proto::next_pkts_sz
 //         ),
 //         proto::desc(
 //             // Connect-Response::result = rt-successful (0)
@@ -3091,7 +3091,7 @@ namespace mcs
 //             proto::val<class domain_parameters_protocol_version, proto::types::u8>{{2_c}},
 //
 //             proto::val<class tag_octet_string, proto::types::u8>{{4_c /* TODO BER_TAG_OCTET_STRING*/}},
-//             proto::sz
+//             proto::next_pkts_sz
 //         )
 //     );
 }

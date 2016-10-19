@@ -1316,7 +1316,7 @@ namespace fast_path
     constexpr auto server_update = proto::desc(
         proto::retype_as(fp_output_header,
             FastPath::FASTPATH_OUTPUT_ACTION_FASTPATH | ((sec_flags & 0x03) << 6)),
-        proto::sz_with_self<proto::types::u16_encoding>{},
+        proto::current_pkts_sz<proto::types::u16_encoding>{},
         proto::if_(sec_flags & FastPath::FASTPATH_OUTPUT_ENCRYPTED)
             [proto::creater<sec::proto_signature>(crypt)]
     );

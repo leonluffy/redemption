@@ -1482,7 +1482,7 @@ namespace x224
     constexpr auto dt_tpdu = proto::desc(
         version = 3_c,
         unknown = 0_c,
-        proto::sz_with_self<proto::types::u16_be>{},
+        proto::current_pkts_sz<proto::types::u16_be>{},
         LI = 2_c,
         type = X224::DT_TPDU,
         cat = X224::EOT_EOT
