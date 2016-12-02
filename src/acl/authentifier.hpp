@@ -32,41 +32,44 @@
 #include "module_manager.hpp"
 #include "front/front.hpp"
 
+#include "utils/verbose_flags.hpp"
+
+
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <time.h>
 
-#  define LOG_SESSION(normal_log, session_log, session_type, type, session_id,   \
-        ip_client, ip_target, user, device, service, account, priority, format,  \
-        ...                                                                      \
-    )                                                                            \
-    LOGCHECK__REDEMPTION__INTERNAL((                                             \
-        LOG_FORMAT_CHECK(format, __VA_ARGS__),                                   \
-        LOGSYSLOG__REDEMPTION__SESSION__INTERNAL(                                \
-            normal_log,                                                          \
-            session_log,                                                         \
-            session_type, type, session_id, ip_client, ip_target,                \
-            user, device, service, account, priority,                            \
-            "%s (%d/%d) -- type='%s'%s" format,                                  \
-            "[%s Session] "                                                      \
-                "type='%s' "                                                     \
-                "session_id='%s' "                                               \
-                "client_ip='%s' "                                                \
-                "target_ip='%s' "                                                \
-                "user='%s' "                                                     \
-                "device='%s' "                                                   \
-                "service='%s' "                                                  \
-                "account='%s'%s"                                                 \
-                format,                                                          \
-            ((*format) ? " " : ""),                                              \
-            __VA_ARGS__                                                          \
-        ), 1)                                                                    \
+#define LOG_SESSION(normal_log, session_log, session_type, type, session_id,    \
+        ip_client, ip_target, user, device, service, account, priority, format, \
+        ...                                                                     \
+    )                                                                           \
+    LOGCHECK__REDEMPTION__INTERNAL((                                            \
+        LOG_FORMAT_CHECK(format, __VA_ARGS__),                                  \
+        LOGSYSLOG_REDEMPTION_SESSION_INTERNAL(                                  \
+            normal_log,                                                         \
+            session_log,                                                        \
+            session_type, type, session_id, ip_client, ip_target,               \
+            user, device, service, account, priority,                           \
+            "%s (%d/%d) -- type='%s'%s" format,                                 \
+            "[%s Session] "                                                     \
+                "type='%s' "                                                    \
+                "session_id='%s' "                                              \
+                "client_ip='%s' "                                               \
+                "target_ip='%s' "                                               \
+                "user='%s' "                                                    \
+                "device='%s' "                                                  \
+                "service='%s' "                                                 \
+                "account='%s'%s"                                                \
+                format,                                                         \
+            ((*format) ? " " : ""),                                             \
+            __VA_ARGS__                                                         \
+        ), 1)                                                                   \
     )
 
 namespace {
     template<class... Ts>
-    void LOGSYSLOG__REDEMPTION__SESSION__INTERNAL(
+    void LOGSYSLOG_REDEMPTION_SESSION_INTERNAL(
         bool normal_log,
         bool session_log,
 
@@ -85,20 +88,42 @@ namespace {
         const char *format2,
         Ts const & ... args
     ) {
-        #ifdef __GNUG__
-            #pragma GCC diagnostic push
-            #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-        #endif
+#if defined(LOGNULL)
+        (void)normal_log;
+        (void)session_log;
+        (void)session_type;
+        (void)type;
+        (void)session_id;
+        (void)ip_client;
+        (void)ip_target;
+        (void)user;
+        (void)device;
+        (void)service;
+        (void)account;
+        (void)priority;
+        (void)format_with_pid;
+        (void)format2;
+        (void)std::initializer_list<int>{(void(args), 1)...};
+#else
+        REDEMPTION_DIAGNOSTIC_PUSH
+        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
+
+        # if defined(LOGPRINT) || defined(IN_IDE_PARSER)
+        (void)priority;
+        #  define LOGSYSLOG_REDEMPTION_SESSION_INTERNAL_PRINTF printf
+        # else
+        #  define LOGSYSLOG_REDEMPTION_SESSION_INTERNAL_PRINTF(...) syslog(priority, __VA_ARGS__)
+        # endif
         if (normal_log) {
-            syslog(
-                priority, format_with_pid,
+            LOGSYSLOG_REDEMPTION_SESSION_INTERNAL_PRINTF(
+                format_with_pid,
                 prioritynames[priority], getpid(), getpid(),
                 type, args...
             );
         }
         if (session_log) {
-            syslog(
-                priority, format2,
+            LOGSYSLOG_REDEMPTION_SESSION_INTERNAL_PRINTF(
+                format2,
                 session_type,
                 type,
                 session_id,
@@ -111,35 +136,10 @@ namespace {
                 args...
              );
         }
-        #ifdef __GNUG__
-            #pragma GCC diagnostic pop
-        #endif
-    }
+        # undef LOGSYSLOG_REDEMPTION_SESSION_INTERNAL_PRINTF
 
-    inline void LOGNULL__REDEMPTION__SESSION__INTERNAL(
-        bool normal_log,
-        bool session_log,
-        char const * session_type,
-        char const * type,
-        char const * session_id,
-        char const * ip_client,
-        char const * ip_target,
-        char const * user,
-        char const * device,
-        char const * service,
-        char const * account
-    ) {
-        (void)normal_log;
-        (void)session_log;
-        (void)session_type;
-        (void)type;
-        (void)session_id;
-        (void)ip_client;
-        (void)ip_target;
-        (void)user;
-        (void)device;
-        (void)service;
-        (void)account;
+        REDEMPTION_DIAGNOSTIC_POP
+#endif
     }
 }
 
@@ -151,25 +151,30 @@ class KeepAlive {
     bool wait_answer;     // true when we are waiting for a positive response
                           // false when positive response has been received and
                           // timers have been set to new timers.
-    uint32_t verbose;
     bool connected;
 
 public:
-    KeepAlive(std::chrono::seconds _grace_delay, uint32_t verbose)
-        : grace_delay(_grace_delay.count())
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        state = 0x10,
+    };
+
+    KeepAlive(std::chrono::seconds grace_delay_, Verbose verbose)
+        : grace_delay(grace_delay_.count())
         , timeout(0)
         , renew_time(0)
         , wait_answer(false)
-        , verbose(verbose)
         , connected(false)
+        , verbose(verbose)
     {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "KEEP ALIVE CONSTRUCTOR");
         }
     }
 
     ~KeepAlive() {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "KEEP ALIVE DESTRUCTOR");
         }
     }
@@ -180,7 +185,7 @@ public:
 
     void start(time_t now) {
         this->connected = true;
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "auth::start_keep_alive");
         }
         this->timeout    = now + 2 * this->grace_delay;
@@ -209,7 +214,7 @@ public:
             if (this->wait_answer
                 && !ini.is_asked<cfg::context::keepalive>()
                 && ini.get<cfg::context::keepalive>()) {
-                if (this->verbose & 0x10) {
+                if (this->verbose & Verbose::state) {
                     LOG(LOG_INFO, "auth::keep_alive ACL incoming event");
                 }
                 this->timeout    = now + 2*this->grace_delay;
@@ -241,22 +246,26 @@ class Inactivity {
 
     ActivityChecker & checker;
 
-    uint32_t verbose;
-
 public:
-    Inactivity(ActivityChecker & checker, std::chrono::seconds timeout, time_t start, uint32_t verbose)
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        state = 0x10,
+    };
+
+    Inactivity(ActivityChecker & checker, std::chrono::seconds timeout, time_t start, Verbose verbose)
     : inactivity_timeout(std::max<time_t>(timeout.count(), 30))
     , last_activity_time(start)
     , checker(checker)
     , verbose(verbose)
     {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "INACTIVITY CONSTRUCTOR");
         }
     }
 
     ~Inactivity() {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "INACTIVITY DESTRUCTOR");
         }
     }
@@ -285,36 +294,41 @@ class SessionManager : public auth_api {
                               // received from acl and asked_remote_answer is
                               // set to false
 
-    uint32_t verbose;
-
     KeepAlive keepalive;
     Inactivity inactivity;
 
     mutable std::string session_type;
 
+
 public:
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        state = 0x10,
+    };
+
     SessionManager(Inifile & ini, ActivityChecker & activity_checker, Transport & auth_trans, time_t acl_start_time)
         : ini(ini)
-        , acl_serial(ini, auth_trans, ini.get<cfg::debug::auth>())
+        , acl_serial(ini, auth_trans, to_verbose_flags(ini.get<cfg::debug::auth>()))
         , remote_answer(false)
-        , verbose(ini.get<cfg::debug::auth>())
-        , keepalive(ini.get<cfg::globals::keepalive_grace_delay>(), ini.get<cfg::debug::auth>())
+        , keepalive(ini.get<cfg::globals::keepalive_grace_delay>(), to_verbose_flags(ini.get<cfg::debug::auth>()))
         , inactivity(activity_checker, ini.get<cfg::globals::session_timeout>(),
-                     acl_start_time, ini.get<cfg::debug::auth>())
+                     acl_start_time, to_verbose_flags(ini.get<cfg::debug::auth>()))
+        , verbose(static_cast<Verbose>(ini.get<cfg::debug::auth>()))
     {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "auth::SessionManager");
         }
     }
 
     ~SessionManager() override {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "auth::~SessionManager");
         }
     }
 
 public:
-    bool check(MMApi & mm, time_t now, BackEvent_t & signal) {
+    bool check(MMApi & mm, time_t now, BackEvent_t & signal, BackEvent_t & front_signal) {
         //LOG(LOG_INFO, "================> ACL check: now=%u, signal=%u",
         //    (unsigned)now, static_cast<unsigned>(signal));
         if (signal == BACK_EVENT_STOP) {
@@ -373,7 +387,8 @@ public:
                 this->ask_acl();
             }
         }
-        else if (this->remote_answer || (signal == BACK_EVENT_RETRY_CURRENT)) {
+        else if (this->remote_answer || (signal == BACK_EVENT_RETRY_CURRENT) ||
+                 (front_signal == BACK_EVENT_NEXT)) {
             this->remote_answer = false;
             if (signal == BACK_EVENT_REFRESH) {
                 LOG(LOG_INFO, "===========> MODULE_REFRESH");
@@ -383,8 +398,9 @@ public:
                 mm.mod->get_event().signal = BACK_EVENT_NONE;
                 mm.mod->get_event().set();
             }
-            else if ((signal == BACK_EVENT_NEXT) || (signal == BACK_EVENT_RETRY_CURRENT)) {
-                if (signal == BACK_EVENT_NEXT) {
+            else if ((signal == BACK_EVENT_NEXT) || (signal == BACK_EVENT_RETRY_CURRENT) ||
+                     (front_signal == BACK_EVENT_NEXT)) {
+                if ((signal == BACK_EVENT_NEXT) || (front_signal == BACK_EVENT_NEXT)) {
                     LOG(LOG_INFO, "===========> MODULE_NEXT");
                 }
                 else {
@@ -393,7 +409,9 @@ public:
                     LOG(LOG_INFO, "===========> MODULE_RETRY_CURRENT");
                 }
 
-                int next_state = ((signal == BACK_EVENT_NEXT) ? mm.next_module() : MODULE_RDP);
+                int next_state = (((signal == BACK_EVENT_NEXT) || (front_signal == BACK_EVENT_NEXT)) ? mm.next_module() : MODULE_RDP);
+
+                front_signal = BACK_EVENT_NONE;
 
                 if (next_state == MODULE_TRANSITORY) {
                     this->remote_answer = false;
@@ -466,7 +484,7 @@ public:
             {
                 if (!this->ini.get<cfg::context::disconnect_reason>().empty()) {
                     this->ini.set<cfg::context::manager_disconnect_reason>(
-                        this->ini.get<cfg::context::disconnect_reason>().c_str());
+                        this->ini.get<cfg::context::disconnect_reason>());
                     this->ini.get_ref<cfg::context::disconnect_reason>().clear();
 
                     this->ini.set_acl<cfg::context::disconnect_reason_ack>(true);
@@ -493,7 +511,7 @@ public:
     }
 
     void receive() {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "+++++++++++> ACL receive <++++++++++++++++");
         }
         try {
@@ -501,7 +519,7 @@ public:
 
             if (!this->ini.get<cfg::context::module>().compare("RDP") ||
                 !this->ini.get<cfg::context::module>().compare("VNC")) {
-                this->session_type = this->ini.get<cfg::context::module>().c_str();
+                this->session_type = this->ini.get<cfg::context::module>();
             }
 
             this->remote_answer = true;
@@ -515,14 +533,14 @@ public:
             }
             else {
                 this->ini.set_acl<cfg::context::rejected>(
-                    this->ini.get<cfg::context::manager_disconnect_reason>().c_str());
+                    this->ini.get<cfg::context::manager_disconnect_reason>());
                 this->ini.get_ref<cfg::context::manager_disconnect_reason>().clear();
             }
         }
     }
 
     void ask_acl() {
-        if (this->verbose & 0x10) {
+        if (this->verbose & Verbose::state) {
             LOG(LOG_INFO, "Ask acl\n");
         }
         this->acl_serial.send_acl_data();
@@ -556,37 +574,40 @@ public:
         const bool session_log =
             this->ini.get<cfg::session_log::enable_session_log>();
         if (!duplicate_with_pid && !session_log) return;
-        
+
         /* Log to file */
         const bool log_redir = this->ini.get<cfg::session_log::session_log_redirection>();
 
         if (log_redir) {
-            std::string filename = std::string("/var/wab/recorded/rdp/") + this->ini.get<cfg::context::session_id>().c_str()  + "_traces.txt";
+            std::string filename = std::string("/var/wab/recorded/rdp/")
+                    +  this->ini.get<cfg::globals::auth_user>() + std::string("@")
+                    +  this->ini.get<cfg::context::target_host>() + std::string(",")
+                    +  this->ini.get<cfg::globals::target_user>() + std::string("@")
+                    +  this->ini.get<cfg::globals::target_device>()
+                    +  std::string(".log");
             std::ofstream log_file(filename, std::fstream::out | std::fstream::app);
 
-            if (log_redir) {
-                if(log_file.bad()) {
-                    LOG(LOG_INFO, "auth::bad SIEM log file creation");
-                }      
-                else {
-                    time_t seconds = time(NULL);
-                    struct tm * timeinfo = localtime(&seconds);
-                    log_file << (1900+timeinfo->tm_year) << "-";
-                    log_file << (timeinfo->tm_mon+1) << "-" << timeinfo->tm_mday << " " << timeinfo->tm_hour << ":" <<timeinfo->tm_min << ":" <<timeinfo->tm_sec << " ";
-                    log_file << "[" << (this->session_type.empty() ? "Neutral" : this->session_type.c_str()) << " Session] " << " " ;
-                    log_file << "type=" << type << " " ;
-                    log_file << "session_id=" << this->ini.get<cfg::context::session_id>().c_str() << " " ;
-                    log_file << "client_ip=" << this->ini.get<cfg::globals::host>().c_str() << " " ;
-                    log_file << "target_ip=" << (isdigit(*this->ini.get<cfg::context::target_host>().c_str()) ?
-                                                 this->ini.get<cfg::context::target_host>().c_str() :
-                                                 this->ini.get<cfg::context::ip_target>().c_str()) << " " ;
-                    log_file << "user=" << this->ini.get<cfg::globals::auth_user>().c_str() << " " ;
-                    log_file << "device=" << this->ini.get<cfg::globals::target_device>().c_str() << " " ;
-                    log_file << "service=" << this->ini.get<cfg::context::target_service>().c_str() << " " ;
-                    log_file << "account=" << this->ini.get<cfg::globals::target_user>().c_str() << " " ;
-                    log_file << (extra ? extra : "") << std::endl << std::endl;
-                    log_file.close();
-                }
+            if(log_file.bad()) {
+                LOG(LOG_INFO, "auth::bad SIEM log file creation");
+            }
+            else {
+                time_t seconds = time(nullptr);
+                struct tm * timeinfo = localtime(&seconds);
+                log_file << (1900+timeinfo->tm_year) << "-";
+                log_file << (timeinfo->tm_mon+1) << "-" << timeinfo->tm_mday << " " << timeinfo->tm_hour << ":" <<timeinfo->tm_min << ":" <<timeinfo->tm_sec << " ";
+                log_file << " [" << (this->session_type.empty() ? "Neutral" : this->session_type.c_str()) << " Session] " << " " ;
+                log_file << "type=" << type << " " ;
+                log_file << "session_id=" << this->ini.get<cfg::context::session_id>() << " " ;
+                log_file << "client_ip=" << this->ini.get<cfg::globals::host>() << " " ;
+                log_file << "target_ip=" << (isdigit(this->ini.get<cfg::context::target_host>()[0]) ?
+                                             this->ini.get<cfg::context::target_host>() :
+                                             this->ini.get<cfg::context::ip_target>()) << " " ;
+                log_file << "user=" << this->ini.get<cfg::globals::auth_user>() << " " ;
+                log_file << "device=" << this->ini.get<cfg::globals::target_device>() << " " ;
+                log_file << "service=" << this->ini.get<cfg::context::target_service>() << " " ;
+                log_file << "account=" << this->ini.get<cfg::globals::target_user>() << " " ;
+                log_file << (extra ? extra : "") << "\n" << std::endl;
+                log_file.close();
             }
         }
 

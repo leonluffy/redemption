@@ -37,6 +37,8 @@
 
 #include "utils/invalid_socket.hpp"
 
+#include "utils/verbose_flags.hpp"
+
 // X509_NAME_print_ex() prints a human readable version of nm to BIO out.
 // Each line (for multiline formats) is indented by indent spaces.
 // The output format can be extensively customised by use of the flags parameter.
@@ -48,7 +50,6 @@ public:
     int sck;
     int sck_closed;
     const char * name;
-    uint32_t verbose;
 
     char ip_address[128];
     int  port;
@@ -56,15 +57,21 @@ public:
     std::string * error_message;
     TLSContext * tls;
 
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        dump = 0x100,
+    };
+
     SocketTransport( const char * name, int sck, const char *ip_address, int port
-                   , uint32_t verbose, std::string * error_message = nullptr)
+                   , Verbose verbose, std::string * error_message = nullptr)
     : sck(sck)
     , sck_closed(0)
     , name(name)
-    , verbose(verbose)
     , port(port)
     , error_message(error_message)
     , tls(nullptr)
+    , verbose(verbose)
     {
         strncpy(this->ip_address, ip_address, sizeof(this->ip_address)-1);
         this->ip_address[127] = 0;
@@ -228,12 +235,12 @@ public:
         return rv;
     }
 
-    void do_recv(char ** pbuffer, size_t len) override {
-        if (this->verbose & 0x100){
+    void do_recv(uint8_t ** pbuffer, size_t len) override {
+        if (this->verbose & Verbose::dump){
             LOG(LOG_INFO, "Socket %s (%d) receiving %zu bytes", this->name, this->sck, len);
         }
 
-        char * start = *pbuffer;
+        uint8_t * start = *pbuffer;
         ssize_t res = (this->tls) ? this->tls->privrecv_tls(*pbuffer, len) : this->privrecv(*pbuffer, len);
         //std::cout << "res=" << int(res) << " len=" << int(len) <<  std::endl;
 
@@ -246,7 +253,7 @@ public:
             throw Error(ERR_TRANSPORT_NO_MORE_DATA, 0);
         }
 
-        if (this->verbose & 0x100){
+        if (this->verbose & Verbose::dump){
             LOG(LOG_INFO, "Recv done on %s (%d) %zu bytes", this->name, this->sck, len);
             hexdump_c(start, len);
             LOG(LOG_INFO, "Dump done on %s (%d) %zu bytes", this->name, this->sck, len);
@@ -256,10 +263,10 @@ public:
         this->last_quantum_received += len;
     }
 
-    void do_send(const char * const buffer, size_t len) override {
+    void do_send(const uint8_t * const buffer, size_t len) override {
         if (len == 0) { return; }
 
-        if (this->verbose & 0x100){
+        if (this->verbose & Verbose::dump){
             LOG(LOG_INFO, "Sending on %s (%d) %zu bytes", this->name, this->sck, len);
             hexdump_c(buffer, len);
             LOG(LOG_INFO, "Sent dumped on %s (%d) %zu bytes", this->name, this->sck, len);
@@ -281,7 +288,7 @@ public:
     }
 
 private:
-    ssize_t privrecv(char * data, size_t len)
+    ssize_t privrecv(uint8_t * data, size_t len)
     {
         size_t remaining_len = len;
 
@@ -326,7 +333,7 @@ private:
         return len;
     }
 
-    ssize_t privsend(const char * data, size_t len)
+    ssize_t privsend(const uint8_t * data, size_t len)
     {
         size_t total = 0;
         while (total < len) {
@@ -352,5 +359,3 @@ private:
     }
 
 };
-
-#pragma GCC diagnostic pop

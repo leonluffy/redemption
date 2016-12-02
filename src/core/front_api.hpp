@@ -25,8 +25,8 @@
 #pragma once
 
 #include "gdi/graphic_api.hpp"
-#include "gdi/input_pointer_api.hpp"
 
+#include "core/RDP/autoreconnect.hpp"
 #include "core/wait_obj.hpp"
 #include "utils/sugar/array_view.hpp"
 
@@ -40,7 +40,7 @@ namespace CHANNELS {
     struct ChannelDef;
 }
 
-class FrontAPI : public gdi::GraphicApi, public gdi::MouseInputApi
+class FrontAPI : public gdi::GraphicApi
 {
 public:
     virtual bool can_be_start_capture(auth_api * auth) = 0;
@@ -52,8 +52,15 @@ public:
     virtual void send_to_channel( const CHANNELS::ChannelDef & channel, uint8_t const * data
                                 , std::size_t length, std::size_t chunk_size, int flags) = 0;
 
-    virtual int server_resize(int width, int height, int bpp) = 0;
+    enum class ResizeResult {
+        no_need = 0,
+        done    = 1,
+        fail    = -1
+    };
+    virtual ResizeResult server_resize(int width, int height, int bpp) = 0;
     //virtual void update_config(const timeval & now, const Inifile & ini) {}
+
+    virtual void update_pointer_position(uint16_t, uint16_t) {}
 
     int mouse_x;
     int mouse_y;
@@ -96,16 +103,13 @@ public:
     virtual void set_consent_ui_visible(bool) {}
     virtual void session_update(array_view_const_char message) { (void)message; }
 
-    virtual bool disable_input_event_and_graphics_update(
-            bool disable_input_event, bool disable_graphics_update) {
-        (void)disable_input_event;
-        (void)disable_graphics_update;
-        return false;
-    }
-
     ////////////////////////////////
     // RemoteApp.
     virtual void send_savesessioninfo() {}
+
+    virtual void send_auto_reconnect_packet(RDP::ServerAutoReconnectPacket const & auto_reconnect) {
+        (void)auto_reconnect;
+    }
 
     /// \return  -1 is an error
     virtual int get_keylayout() const { return -1; }

@@ -31,6 +31,7 @@
 #include "mod/mod_api.hpp"
 #include "auth_api.hpp"
 #include "mod/null/null.hpp"
+#include "mod/rdp/windowing_api.hpp"
 #include "mod/rdp/rdp.hpp"
 #include "mod/vnc/vnc.hpp"
 #include "mod/xup/xup.hpp"
@@ -152,12 +153,14 @@ inline const char * get_module_name(int module_id) {
     return "<unknown>";
 }
 
-class MMIni : public MMApi {
-public:
+class MMIni : public MMApi
+{
+protected:
     Inifile & ini;
-    uint32_t verbose;
-    explicit MMIni(Inifile & _ini) : ini(_ini)
-                          , verbose(ini.get<cfg::debug::auth>())
+
+public:
+    explicit MMIni(Inifile & ini_)
+    : ini(ini_)
     {}
 
     ~MMIni() override {}
@@ -263,19 +266,14 @@ public:
             return MODULE_VNC;
         }
         else if (module_cstr == STRMODULE_INTERNAL) {
-            LOG(LOG_INFO, "===========> MODULE_INTERNAL");
             int res = MODULE_EXIT;
             auto & target = this->ini.get<cfg::context::target_host>();
             if (target == "bouncer2") {
-                if (this->verbose & 0x4) {
-                    LOG(LOG_INFO, "==========> INTERNAL bouncer2");
-                }
+                LOG(LOG_INFO, "==========> MODULE_INTERNAL bouncer2");
                 res = MODULE_INTERNAL_BOUNCER2;
             }
             else if (target == "autotest") {
-                if (this->verbose & 0x4) {
-                    LOG(LOG_INFO, "==========> INTERNAL test");
-                }
+                LOG(LOG_INFO, "==========> MODULE_INTERNAL test");
                 std::string user = this->ini.get<cfg::globals::target_user>();
                 if (user.size() < 5 || !std::equal(user.end() - 5u, user.end(), ".mwrm")) {
                     user += ".mwrm";
@@ -284,21 +282,15 @@ public:
                 res = MODULE_INTERNAL_TEST;
             }
             else if (target == "widget2_message") {
-                if (this->verbose & 0x4) {
-                    LOG(LOG_INFO, "auth::get_mod_from_protocol INTERNAL widget2_message");
-                }
+                LOG(LOG_INFO, "==========> MODULE_INTERNAL widget2_message");
                 res = MODULE_INTERNAL_WIDGET2_MESSAGE;
             }
             else if (target == "widgettest") {
-                if (this->verbose & 0x4) {
-                    LOG(LOG_INFO, "auth::get_mod_from_protocol INTERNAL widgettest");
-                }
+                LOG(LOG_INFO, "==========> MODULE_INTERNAL widgettest");
                 res = MODULE_INTERNAL_WIDGETTEST;
             }
             else {
-                if (this->verbose & 0x4) {
-                    LOG(LOG_INFO, "==========> INTERNAL card");
-                }
+                LOG(LOG_INFO, "==========> MODULE_INTERNAL card");
                 res = MODULE_INTERNAL_CARD;
             }
             return res;
@@ -365,6 +357,10 @@ private:
                     this->mm.front.client_info.width, this->mm.front.client_info.height);
             }
 
+            if (this->mm.winapi) {
+                this->mm.winapi->destroy_auxiliary_window();
+            }
+
             this->mm.internal_mod->rdp_input_invalidate(protected_rect);
         }
 
@@ -392,6 +388,10 @@ private:
             }
             this->clip = Rect(this->mm.front.client_info.width < w ? 0 : (this->mm.front.client_info.width - w) / 2, 0, w, h);
             this->set_protected_rect(this->clip);
+
+            if (this->mm.winapi) {
+                this->mm.winapi->create_auxiliary_window(this->clip);
+            }
         }
 
         static constexpr int padw = 16;
@@ -623,7 +623,7 @@ private:
         : SocketTransport( name, sck
                          , mm.ini.get<cfg::context::target_host>().c_str()
                          , mm.ini.get<cfg::context::target_port>()
-                         , verbose, error_message)
+                         , to_verbose_flags(verbose), error_message)
         , Mod(*this, std::forward<Args>(mod_args)...)
         , mm(mm)
         {
@@ -720,6 +720,14 @@ public:
 
     ClientExecute client_execute;
 
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        new_mod = 0x1,
+    };
+
+    windowing_api* winapi = nullptr;
+
     ModuleManager(Front & front, Inifile & ini, Random & gen, TimeObj & timeobj)
         : MMIni(ini)
         , front(front)
@@ -728,7 +736,8 @@ public:
         , mod_transport(nullptr)
         , gen(gen)
         , timeobj(timeobj)
-        , client_execute(front, ini.get<cfg::debug::mod_internal>())
+        , client_execute(front, ini.get<cfg::debug::mod_internal>() & 1)
+        , verbose(static_cast<Verbose>(ini.get<cfg::debug::auth>()))
     {
         this->no_mod.get_event().reset();
         this->mod = &this->no_mod;
@@ -749,15 +758,19 @@ public:
     }
 
 private:
-    void set_mod(non_null_ptr<mod_api> mod)
+    void set_mod(non_null_ptr<mod_api> mod, windowing_api* winapi = nullptr)
     {
         while (this->front.keymap.nb_char_available())
             this->front.keymap.get_char();
         while (this->front.keymap.nb_kevent_available())
             this->front.keymap.get_kevent();
 
+        this->clear_osd_message();
+
         this->internal_mod = mod.get();
         this->mod = mod.get();
+
+        this->winapi = winapi;
     }
 
 public:
@@ -776,7 +789,7 @@ public:
                 this->front.client_info.height,
                 this->ini.get<cfg::font>()
             ));
-            if (this->verbose){
+            if (this->verbose & Verbose::new_mod){
                 LOG(LOG_INFO, "ModuleManager::internal module 'bouncer2_mod' ready");
             }
             break;
@@ -791,9 +804,9 @@ public:
                 this->ini.get_ref<cfg::context::auth_error_message>(),
                 this->ini.get<cfg::font>(),
                 !this->ini.get<cfg::mod_replay::on_end_of_data>(),
-                this->ini.get<cfg::debug::capture>()
+                to_verbose_flags(this->ini.get<cfg::debug::capture>())
             ));
-            if (this->verbose){
+            if (this->verbose & Verbose::new_mod){
                 LOG(LOG_INFO, "ModuleManager::internal module 'test' ready");
             }
             break;
@@ -834,7 +847,7 @@ public:
                 )),
                 this->client_execute
             ));
-            if (this->verbose){
+            if (this->verbose & Verbose::new_mod){
                 LOG(LOG_INFO, "ModuleManager::internal module 'selector' ready");
             }
             break;
@@ -1066,7 +1079,7 @@ public:
         case MODULE_XUP:
             {
                 const char * name = "XUP Target";
-                if (this->verbose){
+                if (this->verbose & Verbose::new_mod){
                     LOG(LOG_INFO, "ModuleManager::Creation of new mod 'XUP'\n");
                 }
 
@@ -1184,7 +1197,9 @@ public:
                                            , this->ini.get<cfg::context::target_host>().c_str()
                                            , "0.0.0.0"   // client ip is silenced
                                            , this->front.keymap.key_flags
-                                           , this->ini.get<cfg::debug::mod_rdp>()
+                                           , this->ini.get<cfg::font>()
+                                           , this->ini.get<cfg::theme>()
+                                           , to_verbose_flags(this->ini.get<cfg::debug::mod_rdp>())
                                            );
                 mod_rdp_params.device_id                           = this->ini.get<cfg::globals::device_id>().c_str();
 
@@ -1229,7 +1244,8 @@ public:
                                                                    this->ini.get<cfg::mod_rdp::session_probe_disconnected_session_limit>();
                 mod_rdp_params.session_probe_idle_session_limit    =
                                                                    this->ini.get<cfg::mod_rdp::session_probe_idle_session_limit>();
-                mod_rdp_params.session_probe_alternate_shell       = this->ini.get<cfg::mod_rdp::session_probe_alternate_shell>();
+                mod_rdp_params.session_probe_exe_or_file           = this->ini.get<cfg::mod_rdp::session_probe_exe_or_file>();
+                mod_rdp_params.session_probe_arguments             = this->ini.get<cfg::mod_rdp::session_probe_arguments>();
 
                 mod_rdp_params.disable_clipboard_log_syslog        = bool(this->ini.get<cfg::video::disable_clipboard_log>() & ClipboardLogFlags::syslog);
                 mod_rdp_params.disable_clipboard_log_wrm           = bool(this->ini.get<cfg::video::disable_clipboard_log>() & ClipboardLogFlags::wrm);
@@ -1266,7 +1282,7 @@ public:
                 mod_rdp_params.enable_cache_waiting_list           = this->ini.get<cfg::mod_rdp::cache_waiting_list>();
                 mod_rdp_params.persist_bitmap_cache_on_disk        = this->ini.get<cfg::mod_rdp::persist_bitmap_cache_on_disk>();
                 mod_rdp_params.password_printing_mode              = this->ini.get<cfg::debug::password>();
-                mod_rdp_params.cache_verbose                       = this->ini.get<cfg::debug::cache>();
+                mod_rdp_params.cache_verbose                       = to_verbose_flags(this->ini.get<cfg::debug::cache>());
 
                 mod_rdp_params.extra_orders                        = this->ini.get<cfg::mod_rdp::extra_orders>().c_str();
 
@@ -1299,7 +1315,7 @@ public:
                 try {
                     const char * const name = "RDP Target";
                     // TODO RZ: We need find a better way to give access of STRAUTHID_AUTH_ERROR_MESSAGE to SocketTransport
-                    this->set_mod(new ModWithSocket<mod_rdp>(
+                    ModWithSocket<mod_rdp>* new_mod = new ModWithSocket<mod_rdp>(
                         *this,
                         name,
                         client_sck,
@@ -1312,7 +1328,8 @@ public:
                         this->gen,
                         this->timeobj,
                         mod_rdp_params
-                    ));
+                    );
+                    this->set_mod(new_mod, (new_mod ? new_mod->get_windowing_api() : nullptr));
                 }
                 catch (...) {
                     if (acl) {

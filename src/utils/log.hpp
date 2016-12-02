@@ -51,10 +51,14 @@ namespace { namespace compiler_aux_ {
 # endif
 #endif
 
-#include <stdio.h>
+#include "cxx/diagnostic.hpp"
+
+#include <cstdio> // std::printf family
+
 #include <syslog.h>
+
 #include <sys/types.h>
-#include <unistd.h>
+#include <unistd.h> // getpid
 
 
 // checked by the compiler
@@ -66,22 +70,24 @@ namespace { namespace compiler_aux_ {
 #  define LOG LOGSYSLOG__REDEMPTION__INTERNAL
 
 #elif defined(LOGPRINT)
-#  define LOG(priority, ...)                                                     \
-    LOGCHECK__REDEMPTION__INTERNAL((                                             \
-        LOG_FORMAT_CHECK(__VA_ARGS__),                                           \
-        LOGPRINT__REDEMPTION__INTERNAL(priority, "%s (%d/%d) -- " __VA_ARGS__),  \
-        1                                                                        \
+#  define LOG(priority, ...)                                                    \
+    LOGCHECK__REDEMPTION__INTERNAL((                                            \
+        LOG_FORMAT_CHECK(__VA_ARGS__),                                          \
+        LOGPRINT__REDEMPTION__INTERNAL(priority, "%s (%d/%d) -- " __VA_ARGS__), \
+        1                                                                       \
     ))
 
 #elif defined(LOGNULL)
-#  define LOG(priority, ...) LOGCHECK__REDEMPTION__INTERNAL(( \
-        LOG_FORMAT_CHECK(__VA_ARGS__), priority))
+#  define LOG(priority, ...)                    \
+    LOGCHECK__REDEMPTION__INTERNAL((            \
+        LOG_FORMAT_CHECK(__VA_ARGS__), priority \
+    ))
 
 #elif defined(LOGASMJS) && defined(EM_ASM)
-#  define LOG(priority, ...) LOGCHECK__REDEMPTION__INTERNAL(( \
-        LOG_FORMAT_CHECK(__VA_ARGS__),                                           \
-        LOGPRINT__REDEMPTION__ASMJS(priority, "%s (%d/%d) -- " __VA_ARGS__),  \
-        1                                                                        \
+#  define LOG(priority, ...) LOGCHECK__REDEMPTION__INTERNAL((                \
+        LOG_FORMAT_CHECK(__VA_ARGS__),                                       \
+        LOGPRINT__REDEMPTION__ASMJS(priority, "%s (%d/%d) -- " __VA_ARGS__), \
+        1                                                                    \
     ))
 
 #else
@@ -122,30 +128,24 @@ namespace {
     template<class... Ts>
     void LOGPRINT__REDEMPTION__INTERNAL(int priority, char const * format, Ts const & ... args)
     {
-        #ifdef __GNUG__
-            #pragma GCC diagnostic push
-            #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-        #endif
-        printf(format, prioritynames[priority], getpid(), getpid(), args...);
-        #ifdef __GNUG__
-            #pragma GCC diagnostic pop
-        #endif
-        puts("");
+        int const pid = getpid();
+        REDEMPTION_DIAGNOSTIC_PUSH
+        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
+        std::printf(format, prioritynames[priority], pid, pid, args...);
+        REDEMPTION_DIAGNOSTIC_POP
+        std::puts("");
     }
 
 #if defined(LOGASMJS) && defined(EM_ASM)
     template<class... Ts>
     void LOGPRINT__REDEMPTION__ASMJS(int priority, char const * format, Ts const & ... args)
     {
-        #ifdef __GNUG__
-            #pragma GCC diagnostic push
-            #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-        #endif
+        int const pid = getpid();
         char buffer[4096];
-        int len = snprintf(buffer, sizeof(buffer)-2, format, prioritynames[priority], getpid(), getpid(), args...);
-        #ifdef __GNUG__
-            #pragma GCC diagnostic pop
-        #endif
+        REDEMPTION_DIAGNOSTIC_PUSH
+        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
+        int len = snprintf(buffer, sizeof(buffer)-2, format, prioritynames[priority], pid, pid, args...);
+        REDEMPTION_DIAGNOSTIC_POP
         buffer[len] = '\n';
         buffer[len+1] = 0;
         EM_ASM_({console.log(Pointer_stringify($0));}, buffer);
@@ -155,40 +155,37 @@ namespace {
     template<class... Ts>
     void LOGSYSLOG__REDEMPTION__INTERNAL(int priority, char const * format, Ts const & ... args)
     {
-        #ifdef __GNUG__
-            #pragma GCC diagnostic push
-            #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-        #endif
-        syslog(priority, format, prioritynames[priority], getpid(), getpid(), args...);
-        #ifdef __GNUG__
-            #pragma GCC diagnostic pop
-        #endif
+        int const pid = getpid();
+        REDEMPTION_DIAGNOSTIC_PUSH
+        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
+        syslog(priority, format, prioritynames[priority], pid, pid, args...);
+        REDEMPTION_DIAGNOSTIC_POP
     }
 }
 
 namespace {
 
-inline void hexdump(const char * data, size_t size)
+inline void hexdump(const unsigned char * data, size_t size)
 {
     char buffer[2048];
     for (size_t j = 0 ; j < size ; j += 16){
         char * line = buffer;
-        line += sprintf(line, "%.4x ", static_cast<unsigned>(j));
+        line += std::sprintf(line, "%.4x ", static_cast<unsigned>(j));
         size_t i = 0;
         for (i = 0; i < 16; i++){
             if (j+i >= size){ break; }
-            line += sprintf(line, "%.2x ", static_cast<unsigned>(static_cast<unsigned char>(data[j+i])));
+            line += std::sprintf(line, "%.2x ", static_cast<unsigned>(data[j+i]));
         }
         if (i < 16){
-            line += sprintf(line, "%*c", static_cast<int>((16-i)*3), ' ');
+            line += std::sprintf(line, "%*c", static_cast<int>((16-i)*3), ' ');
         }
         for (i = 0; i < 16; i++){
             if (j+i >= size){ break; }
-            unsigned char tmp = static_cast<unsigned char>(data[j+i]);
+            unsigned char tmp = data[j+i];
             if ((tmp < ' ') || (tmp > '~')  || (tmp == '\\')){
                 tmp = '.';
             }
-            line += sprintf(line, "%c", tmp);
+            line += std::sprintf(line, "%c", tmp);
         }
 
         if (line != buffer){
@@ -199,73 +196,35 @@ inline void hexdump(const char * data, size_t size)
     }
 }
 
-inline void hexdump(const unsigned char * data, size_t size)
+inline void hexdump(const char * data, size_t size)
 {
-    hexdump(reinterpret_cast<const char*>(data), size);
-}
-
-inline void hexdump_d(const char * data, size_t size, unsigned line_length = 16)
-{
-    char buffer[2048];
-    for (size_t j = 0 ; j < size ; j += line_length){
-        char * line = buffer;
-        line += sprintf(line, "/* %.4x */ ", static_cast<unsigned>(j));
-        size_t i = 0;
-        for (i = 0; i < line_length; i++){
-            if (j+i >= size){ break; }
-            line += sprintf(line, "0x%.2x, ", static_cast<unsigned>(static_cast<unsigned char>(data[j+i])));
-        }
-        if (i < line_length){
-            line += sprintf(line, "%*c", static_cast<int>((line_length-i)*3), ' ');
-        }
-
-        line += sprintf(line, " // ");
-
-        for (i = 0; i < line_length; i++){
-            if (j+i >= size){ break; }
-            unsigned char tmp = static_cast<unsigned char>(data[j+i]);
-            if ((tmp < ' ') || (tmp > '~') || (tmp == '\\')){
-                tmp = '.';
-            }
-            line += sprintf(line, "%c", tmp);
-        }
-
-        if (line != buffer){
-            line[0] = 0;
-            LOG(LOG_INFO, "%s", buffer);
-            buffer[0]=0;
-        }
-    }
+    hexdump(reinterpret_cast<const unsigned char*>(data), size);
 }
 
 inline void hexdump_d(const unsigned char * data, size_t size, unsigned line_length = 16)
 {
-    hexdump_d(reinterpret_cast<const char*>(data), size, line_length);
-}
-
-inline void hexdump_c(const char * data, size_t size)
-{
     char buffer[2048];
-    for (size_t j = 0 ; j < size ; j += 16){
+    for (size_t j = 0 ; j < size ; j += line_length){
         char * line = buffer;
-        line += sprintf(line, "/* %.4x */ \"", static_cast<unsigned>(j));
+        line += std::sprintf(line, "/* %.4x */ ", static_cast<unsigned>(j));
         size_t i = 0;
-        for (i = 0; i < 16; i++){
+        for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
-            line += sprintf(line, "\\x%.2x", static_cast<unsigned>(static_cast<unsigned char>(data[j+i])));
+            line += std::sprintf(line, "0x%.2x, ", static_cast<unsigned>(data[j+i]));
         }
-        line += sprintf(line, "\"");
-        if (i < 16){
-            line += sprintf(line, "%*c", static_cast<int>((16-i)*4), ' ');
+        if (i < line_length){
+            line += std::sprintf(line, "%*c", static_cast<int>((line_length-i)*3), ' ');
         }
-        line += sprintf(line, " //");
-        for (i = 0; i < 16; i++){
+
+        line += std::sprintf(line, " // ");
+
+        for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
-            unsigned char tmp = static_cast<unsigned char>(data[j+i]);
+            unsigned char tmp = data[j+i];
             if ((tmp < ' ') || (tmp > '~') || (tmp == '\\')){
                 tmp = '.';
             }
-            line += sprintf(line, "%c", tmp);
+            line += std::sprintf(line, "%c", tmp);
         }
 
         if (line != buffer){
@@ -276,35 +235,73 @@ inline void hexdump_c(const char * data, size_t size)
     }
 }
 
-inline void hexdump_c(const unsigned char * data, size_t size)
+inline void hexdump_d(const char * data, size_t size, unsigned line_length = 16)
 {
-    hexdump_c(reinterpret_cast<const char*>(data), size);
+    hexdump_d(reinterpret_cast<const unsigned char*>(data), size, line_length);
 }
 
-inline void hexdump96_c(const char * data, size_t size)
+inline void hexdump_c(const unsigned char * data, size_t size)
+{
+    char buffer[2048];
+    for (size_t j = 0 ; j < size ; j += 16){
+        char * line = buffer;
+        line += std::sprintf(line, "/* %.4x */ \"", static_cast<unsigned>(j));
+        size_t i = 0;
+        for (i = 0; i < 16; i++){
+            if (j+i >= size){ break; }
+            line += std::sprintf(line, "\\x%.2x", static_cast<unsigned>(data[j+i]));
+        }
+        line += std::sprintf(line, "\"");
+        if (i < 16){
+            line += std::sprintf(line, "%*c", static_cast<int>((16-i)*4), ' ');
+        }
+        line += std::sprintf(line, " //");
+        for (i = 0; i < 16; i++){
+            if (j+i >= size){ break; }
+            unsigned char tmp = data[j+i];
+            if ((tmp < ' ') || (tmp > '~') || (tmp == '\\')){
+                tmp = '.';
+            }
+            line += std::sprintf(line, "%c", tmp);
+        }
+
+        if (line != buffer){
+            line[0] = 0;
+            LOG(LOG_INFO, "%s", buffer);
+            buffer[0]=0;
+        }
+    }
+}
+
+inline void hexdump_c(const char * data, size_t size)
+{
+    hexdump_c(reinterpret_cast<const unsigned char*>(data), size);
+}
+
+inline void hexdump96_c(const unsigned char * data, size_t size)
 {
     char buffer[32768];
     const unsigned line_length = 96;
     for (size_t j = 0 ; j < size ; j += line_length){
         char * line = buffer;
-        line += sprintf(line, "/* %.4x */ \"", static_cast<unsigned>(j));
+        line += std::sprintf(line, "/* %.4x */ \"", static_cast<unsigned>(j));
         size_t i = 0;
         for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
-            line += sprintf(line, "\\x%.2x", static_cast<unsigned>(static_cast<unsigned char>(data[j+i])));
+            line += std::sprintf(line, "\\x%.2x", static_cast<unsigned>(data[j+i]));
         }
-        line += sprintf(line, "\"");
+        line += std::sprintf(line, "\"");
         if (i < line_length){
-            line += sprintf(line, "%*c", static_cast<int>((line_length-i)*4), ' ');
+            line += std::sprintf(line, "%*c", static_cast<int>((line_length-i)*4), ' ');
         }
-        line += sprintf(line, " //");
+        line += std::sprintf(line, " //");
         for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
-            unsigned char tmp = static_cast<unsigned char>(data[j+i]);
+            unsigned char tmp = data[j+i];
             if ((tmp < ' ') || (tmp > '~')){
                 tmp = '.';
             }
-            line += sprintf(line, "%c", tmp);
+            line += std::sprintf(line, "%c", tmp);
         }
 
         if (line != buffer){
@@ -315,35 +312,35 @@ inline void hexdump96_c(const char * data, size_t size)
     }
 }
 
-inline void hexdump96_c(const unsigned char * data, size_t size)
+inline void hexdump96_c(const char * data, size_t size)
 {
-    hexdump96_c(reinterpret_cast<const char*>(data), size);
+    hexdump96_c(reinterpret_cast<const unsigned char*>(data), size);
 }
 
-inline void hexdump8_c(const char * data, size_t size)
+inline void hexdump8_c(const unsigned char * data, size_t size)
 {
     char buffer[1024];
     const unsigned line_length = 8;
     for (size_t j = 0 ; j < size ; j += line_length){
         char * line = buffer;
-        line += sprintf(line, "/* %.4x */ \"", static_cast<unsigned>(j));
+        line += std::sprintf(line, "/* %.4x */ \"", static_cast<unsigned>(j));
         size_t i = 0;
         for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
-            line += sprintf(line, "\\x%.2x", static_cast<unsigned>(static_cast<unsigned char>(data[j+i])));
+            line += std::sprintf(line, "\\x%.2x", static_cast<unsigned>(data[j+i]));
         }
-        line += sprintf(line, "\"");
+        line += std::sprintf(line, "\"");
         if (i < line_length){
-            line += sprintf(line, "%*c", static_cast<int>((line_length-i)*4), ' ');
+            line += std::sprintf(line, "%*c", static_cast<int>((line_length-i)*4), ' ');
         }
-        line += sprintf(line, " //");
+        line += std::sprintf(line, " //");
         for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
-            unsigned char tmp = static_cast<unsigned char>(data[j+i]);
+            unsigned char tmp = data[j+i];
             if ((tmp < ' ') || (tmp > '~')){
                 tmp = '.';
             }
-            line += sprintf(line, "%c", tmp);
+            line += std::sprintf(line, "%c", tmp);
         }
 
         if (line != buffer){
@@ -354,9 +351,9 @@ inline void hexdump8_c(const char * data, size_t size)
     }
 }
 
-inline void hexdump8_c(const unsigned char * data, size_t size)
+inline void hexdump8_c(const char * data, size_t size)
 {
-    hexdump8_c(reinterpret_cast<const char*>(data), size);
+    hexdump8_c(reinterpret_cast<const unsigned char*>(data), size);
 }
 
 } // anonymous namespace

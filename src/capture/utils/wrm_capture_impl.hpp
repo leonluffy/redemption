@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "configs/config.hpp"
 #include "core/RDP/caches/bmpcache.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
 #include "core/RDP/caches/pointercache.hpp"
@@ -56,6 +57,7 @@ class WrmCaptureImpl final : private gdi::KbdInputApi, private gdi::CaptureApi
         TransportVariant(
             TraceType trace_type,
             CryptoContext & cctx,
+            Random & rnd,
             const char * path,
             const char * hash_path,
             const char * basename,
@@ -71,13 +73,13 @@ class WrmCaptureImpl final : private gdi::KbdInputApi, private gdi::CaptureApi
                 case TraceType::cryptofile:
                     this->trans = new (&this->variant.out_crypto)
                     CryptoOutMetaSequenceTransport(
-                        &cctx, path, hash_path, basename, now,
+                        cctx, rnd, path, hash_path, basename, now,
                         width, height, groupid, authentifier);
                     break;
                 case TraceType::localfile_hashed:
                     this->trans = new (&this->variant.out_with_sum)
                     OutMetaSequenceTransportWithSum(
-                        &cctx, path, hash_path, basename, now,
+                        cctx, path, hash_path, basename, now,
                         width, height, groupid, authentifier);
                     break;
                 default:
@@ -96,6 +98,7 @@ class WrmCaptureImpl final : private gdi::KbdInputApi, private gdi::CaptureApi
             this->trans->~Transport();
         }
     } trans_variant;
+
 
     struct Serializer final : GraphicToFile {
         using GraphicToFile::GraphicToFile;
@@ -140,13 +143,14 @@ class WrmCaptureImpl final : private gdi::KbdInputApi, private gdi::CaptureApi
 
     ApiRegisterElement<gdi::KbdInputApi> kbd_element;
 
+
 public:
     WrmCaptureImpl(
         const timeval & now, uint8_t capture_bpp, TraceType trace_type,
-        CryptoContext & cctx,
+        CryptoContext & cctx, Random & rnd,
         const char * record_path, const char * hash_path, const char * basename,
         int groupid, auth_api * authentifier,
-        RDPDrawable & drawable, const Inifile & ini
+        RDPDrawable & drawable, const Inifile & ini, const int delta_time
     )
     : bmp_cache(
         BmpCache::Recorder, capture_bpp, 3, false,
@@ -156,19 +160,26 @@ public:
     , ptr_cache(/*pointerCacheSize=*/0x19)
     , dump_png24_api{drawable}
     , trans_variant(
-        trace_type, cctx, record_path, hash_path, basename, now,
+        trace_type, cctx, rnd, record_path, hash_path, basename, now,
         drawable.width(), drawable.height(), groupid, authentifier)
     , graphic_to_file(
         now, *this->trans_variant.trans, drawable.width(), drawable.height(), capture_bpp,
-        this->bmp_cache, this->gly_cache, this->ptr_cache,
-        this->dump_png24_api, ini, GraphicToFile::SendInput::YES, ini.get<cfg::debug::capture>())
-    , nc(this->graphic_to_file, now, ini)
+        this->bmp_cache, this->gly_cache, this->ptr_cache, this->dump_png24_api,
+        ini.get<cfg::video::wrm_compression_algorithm>(), delta_time, GraphicToFile::SendInput::YES,
+        to_verbose_flags(ini.get<cfg::debug::capture>())
+        | (ini.get<cfg::debug::primary_orders>()
+            ? GraphicToFile::Verbose::primary_orders   : GraphicToFile::Verbose::none)
+        | (ini.get<cfg::debug::secondary_orders>()
+            ? GraphicToFile::Verbose::secondary_orders : GraphicToFile::Verbose::none)
+        | (ini.get<cfg::debug::bitmap_update>()
+            ? GraphicToFile::Verbose::bitmap_update    : GraphicToFile::Verbose::none)
+    )
+    , nc(this->graphic_to_file, now, ini.get<cfg::video::frame_interval>(), ini.get<cfg::video::break_interval>())
     {}
 
     void attach_apis(ApisRegister & apis_register, const Inifile & ini) {
         apis_register.graphic_list->push_back(this->graphic_to_file);
         apis_register.capture_list.push_back(static_cast<gdi::CaptureApi&>(*this));
-        apis_register.update_config_capture_list.push_back(this->nc);
         apis_register.external_capture_list.push_back(this->nc);
         apis_register.capture_probe_list.push_back(this->graphic_to_file);
 

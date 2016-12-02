@@ -134,6 +134,28 @@ public:
     } capture_state;
     Capture * capture;
 
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        basic_trace     = 1 << 0,
+        basic_trace2    = 1 << 1,
+        basic_trace3    = 1 << 2,
+        basic_trace4    = 1 << 3,
+        basic_trace5    = 1 << 5,
+        graphic         = 1 << 6,
+        channel         = 1 << 7,
+        global_channel  = 1 << 13,
+        sec_decrypted   = 1 << 14,
+
+        // RDPSerializer
+        bmp_cache        = 1 << 8,
+        internal_buffer  = 1 << 9,
+
+        // BmpCachePersister
+        cache_from_disk  = 1 << 10,
+        bmp_info         = 1 << 11,
+    };
+
 private:
     struct Graphics
     {
@@ -151,7 +173,6 @@ private:
               , int & shareid
               , int & encryptionLevel
               , CryptContext & encrypt
-              , const Inifile & ini
               , const uint8_t bpp
               , BmpCache & bmp_cache
               , GlyphCache & gly_cache
@@ -163,7 +184,7 @@ private:
               , bool fastpath_support
               , rdp_mppc_enc * mppc_enc
               , bool compression
-              , uint32_t verbose
+              , GraphicsUpdatePDU::Verbose verbose
             )
             : GraphicsUpdatePDU(
                 trans
@@ -171,7 +192,6 @@ private:
               , shareid
               , encryptionLevel
               , encrypt
-              , ini
               , bpp
               , bmp_cache
               , gly_cache
@@ -233,7 +253,7 @@ private:
           , size_t max_bitmap_size
           , bool fastpath_support
           , rdp_mppc_enc * mppc_enc
-          , uint32_t verbose
+          , Verbose verbose
         )
         : bmp_cache(
             BmpCache::Front
@@ -260,7 +280,7 @@ private:
                 client_info.cache5_entries
               , client_info.cache5_size
               , client_info.cache5_persistent),
-            ini.get<cfg::debug::cache>()
+            to_verbose_flags(ini.get<cfg::debug::cache>())
           )
         , bmp_cache_persister([&ini, verbose, this]() {
             BmpCachePersister * bmp_cache_persister = nullptr;
@@ -279,8 +299,16 @@ private:
                     try {
                         InFileTransport ift(fd);
 
+                        BmpCachePersister::Verbose cache_verbose
+                            = ( bool(verbose & Verbose::cache_from_disk)
+                                ? BmpCachePersister::Verbose::from_disk
+                                : BmpCachePersister::Verbose::none
+                            )|( bool(verbose & Verbose::bmp_info)
+                                ? BmpCachePersister::Verbose::bmp_info
+                                : BmpCachePersister::Verbose::none
+                            );
                         bmp_cache_persister = new BmpCachePersister(
-                            this->bmp_cache, ift, cache_filename, verbose
+                            this->bmp_cache, ift, cache_filename, cache_verbose
                         );
                     }
                     catch (const Error & e) {
@@ -303,7 +331,6 @@ private:
           , shareid
           , encryptionLevel
           , encrypt
-          , ini
           , client_info.bpp
           , this->bmp_cache
           , this->glyph_cache
@@ -315,7 +342,19 @@ private:
           , fastpath_support
           , mppc_enc
           , bool(ini.get<cfg::client::rdp_compression>()) ? client_info.rdp_compression : 0
-          , verbose
+          , ( (ini.get<cfg::debug::primary_orders>()
+                ? RDPSerializer::Verbose::primary_orders   : RDPSerializer::Verbose::none)
+            | (ini.get<cfg::debug::secondary_orders>()
+                ? RDPSerializer::Verbose::secondary_orders : RDPSerializer::Verbose::none)
+            | (ini.get<cfg::debug::bitmap_update>()
+                ? RDPSerializer::Verbose::bitmap_update    : RDPSerializer::Verbose::none)
+            | (bool(verbose & Verbose::bmp_cache)
+                ? RDPSerializer::Verbose::bmp_cache        : RDPSerializer::Verbose::none)
+            | (bool(verbose & Verbose::internal_buffer)
+                ? RDPSerializer::Verbose::internal_buffer  : RDPSerializer::Verbose::none)
+            | (bool(verbose & Verbose::basic_trace4)
+                ? RDPSerializer::Verbose::pointer          : RDPSerializer::Verbose::none)
+            )
         )
         {}
     };
@@ -346,7 +385,7 @@ private:
           , size_t max_bitmap_size
           , bool fastpath_support
           , rdp_mppc_enc * mppc_enc
-          , uint32_t verbose
+          , Verbose verbose
         ) {
             this->gd_converted.reset();
             this->gd = nullptr;
@@ -505,17 +544,12 @@ private:
         }
     };
 
-    static gdi::GraphicApi & null_gd() {
-        static gdi::BlackoutGraphic gd;
-        return gd;
-    }
-
-    non_null_ptr<gdi::GraphicApi> gd = &null_gd();
-    non_null_ptr<gdi::GraphicApi> graphics_update = &null_gd();
+    non_null_ptr<gdi::GraphicApi> gd = &gdi::null_gd();
+    non_null_ptr<gdi::GraphicApi> graphics_update = &gdi::null_gd();
 
     void set_gd(gdi::GraphicApi * new_gd) {
         this->gd = new_gd;
-        this->graphics_update = this->graphics_update_disabled ? &null_gd() : new_gd;
+        this->graphics_update = new_gd;
     }
 
     void set_gd(gdi::GraphicApi & new_gd) {
@@ -552,7 +586,6 @@ private:
 private:
     Inifile & ini;
     CryptoContext & cctx;
-    uint32_t verbose;
 
     bool palette_memblt_sent[6];
 
@@ -605,9 +638,6 @@ private:
     bool focus_on_password_textbox = false;
     bool consent_ui_is_visible     = false;
 
-    bool input_event_disabled     = false;
-    bool graphics_update_disabled = false;
-
     bool session_probe_started_ = false;
 
     Timeout timeout;
@@ -630,6 +660,7 @@ public:
     : Front::base_type(ini.get<cfg::globals::notimestamp>(), ini.get<cfg::globals::nomouse>())
     , capture_state(CAPTURE_STATE_UNKNOWN)
     , capture(nullptr)
+    , verbose(static_cast<Verbose>(ini.get<cfg::debug::front>()))
     , up_and_running(0)
     , share_id(65538)
     , encryptionLevel(underlying_cast(ini.get<cfg::globals::encryptionLevel>()) + 1)
@@ -638,7 +669,6 @@ public:
     , order_level(0)
     , ini(ini)
     , cctx(cctx)
-    , verbose(this->ini.get<cfg::debug::front>())
     , mod_bpp(0)
     , capture_bpp(0)
     , state(CONNECTION_INITIATION)
@@ -655,7 +685,8 @@ public:
     , mppc_enc(nullptr)
     , authentifier(nullptr)
     , auth_info_sent(false)
-    , timeout(now, this->ini.get<cfg::globals::handshake_timeout>().count()) {
+    , timeout(now, this->ini.get<cfg::globals::handshake_timeout>().count())
+    {
         // init TLS
         // --------------------------------------------------------
 
@@ -742,8 +773,9 @@ public:
         return this->trans.get_total_sent();
     }
 
-    int server_resize(int width, int height, int bpp) override {
-        uint32_t res = 0;
+    ResizeResult server_resize(int width, int height, int bpp) override
+    {
+        ResizeResult res = ResizeResult::no_need;
 
         this->mod_bpp = bpp;
 
@@ -773,7 +805,7 @@ public:
             if (client_info.build <= 419) {
                 LOG(LOG_WARNING, "Resizing is not available on older RDP clients");
                 // resizing needed but not available
-                res = -1;
+                res = ResizeResult::fail;
             }
             else {
                 LOG(LOG_INFO, "Resizing client to : %d x %d x %d", width, height, this->client_info.bpp);
@@ -807,7 +839,7 @@ public:
 
                 LOG(LOG_INFO, "Front::server_resize::ACTIVATED (resize)");
                 state = ACTIVATE_AND_PROCESS_DATA;
-                res = 1;
+                res = ResizeResult::done;
             }
         }
 
@@ -864,7 +896,7 @@ public:
         LOG(LOG_INFO, "---<>  Front::start_capture  <>---");
         struct timeval now = tvtime();
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "movie_path    = %s\n", ini.get<cfg::globals::movie_path>().c_str());
             LOG(LOG_INFO, "auth_user     = %s\n", ini.get<cfg::globals::auth_user>().c_str());
             LOG(LOG_INFO, "host          = %s\n", ini.get<cfg::globals::host>().c_str());
@@ -880,7 +912,7 @@ public:
             this->client_info.width, this->client_info.height,
             this->mod_bpp, this->capture_bpp
           , true, false, authentifier
-          , ini, this->gen, this->cctx
+          , ini, this->cctx, this->gen
           , full_video
         );
         if (this->nomouse) {
@@ -1020,7 +1052,7 @@ public:
         try {
             OutFileTransport oft(fd);
 
-            BmpCachePersister::save_all_to_disk(this->orders.p->bmp_cache, oft, this->verbose);
+            BmpCachePersister::save_all_to_disk(this->orders.p->bmp_cache, oft, to_verbose_flags(this->verbose));
 
             ::close(fd);
 
@@ -1040,7 +1072,7 @@ public:
 
 private:
     void reset() {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "Front::reset::use_bitmap_comp=%u", this->ini.get<cfg::client::bitmap_compression>() ? 1 : 0);
             LOG(LOG_INFO, "Front::reset::use_compact_packets=%u", this->client_info.use_compact_packets);
             LOG(LOG_INFO, "Front::reset::bitmap_cache_version=%u", this->client_info.bitmap_cache_version);
@@ -1056,26 +1088,26 @@ private:
         switch (Front::get_appropriate_compression_type(this->client_info.rdp_compression_type, static_cast<int>(this->ini.get<cfg::client::rdp_compression>()) - 1))
         {
         case PACKET_COMPR_TYPE_RDP61:
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front: Use RDP 6.1 Bulk compression");
             }
             //this->mppc_enc_match_finder = new rdp_mppc_61_enc_sequential_search_match_finder();
             this->mppc_enc = new rdp_mppc_61_enc_hash_based(this->ini.get<cfg::debug::compression>());
             break;
         case PACKET_COMPR_TYPE_RDP6:
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front: Use RDP 6.0 Bulk compression");
             }
             this->mppc_enc = new rdp_mppc_60_enc(this->ini.get<cfg::debug::compression>());
             break;
         case PACKET_COMPR_TYPE_64K:
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front: Use RDP 5.0 Bulk compression");
             }
             this->mppc_enc = new rdp_mppc_50_enc(this->ini.get<cfg::debug::compression>());
             break;
         case PACKET_COMPR_TYPE_8K:
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front: Use RDP 4.0 Bulk compression");
             }
             this->mppc_enc = new rdp_mppc_40_enc(this->ini.get<cfg::debug::compression>());
@@ -1106,14 +1138,14 @@ private:
 
 public:
     void begin_update() override {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::graphic) {
             LOG(LOG_INFO, "Front::begin_update");
         }
         this->order_level++;
     }
 
     void end_update() override {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::graphic) {
             LOG(LOG_INFO, "Front::end_update");
         }
         this->order_level--;
@@ -1128,7 +1160,7 @@ public:
 
     void disconnect()
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "Front::disconnect");
         }
 
@@ -1152,7 +1184,7 @@ public:
                                 , size_t length
                                 , size_t chunk_size
                                 , int flags) override {
-        if (this->verbose & 16) {
+        if (this->verbose & Verbose::channel) {
             LOG( LOG_INFO
                , "Front::send_to_channel(channel='%s'(%d), data=%p, length=%zu, chunk_size=%zu, flags=%x)"
                , channel.name, channel.chanid, voidp(chunk), length, chunk_size, flags);
@@ -1163,7 +1195,7 @@ public:
             flags |= CHANNELS::CHANNEL_FLAG_SHOW_PROTOCOL;
         }
 
-        CHANNELS::VirtualChannelPDU virtual_channel_pdu(this->verbose);
+        CHANNELS::VirtualChannelPDU virtual_channel_pdu(this->verbose & Verbose::channel);
 
         virtual_channel_pdu.send_to_client( this->trans, this->encrypt
                                           , this->encryptionLevel, userid, channel.chanid
@@ -1191,7 +1223,7 @@ public:
 
         unsigned expected;
 
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::basic_trace3) {
             LOG(LOG_INFO, "Front::incoming");
         }
 
@@ -1210,7 +1242,7 @@ public:
             //    |------------X224 Connection Request PDU----------------> |
             //    | <----------X224 Connection Confirm PDU----------------- |
 
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front::incoming:CONNECTION_INITIATION");
                 LOG(LOG_INFO, "Front::incoming::receiving x224 request PDU");
             }
@@ -1246,7 +1278,7 @@ public:
                 }
             }
 
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front::incoming::sending x224 connection confirm PDU");
             }
             {
@@ -1314,7 +1346,7 @@ public:
             //    | <------------MCS Connect Response PDU with------------- |
             //                   GCC conference Create Response
 
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front::incoming::Basic Settings Exchange");
             }
 
@@ -1340,7 +1372,7 @@ public:
                     {
                         GCC::UserData::CSCore cs_core;
                         cs_core.recv(f.payload);
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_core.log("Received from Client");
                         }
 
@@ -1390,7 +1422,7 @@ public:
                     {
                         GCC::UserData::CSSecurity cs_sec;
                         cs_sec.recv(f.payload);
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_sec.log("Received from Client");
                         }
                     }
@@ -1412,7 +1444,7 @@ public:
                                 this->rail_channel_id = channel_item.chanid;
                             }
                         }
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_net.log("Received from Client");
                         }
                     }
@@ -1423,7 +1455,7 @@ public:
                         cs_cluster.recv(f.payload);
                         this->client_info.console_session =
                             (0 != (cs_cluster.flags & GCC::UserData::CSCluster::REDIRECTED_SESSIONID_FIELD_VALID));
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_cluster.log("Receiving from Client");
                         }
                     }
@@ -1433,12 +1465,12 @@ public:
                         GCC::UserData::CSMonitor & cs_monitor =
                             this->client_info.cs_monitor;
                         cs_monitor.recv(f.payload);
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_monitor.log("Receiving from Client");
                         }
 
                         Rect client_monitors_rect = this->client_info.cs_monitor.get_rect();
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             LOG(LOG_INFO, "MonitorsRect=(%d, %d, %d, %d)",
                                 client_monitors_rect.x, client_monitors_rect.y,
                                 client_monitors_rect.cx, client_monitors_rect.cy);
@@ -1454,7 +1486,7 @@ public:
                     {
                         GCC::UserData::CSMCSMsgChannel cs_mcs_msgchannel;
                         cs_mcs_msgchannel.recv(f.payload);
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_mcs_msgchannel.log("Receiving from Client");
                         }
                     }
@@ -1463,7 +1495,7 @@ public:
                     {
                         GCC::UserData::CSMultiTransport cs_multitransport;
                         cs_multitransport.recv(f.payload);
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             cs_multitransport.log("Receiving from Client");
                         }
                     }
@@ -1488,7 +1520,7 @@ public:
                             sc_core.length = 12;
                             sc_core.clientRequestedProtocols = this->clientRequestedProtocols;
                         }
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             sc_core.log("Sending to client");
                         }
                         sc_core.emit(stream);
@@ -1501,7 +1533,7 @@ public:
                         for (size_t index = 0; index < this->channel_list.size(); ++index) {
                             sc_net.channelDefArray[index].id = this->channel_list[index].chanid;
                         }
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             sc_net.log("Sending to client");
                         }
                         sc_net.emit(stream);
@@ -1514,7 +1546,7 @@ public:
                         sc_sec1.length = 12;
                         sc_sec1.serverRandomLen = 0;
                         sc_sec1.serverCertLen = 0;
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             sc_sec1.log("Sending to client");
                         }
                         sc_sec1.emit(stream);
@@ -1584,7 +1616,7 @@ public:
                         memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob + 64,
                             "\x00\x00\x00\x00\x00\x00\x00\x00", SEC_PADDING_SIZE);
 
-                        if (this->verbose & 1) {
+                        if (this->verbose & Verbose::basic_trace) {
                             sc_sec1.log("Sending to client");
                         }
                         sc_sec1.emit(stream);
@@ -1635,7 +1667,7 @@ public:
             //    |-------MCS Channel Join Request PDU--------------------> |
             //    | <-----MCS Channel Join Confirm PDU--------------------- |
 
-            if (this->verbose & 16) {
+            if (this->verbose & Verbose::channel) {
                 LOG(LOG_INFO, "Front::incoming::Channel Connection");
             }
 
@@ -1724,7 +1756,7 @@ public:
 
             for (size_t i = 0 ; i < this->channel_list.size(); ++i) {
                 channel_join_request_transmission([this,i](MCS::ChannelJoinRequest_Recv & mcs) {
-                    if (this->verbose & 16) {
+                    if (this->verbose & Verbose::channel) {
                         LOG(LOG_INFO, "cjrq[%zu] = %" PRIu16 " -> cjcf", i, mcs.channelId);
                     }
 
@@ -1737,7 +1769,7 @@ public:
                 });
             }
 
-            if (this->verbose & 1) {
+            if (this->verbose & Verbose::basic_trace) {
                 LOG(LOG_INFO, "Front::incoming::RDP Security Commencement");
             }
 
@@ -1848,7 +1880,7 @@ public:
 
             MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
             SEC::SecSpecialPacket_Recv sec(mcs.payload, this->decrypt, this->encryptionLevel);
-            if (this->verbose & 128) {
+            if (this->verbose & Verbose::sec_decrypted) {
                 LOG(LOG_INFO, "sec decrypted payload:");
                 hexdump_d(sec.payload.get_data(), sec.payload.get_capacity());
             }
@@ -1864,7 +1896,7 @@ public:
                                                 , ini.get<cfg::client::performance_flags_force_present>()
                                                 , ini.get<cfg::client::performance_flags_force_not_present>()
                                                 , ini.get<cfg::debug::password>()
-                                                , (this->verbose & 128)
+                                                , (this->verbose & Verbose::sec_decrypted)
                                                 );
 
             if (sec.payload.in_remain()) {
@@ -1876,13 +1908,13 @@ public:
             LOG(LOG_INFO, "Front Keyboard Layout = 0x%x", this->client_info.keylayout);
             this->ini.set_acl<cfg::client::keyboard_layout>(this->client_info.keylayout);
             if (this->client_info.is_mce) {
-                if (this->verbose & 2) {
+                if (this->verbose & Verbose::basic_trace2) {
                     LOG(LOG_INFO, "Front::incoming::licencing client_info.is_mce");
                     LOG(LOG_INFO, "Front::incoming::licencing send_media_lic_response");
                 }
 
                 /* some compilers need unsigned char to avoid warnings */
-                uint8_t lic3[] = {
+                uint8_t const lic3[] = {
                     0xff, 0x03, 0x10, 0x00,
                     0x07, 0x00, 0x00, 0x00,
                     0x02, 0x00, 0x00, 0x00,
@@ -1890,7 +1922,7 @@ public:
                 };
                 static_assert(sizeof(lic3) == 16, "");
 
-                if ((this->verbose & (128 | 2)) == (128 | 2)) {
+                if (this->verbose & Verbose::global_channel) {
                     LOG(LOG_INFO, "Sec clear payload to send:");
                     hexdump_d(lic3, sizeof(lic3));
                 }
@@ -1924,7 +1956,7 @@ public:
                 //    | <------- Demand Active PDU ---------------------------- |
                 //    |--------- Confirm Active PDU --------------------------> |
 
-                if (this->verbose & 1) {
+                if (this->verbose & Verbose::basic_trace) {
                     LOG(LOG_INFO, "Front::incoming::send_demand_active");
                 }
                 this->send_demand_active();
@@ -1934,7 +1966,7 @@ public:
                 this->state = ACTIVATE_AND_PROCESS_DATA;
             }
             else {
-                if (this->verbose & 16) {
+                if (this->verbose & Verbose::channel) {
                     LOG(LOG_INFO, "Front::incoming::licencing not client_info.is_mce");
                     LOG(LOG_INFO, "Front::incoming::licencing send_lic_initial");
                 }
@@ -2000,20 +2032,20 @@ public:
                         sec::flags = SEC::SEC_LICENSE_PKT
                     ),
                     proto::hook([this](auto... args){
-                        if ((this->verbose & (128 | 2)) == (128 | 2)) {
+                        if (this->verbose & Verbose::global_channel) {
                             LOG(LOG_INFO, "Sec clear payload to send:");
                             hexdump_d(args...);
                         }
                     }),
                     proto::values(
-                        proto::types::u8{{LIC::LICENSE_REQUEST}},
-                        proto::types::u8{{2_c}}, // preamble flags : PREAMBLE_VERSION_2_0 (RDP 4.0)
-                        proto::types::u16_le{{318_c}}, // wMsgSize = 318 including preamble
+                        proto::types::u8{static_cast<uint8_t>(LIC::LICENSE_REQUEST)},
+                        proto::types::u8{2_c}, // preamble flags : PREAMBLE_VERSION_2_0 (RDP 4.0)
+                        proto::types::u16_le{318_c}, // wMsgSize = 318 including preamble
                         proto::types::bytes{lic1}
                     )
                 );
 
-                if (this->verbose & 2) {
+                if (this->verbose & Verbose::basic_trace2) {
                     LOG(LOG_INFO, "Front::incoming::waiting for answer to lic_initial");
                 }
                 this->state = WAITING_FOR_ANSWER_TO_LICENCE;
@@ -2023,7 +2055,7 @@ public:
 
         case WAITING_FOR_ANSWER_TO_LICENCE:
         {
-            if (this->verbose & 2) {
+            if (this->verbose & Verbose::basic_trace2) {
                 LOG(LOG_INFO, "Front::incoming::WAITING_FOR_ANSWER_TO_LICENCE");
             }
             constexpr size_t array_size = AUTOSIZE;
@@ -2045,7 +2077,7 @@ public:
 
             MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
             SEC::SecSpecialPacket_Recv sec(mcs.payload, this->decrypt, this->encryptionLevel);
-            if ((this->verbose & (128 | 2)) == (128 | 2)) {
+            if (this->verbose & Verbose::global_channel) {
                 LOG(LOG_INFO, "sec decrypted payload:");
                 hexdump_d(sec.payload.get_data(), sec.payload.get_capacity());
             }
@@ -2074,7 +2106,7 @@ public:
                 switch (flic.tag) {
                 case LIC::ERROR_ALERT:
                 {
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "Front::ERROR_ALERT");
                     }
                     // TODO We should check what is actually returned by this message, as it may be an error
@@ -2086,7 +2118,7 @@ public:
                 break;
                 case LIC::NEW_LICENSE_REQUEST:
                 {
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "Front::NEW_LICENSE_REQUEST");
                     }
                     LIC::NewLicenseRequest_Recv lic(sec.payload);
@@ -2096,20 +2128,20 @@ public:
                 break;
                 case LIC::PLATFORM_CHALLENGE_RESPONSE:
                     // TODO As we never send a platform challenge, it is unlikely we ever receive a PLATFORM_CHALLENGE_RESPONSE
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "Front::PLATFORM_CHALLENGE_RESPONSE");
                     }
                     break;
                 case LIC::LICENSE_INFO:
                     // TODO As we never send a server license request, it is unlikely we ever receive a LICENSE_INFO
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "Front::LICENSE_INFO");
                     }
                     // TODO Instead of returning a license we return a message saying that no license is OK
                     this->send_valid_client_license_data();
                     break;
                 default:
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "Front::LICENCE_TAG %u unknown or unsupported by server", flic.tag);
                     }
                     break;
@@ -2127,7 +2159,7 @@ public:
                 //    | <------- Demand Active PDU ---------------------------- |
                 //    |--------- Confirm Active PDU --------------------------> |
 
-                if (this->verbose & 1) {
+                if (this->verbose & Verbose::basic_trace) {
                     LOG(LOG_INFO, "Front::incoming::send_demand_active");
                 }
                 this->send_demand_active();
@@ -2137,19 +2169,19 @@ public:
                 this->state = ACTIVATE_AND_PROCESS_DATA;
             }
             else {
-                if (this->verbose & 2) {
+                if (this->verbose & Verbose::basic_trace2) {
                     LOG(LOG_INFO, "non licence packet: still waiting for licence");
                 }
                 ShareControl_Recv sctrl(sec.payload);
 
                 switch (sctrl.pduType) {
                 case PDUTYPE_DEMANDACTIVEPDU: /* 1 */
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "unexpected DEMANDACTIVE PDU while in licence negociation");
                     }
                     break;
                 case PDUTYPE_CONFIRMACTIVEPDU:
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "Unexpected CONFIRMACTIVE PDU");
                     }
                     {
@@ -2172,7 +2204,7 @@ public:
                     }
                     break;
                 case PDUTYPE_DATAPDU: /* 7 */
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "unexpected DATA PDU while in licence negociation");
                     }
                     // at this point licence negociation is still ongoing
@@ -2185,13 +2217,13 @@ public:
                     // TODO check all payload data is consumed
                     break;
                 case PDUTYPE_DEACTIVATEALLPDU:
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "unexpected DEACTIVATEALL PDU while in licence negociation");
                     }
                     // TODO check all payload data is consumed
                     break;
                 case PDUTYPE_SERVER_REDIR_PKT:
-                    if (this->verbose & 2) {
+                    if (this->verbose & Verbose::basic_trace2) {
                         LOG(LOG_INFO, "unsupported SERVER_REDIR_PKT while in licence negociation");
                     }
                     // TODO check all payload data is consumed
@@ -2207,7 +2239,7 @@ public:
         break;
 
         case ACTIVATE_AND_PROCESS_DATA:
-        if (this->verbose & 8) {
+        if (this->verbose & Verbose::basic_trace4) {
             LOG(LOG_INFO, "Front::incoming::ACTIVATE_AND_PROCESS_DATA");
         }
         // Connection Finalization
@@ -2270,7 +2302,7 @@ public:
                         {
                             FastPath::KeyboardEvent_Recv ke(cfpie.payload, byte);
 
-                            if (this->verbose & 4) {
+                            if (this->verbose & Verbose::basic_trace3) {
                                 LOG(LOG_INFO,
                                     "Front::Received fast-path PUD, scancode keyboardFlags=0x%X, keyCode=0x%X",
                                     ke.spKeyboardFlags, ke.keyCode);
@@ -2284,7 +2316,7 @@ public:
                         {
                             FastPath::MouseEvent_Recv me(cfpie.payload, byte);
 
-                            if (this->verbose & 4) {
+                            if (this->verbose & Verbose::basic_trace3) {
                                 LOG(LOG_INFO,
                                     "Front::Received fast-path PUD, mouse pointerFlags=0x%X, xPos=0x%X, yPos=0x%X",
                                     me.pointerFlags, me.xPos, me.yPos);
@@ -2293,9 +2325,7 @@ public:
                             this->mouse_x = me.xPos;
                             this->mouse_y = me.yPos;
                             if (this->up_and_running) {
-                                if (!this->input_event_disabled) {
-                                    cb.rdp_input_mouse(me.pointerFlags, me.xPos, me.yPos, &this->keymap);
-                                }
+                                cb.rdp_input_mouse(me.pointerFlags, me.xPos, me.yPos, &this->keymap);
                                 this->has_activity = true;
                             }
 
@@ -2318,7 +2348,7 @@ public:
                         {
                             FastPath::SynchronizeEvent_Recv se(cfpie.payload, byte);
 
-                            if (this->verbose & 4) {
+                            if (this->verbose & Verbose::basic_trace3) {
                                 LOG(LOG_INFO, "Front::Received fast-path PUD, sync eventFlags=0x%X",
                                     se.eventFlags);
                             }
@@ -2340,7 +2370,7 @@ public:
                                 eventCode);
                             throw Error(ERR_RDP_FASTPATH);
                     }
-                    if (this->verbose & 4) {
+                    if (this->verbose & Verbose::basic_trace3) {
                         LOG(LOG_INFO, "Front::Received fast-path PUD done");
                     }
                 }
@@ -2380,17 +2410,17 @@ public:
 
                 MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
                 SEC::Sec_Recv sec(mcs.payload, this->decrypt, this->encryptionLevel);
-                if (this->verbose & 128) {
+                if (this->verbose & Verbose::sec_decrypted) {
                     LOG(LOG_INFO, "sec decrypted payload:");
                     hexdump_d(sec.payload.get_data(), sec.payload.get_capacity());
                 }
 
-                if (this->verbose & 8) {
+                if (this->verbose & Verbose::basic_trace4) {
                     LOG(LOG_INFO, "Front::incoming::sec_flags=%x", sec.flags);
                 }
 
                 if (mcs.channelId != GCC::MCS_GLOBAL_CHANNEL) {
-                    if (this->verbose & 16) {
+                    if (this->verbose & Verbose::channel) {
                         LOG(LOG_INFO, "Front::incoming::channel_data channelId=%u", mcs.channelId);
                     }
 
@@ -2408,7 +2438,7 @@ public:
                     }
 
                     const CHANNELS::ChannelDef & channel = this->channel_list[num_channel_src];
-                    if (this->verbose & 16) {
+                    if (this->verbose & Verbose::channel) {
                         channel.log(mcs.channelId);
                     }
 
@@ -2425,7 +2455,7 @@ public:
                     size_t chunk_size = sec.payload.in_remain();
 
                     if (this->up_and_running) {
-                        if (this->verbose & 16) {
+                        if (this->verbose & Verbose::channel) {
                             LOG(LOG_INFO, "Front::send_to_mod_channel");
                         }
 
@@ -2434,7 +2464,7 @@ public:
                         cb.send_to_mod_channel(channel.name, chunk, length, flags);
                     }
                     else {
-                        if (this->verbose & 16) {
+                        if (this->verbose & Verbose::channel) {
                             LOG(LOG_INFO, "Front::not up_and_running send_to_mod_channel dropped");
                         }
                     }
@@ -2446,12 +2476,12 @@ public:
 
                         switch (sctrl.pduType) {
                         case PDUTYPE_DEMANDACTIVEPDU:
-                            if (this->verbose & 1) {
+                            if (this->verbose & Verbose::basic_trace) {
                                 LOG(LOG_INFO, "Front received DEMANDACTIVEPDU (unsupported)");
                             }
                             break;
                         case PDUTYPE_CONFIRMACTIVEPDU:
-                            if (this->verbose & 1) {
+                            if (this->verbose & Verbose::basic_trace) {
                                 LOG(LOG_INFO, "Front received CONFIRMACTIVEPDU");
                             }
                             {
@@ -2476,13 +2506,13 @@ public:
                                 RDPColCache cmd(0, BGRPalette::classic_332());
                                 this->orders.graphics_update_pdu().draw(cmd);
                             }
-                            if (this->verbose & 1) {
+                            if (this->verbose & Verbose::basic_trace) {
                                 LOG(LOG_INFO, "Front received CONFIRMACTIVEPDU done");
                             }
 
                             break;
                         case PDUTYPE_DATAPDU: /* 7 */
-                            if (this->verbose & 8) {
+                            if (this->verbose & Verbose::basic_trace4) {
                                 LOG(LOG_INFO, "Front received DATAPDU");
                             }
                             // this is rdp_process_data that will set up_and_running to 1
@@ -2490,7 +2520,7 @@ public:
                             // we will not exit this loop until we are in this state.
                             //LOG(LOG_INFO, "sctrl.payload.len= %u sctrl.len = %u", sctrl.payload.size(), sctrl.len);
                             this->process_data(sctrl.payload, cb);
-                            if (this->verbose & 8) {
+                            if (this->verbose & Verbose::basic_trace4) {
                                 LOG(LOG_INFO, "Front received DATAPDU done");
                             }
 
@@ -2503,12 +2533,12 @@ public:
                             }
                             break;
                         case PDUTYPE_DEACTIVATEALLPDU:
-                            if (this->verbose & 1) {
+                            if (this->verbose & Verbose::basic_trace) {
                                 LOG(LOG_INFO, "Front received DEACTIVATEALLPDU (unsupported)");
                             }
                             break;
                         case PDUTYPE_SERVER_REDIR_PKT:
-                            if (this->verbose & 1) {
+                            if (this->verbose & Verbose::basic_trace) {
                                 LOG(LOG_INFO, "Front received SERVER_REDIR_PKT (unsupported)");
                             }
                             break;
@@ -2538,7 +2568,7 @@ public:
     void send_valid_client_license_data()
     {
         /* some compilers need unsigned char to avoid warnings */
-        uint8_t lic2[] = {
+        uint8_t const lic2[] = {
             0xff,                   // bMsgType : ERROR_ALERT
             0x02,                   // NOT EXTENDED_ERROR_MSG_SUPPORTED, PREAMBLE_VERSION_2_0
             0x10, 0x00,             // wMsgSize: 16 bytes including preamble
@@ -2549,7 +2579,7 @@ public:
         };
         static_assert(sizeof(lic2) == 16, "");
 
-        if ((this->verbose & (128 | 2)) == (128 | 2)) {
+        if (this->verbose & Verbose::global_channel) {
             LOG(LOG_INFO, "Sec clear payload to send:");
             hexdump_d(lic2, sizeof(lic2));
         }
@@ -2592,7 +2622,7 @@ public:
 private:
     void send_fastpath_data(InStream & data) override
     {
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::basic_trace3) {
             LOG(LOG_INFO, "Front::send_data: fast-path");
         }
 
@@ -2605,7 +2635,7 @@ private:
                   : 0),
                 fast_path::crypt = this->encrypt
             ),
-            proto::value(proto::types::bytes{{data.get_data(), data.get_capacity()}})
+            proto::value(proto::types::bytes{data.get_data(), data.get_capacity()})
         );
     }
 
@@ -2694,31 +2724,10 @@ private:
         }
     }
 
-    bool disable_input_event_and_graphics_update(bool disable_input_event,
-            bool disable_graphics_update) override {
-        bool need_full_screen_update =
-            (this->graphics_update_disabled && !disable_graphics_update);
-
-        if (this->input_event_disabled != disable_input_event) {
-            LOG(LOG_INFO, "Front: %s input event.",
-                (disable_input_event ? "Disable" : "Enable"));
-        }
-        if (this->graphics_update_disabled != disable_graphics_update) {
-            LOG(LOG_INFO, "Front: %s graphics update.",
-                (disable_graphics_update ? "Disable" : "Enable"));
-        }
-
-        this->input_event_disabled     = disable_input_event;
-        this->graphics_update_disabled = disable_graphics_update;
-        this->set_gd(this->gd.get());
-
-        return need_full_screen_update;
-    }
-
     /*****************************************************************************/
     void send_data_update_sync()
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "Front::send_data_update_sync");
         }
 
@@ -2742,7 +2751,7 @@ private:
     /*****************************************************************************/
     void send_demand_active()
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "Front::send_demand_active");
         }
 
@@ -2916,21 +2925,21 @@ private:
 
             },
             [this](StreamSize<0>, OutStream &, uint8_t  const * packet_data, std::size_t packet_size) {
-                if ((this->verbose & (128 | 1)) == (128 | 1)) {
+                if (this->verbose & Verbose::global_channel) {
                     LOG(LOG_INFO, "Sec clear payload to send:");
                     hexdump_d(packet_data, packet_size);
                 }
             }
         );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "Front::send_demand_active done");
         }
     }   // send_demand_active
 
     void process_confirm_active(InStream & stream)
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "process_confirm_active");
         }
         // TODO We should separate the parts relevant to caps processing and the part relevant to actual confirm active
@@ -2954,7 +2963,7 @@ private:
 
         stream.in_skip_bytes(lengthSourceDescriptor);
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "lengthSourceDescriptor = %u", lengthSourceDescriptor);
             LOG(LOG_INFO, "lengthCombinedCapabilities = %u", lengthCombinedCapabilities);
         }
@@ -2974,7 +2983,7 @@ private:
         stream.in_skip_bytes(2); /* pad */
 
         for (int n = 0; n < numberCapabilities; n++) {
-            if (this->verbose & 32) {
+            if (this->verbose & Verbose::basic_trace5) {
                 LOG(LOG_INFO, "Front::capability %u / %u", n, numberCapabilities );
             }
             if (stream.get_current() + 4 > theoricCapabilitiesEnd) {
@@ -3282,7 +3291,7 @@ private:
             // From the documentation SessionId is ignored by client.
             stream.in_skip_bytes(4); /* Session Id */
         }
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "process_confirm_active done p=%p end=%p",
                 voidp(stream.get_current()), voidp(stream.get_data_end()));
         }
@@ -3350,7 +3359,7 @@ private:
 
     void send_synchronize()
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_synchronize");
         }
 
@@ -3373,7 +3382,7 @@ private:
                             , this->verbose
                             );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_synchronize done");
         }
     }
@@ -3402,7 +3411,7 @@ private:
 
     void send_control(int action)
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_control action=%u", action);
         }
 
@@ -3427,7 +3436,7 @@ private:
                             , this->verbose
                             );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_control done. action=%u", action);
         }
     }
@@ -3435,7 +3444,7 @@ private:
     /*****************************************************************************/
     void send_fontmap()
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_fontmap");
         }
 
@@ -3482,13 +3491,13 @@ private:
                             , this->verbose
                             );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_fontmap done");
         }
     }
 
     void send_savesessioninfo() override {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_savesessioninfo");
         }
 
@@ -3516,10 +3525,45 @@ private:
                             , this->verbose
                             );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_savesessioninfo done");
         }
     }   // void send_savesessioninfo()
+
+    void send_auto_reconnect_packet(RDP::ServerAutoReconnectPacket const & auto_reconnect) override {
+        if (this->verbose & Verbose::basic_trace) {
+            LOG(LOG_INFO, "send_auto_reconnect_packet");
+        }
+
+        StaticOutReservedStreamHelper<1024, 65536-1024> stream;
+
+        // Payload
+        stream.get_data_stream().out_uint32_le(RDP::INFOTYPE_LOGON_EXTENDED_INFO);
+
+        RDP::LogonInfoExtended_Send sender(stream.get_data_stream(), RDP::LOGON_EX_AUTORECONNECTCOOKIE);
+
+        stream.get_data_stream().out_uint32_le(RDP::ServerAutoReconnectPacket::size());
+
+        auto_reconnect.emit(stream.get_data_stream());
+
+        const uint32_t log_condition = (128 | 1);
+        ::send_share_data_ex( this->trans
+                            , PDUTYPE2_SAVE_SESSION_INFO
+                            , false
+                            , this->mppc_enc
+                            , this->share_id
+                            , this->encryptionLevel
+                            , this->encrypt
+                            , this->userid
+                            , stream
+                            , log_condition
+                            , this->verbose
+                            );
+
+        if (this->verbose & Verbose::basic_trace) {
+            LOG(LOG_INFO, "send_auto_reconnect_packet done");
+        }
+    }
 
     void send_monitor_layout() {
         if (!this->ini.get<cfg::globals::allow_using_multiple_monitors>() ||
@@ -3528,7 +3572,7 @@ private:
             return;
         }
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_monitor_layout");
         }
 
@@ -3556,7 +3600,7 @@ private:
                             , this->verbose
                             );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_monitor_layout done");
         }
     }
@@ -3565,11 +3609,11 @@ private:
     void process_data(InStream & stream, Callback & cb)
     {
         unsigned expected;
-        if (this->verbose & 8) {
+        if (this->verbose & Verbose::basic_trace4) {
             LOG(LOG_INFO, "Front::process_data(...)");
         }
         ShareData_Recv sdata_in(stream, nullptr);
-        if (this->verbose & 8) {
+        if (this->verbose & Verbose::basic_trace4) {
             LOG(LOG_INFO, "sdata_in.pdutype2=%" PRIu8
                           " sdata_in.len=%" PRIu16
                           " sdata_in.compressedLen=%" PRIu16
@@ -3585,14 +3629,14 @@ private:
 
         switch (sdata_in.pdutype2) {
         case PDUTYPE2_UPDATE:  // Update PDU (section 2.2.9.1.1.3)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_UPDATE");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_CONTROL: // 20(0x14) Control PDU (section 2.2.1.15.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_CONTROL");
             }
             {
@@ -3619,7 +3663,7 @@ private:
             }
             break;
         case PDUTYPE2_POINTER: // Pointer Update PDU (section 2.2.9.1.1.4)
-            if (this->verbose & 4) {
+            if (this->verbose & Verbose::basic_trace3) {
                 LOG(LOG_INFO, "PDUTYPE2_POINTER");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
@@ -3629,7 +3673,7 @@ private:
             {
                 SlowPath::ClientInputEventPDU_Recv cie(sdata_in.payload);
 
-                if (this->verbose & 4) {
+                if (this->verbose & Verbose::basic_trace3) {
                     LOG(LOG_INFO, "PDUTYPE2_INPUT num_events=%u", cie.numEvents);
                 }
 
@@ -3643,7 +3687,7 @@ private:
                         {
                             SlowPath::SynchronizeEvent_Recv se(ie.payload);
 
-                            if (this->verbose & 4) {
+                            if (this->verbose & Verbose::basic_trace3) {
                                 LOG(LOG_INFO, "SlowPath INPUT_EVENT_SYNC eventTime=%u toggleFlags=0x%04X",
                                     ie.eventTime, se.toggleFlags);
                             }
@@ -3660,16 +3704,14 @@ private:
                         {
                             SlowPath::MouseEvent_Recv me(ie.payload);
 
-                            if (this->verbose & 4) {
+                            if (this->verbose & Verbose::basic_trace3) {
                                 LOG(LOG_INFO, "Slow-path INPUT_EVENT_MOUSE eventTime=%u pointerFlags=0x%04X, xPos=%u, yPos=%u)",
                                     ie.eventTime, me.pointerFlags, me.xPos, me.yPos);
                             }
                             this->mouse_x = me.xPos;
                             this->mouse_y = me.yPos;
                             if (this->up_and_running) {
-                                if (!this->input_event_disabled) {
-                                    cb.rdp_input_mouse(me.pointerFlags, me.xPos, me.yPos, &this->keymap);
-                                }
+                                cb.rdp_input_mouse(me.pointerFlags, me.xPos, me.yPos, &this->keymap);
                                 this->has_activity = true;
                             }
 
@@ -3689,7 +3731,7 @@ private:
                         {
                             SlowPath::KeyboardEvent_Recv ke(ie.payload);
 
-                            if (this->verbose & 4) {
+                            if (this->verbose & Verbose::basic_trace3) {
                                 LOG(LOG_INFO, "Slow-path INPUT_EVENT_SYNC eventTime=%u keyboardFlags=0x%04X keyCode=0x%04X",
                                     ie.eventTime, ke.keyboardFlags, ke.keyCode);
                             }
@@ -3703,13 +3745,13 @@ private:
                         break;
                     }
                 }
-                if (this->verbose & 4) {
+                if (this->verbose & Verbose::basic_trace3) {
                     LOG(LOG_INFO, "PDUTYPE2_INPUT done");
                 }
             }
         break;
         case PDUTYPE2_SYNCHRONIZE:  // Synchronize PDU (section 2.2.1.14.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SYNCHRONIZE");
             }
             {
@@ -3722,7 +3764,7 @@ private:
 
                 uint16_t messageType = sdata_in.payload.in_uint16_le();
                 uint16_t controlId = sdata_in.payload.in_uint16_le();
-                if (this->verbose & 8) {
+                if (this->verbose & Verbose::basic_trace4) {
                     LOG(LOG_INFO, "PDUTYPE2_SYNCHRONIZE"
                                   " messageType=%u controlId=%u",
                                   static_cast<unsigned>(messageType),
@@ -3732,7 +3774,7 @@ private:
             }
         break;
         case PDUTYPE2_REFRESH_RECT: // Refresh Rect PDU (section 2.2.11.2.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_REFRESH_RECT");
             }
             // numberOfAreas (1 byte): An 8-bit, unsigned integer. The number of Inclusive Rectangle
@@ -3780,7 +3822,7 @@ private:
                     int right = sdata_in.payload.in_uint16_le();
                     int bottom = sdata_in.payload.in_uint16_le();
                     rect = Rect(left, top, (right - left) + 1, (bottom - top) + 1);
-                    if (this->verbose & (64|4)) {
+                    if (this->verbose & Verbose::basic_trace4) {
                         LOG(LOG_INFO, "PDUTYPE2_REFRESH_RECT"
                             " left=%u top=%u right=%u bottom=%u cx=%u cy=%u",
                             left, top, right, bottom, rect.cx, rect.cy);
@@ -3794,14 +3836,14 @@ private:
             }
         break;
         case PDUTYPE2_PLAY_SOUND:   // Play Sound PDU (section 2.2.9.1.1.5.1):w
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_PLAY_SOUND");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_SUPPRESS_OUTPUT:  // Suppress Output PDU (section 2.2.11.3.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SUPPRESS_OUTPUT");
             }
             // PDUTYPE2_SUPPRESS_OUTPUT comes when minimizing a full screen
@@ -3828,7 +3870,7 @@ private:
 
         break;
         case PDUTYPE2_SHUTDOWN_REQUEST: // Shutdown Request PDU (section 2.2.2.2.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SHUTDOWN_REQUEST");
             }
             {
@@ -3854,14 +3896,14 @@ private:
             }
         break;
         case PDUTYPE2_SHUTDOWN_DENIED:  // Shutdown Request Denied PDU (section 2.2.2.3.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SHUTDOWN_DENIED");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_SAVE_SESSION_INFO: // Save Session Info PDU (section 2.2.10.1.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SAVE_SESSION_INFO");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
@@ -3869,7 +3911,7 @@ private:
         break;
         case PDUTYPE2_FONTLIST: // 39(0x27) Font List PDU (section 2.2.1.18.1)
         {
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_FONTLIST");
             }
         // 2.2.1.18.1 Font List PDU Data (TS_FONT_LIST_PDU)
@@ -3922,7 +3964,7 @@ private:
                     this->orders.graphics_update_pdu().draw(cmd);
                 }
 
-                if (this->verbose & (8|1)) {
+                if (this->verbose & (Verbose::basic_trace4 | Verbose::basic_trace)) {
                     LOG(LOG_INFO, "--------------> UP AND RUNNING <----------------");
                 }
                 this->up_and_running = 1;
@@ -3986,21 +4028,21 @@ private:
         }
         break;
         case PDUTYPE2_FONTMAP:  // Font Map PDU (section 2.2.1.22.1)
-            if (this->verbose & (8 | 1)) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_FONTMAP");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_SET_KEYBOARD_INDICATORS: // Set Keyboard Indicators PDU (section 2.2.8.2.1.1)
-            if (this->verbose & (4 | 8)) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SET_KEYBOARD_INDICATORS");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_BITMAPCACHE_PERSISTENT_LIST: // Persistent Key List PDU (section 2.2.1.17.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_BITMAPCACHE_PERSISTENT_LIST");
             }
 
@@ -4009,7 +4051,7 @@ private:
                 RDP::PersistentKeyListPDUData pklpdud;
 
                 pklpdud.receive(sdata_in.payload);
-                if (this->verbose & 8) {
+                if (this->verbose & Verbose::basic_trace4) {
                     pklpdud.log(LOG_INFO, "Receiving from client");
                 }
 
@@ -4055,49 +4097,49 @@ private:
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_BITMAPCACHE_ERROR_PDU: // Bitmap Cache Error PDU (see [MS-RDPEGDI] section 2.2.2.3.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_BITMAPCACHE_ERROR_PDU");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_SET_KEYBOARD_IME_STATUS: // Set Keyboard IME Status PDU (section 2.2.8.2.2.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SET_KEYBOARD_IME_STATUS");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_OFFSCRCACHE_ERROR_PDU: // Offscreen Bitmap Cache Error PDU (see [MS-RDPEGDI] section 2.2.2.3.2)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_OFFSCRCACHE_ERROR_PDU");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_SET_ERROR_INFO_PDU: // Set Error Info PDU (section 2.2.5.1.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_SET_ERROR_INFO_PDU");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_DRAWNINEGRID_ERROR_PDU: // DrawNineGrid Cache Error PDU (see [MS-RDPEGDI] section 2.2.2.3.3)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_DRAWNINEGRID_ERROR_PDU");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_DRAWGDIPLUS_ERROR_PDU: // GDI+ Error PDU (see [MS-RDPEGDI] section 2.2.2.3.4)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_DRAWGDIPLUS_ERROR_PDU");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
             sdata_in.payload.in_skip_bytes(sdata_in.payload.in_remain());
         break;
         case PDUTYPE2_ARC_STATUS_PDU: // Auto-Reconnect Status PDU (section 2.2.4.1.1)
-            if (this->verbose & 8) {
+            if (this->verbose & Verbose::basic_trace4) {
                 LOG(LOG_INFO, "PDUTYPE2_ARC_STATUS_PDU");
             }
             // TODO this quickfix prevents a tech crash, but consuming the data should be a better behaviour
@@ -4111,14 +4153,14 @@ private:
 
         stream.in_skip_bytes(sdata_in.payload.get_current() - stream.get_current());
 
-        if (this->verbose & (4 | 8)) {
+        if (this->verbose & Verbose::basic_trace4) {
             LOG(LOG_INFO, "process_data done");
         }
     }
 
     void send_deactive()
     {
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_deactive");
         }
 
@@ -4126,14 +4168,14 @@ private:
             GCC::MCS_GLOBAL_CHANNEL,
             [&](StreamSize<256>, OutStream & stream) {
                 ShareControl_Send(stream, PDUTYPE_DEACTIVATEALLPDU, this->userid + GCC::MCS_USERCHANNEL_BASE, 0);
-                if ((this->verbose & (128 | 1)) == (128 | 1)) {
+                if (this->verbose & Verbose::global_channel) {
                     LOG(LOG_INFO, "Sec clear payload to send:");
                     hexdump_d(stream.get_data(), stream.get_offset());
                 }
             }
         );
 
-        if (this->verbose & 1) {
+        if (this->verbose & Verbose::basic_trace) {
             LOG(LOG_INFO, "send_deactive done");
         }
     }
@@ -4231,7 +4273,7 @@ private:
 
     void draw_tile(const Rect & dst_tile, const Rect & src_tile, const RDPMemBlt & cmd, const Bitmap & bitmap, const Rect & clip)
     {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::graphic) {
             LOG(LOG_INFO, "front::draw:draw_tile((%u, %u, %u, %u) (%u, %u, %u, %u))",
                  dst_tile.x, dst_tile.y, dst_tile.cx, dst_tile.cy,
                  src_tile.x, src_tile.y, src_tile.cx, src_tile.cy);
@@ -4316,7 +4358,7 @@ private:
 
     void draw_tile3(const Rect & dst_tile, const Rect & src_tile, const RDPMem3Blt & cmd, const Bitmap & bitmap, const Rect & clip)
     {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::graphic) {
             LOG(LOG_INFO, "front::draw:draw_tile3((%u, %u, %u, %u) (%u, %u, %u, %u)",
                  dst_tile.x, dst_tile.y, dst_tile.cx, dst_tile.cy,
                  src_tile.x, src_tile.y, src_tile.cx, src_tile.cy);
@@ -4403,7 +4445,7 @@ private:
             return ;
         }
 
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::basic_trace3) {
             LOG(LOG_INFO, "Front::send_palette");
         }
 
@@ -4432,7 +4474,7 @@ private:
 
 public:
     void sync() override {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::graphic) {
             LOG(LOG_INFO, "Front::flush");
         }
         this->gd->sync();
@@ -4494,9 +4536,8 @@ private:
                 LOG(LOG_INFO, "Ctrl+Alt+Del and Ctrl+Shift+Esc keyboard sequences ignored.");
             }
             else {
-                if (!this->input_event_disabled && send_to_mod) {
+                if (send_to_mod) {
                     cb.rdp_input_scancode(ke.keyCode, 0, KeyboardFlags::get(ke), event_time, &this->keymap);
-
                 }
                 this->has_activity = true;
             }

@@ -55,6 +55,8 @@
 #include "gdi/kbd_input_api.hpp"
 #include "gdi/capture_probe_api.hpp"
 
+#include "utils/verbose_flags.hpp"
+
 #include "capture/utils/save_state_chunk.hpp"
 
 struct FileToGraphic
@@ -69,10 +71,10 @@ private:
 
     CompressionInTransportWrapper compression_wrapper;
 
-public:
     Transport * trans_source;
     Transport * trans;
 
+public:
     Rect screen_rect;
 
     // Internal state of orders
@@ -143,7 +145,6 @@ public:
     const timeval begin_capture;
     const timeval end_capture;
     uint32_t max_order_count;
-    uint32_t verbose;
 
     uint16_t info_version;
     uint16_t info_width;
@@ -202,11 +203,23 @@ public:
         uint32_t timestamp_chunk;
     } statistics;
 
-    FileToGraphic(Transport * trans, const timeval begin_capture, const timeval end_capture, bool real_time, uint32_t verbose)
+    bool break_privplay_qt;
+    uint64_t movie_elapsed_qt;
+
+    REDEMPTION_VERBOSE_FLAGS(private, verbose)
+    {
+        none,
+        play        = 8,
+        timestamp   = 16,
+        rdp_orders  = 32,
+        probe       = 64,
+    };
+
+    FileToGraphic(Transport & trans, const timeval begin_capture, const timeval end_capture, bool real_time, Verbose verbose)
         : stream(stream_buf)
-        , compression_wrapper(*trans, WrmCompressionAlgorithm::no_compression)
-        , trans_source(trans)
-        , trans(trans)
+        , compression_wrapper(trans, WrmCompressionAlgorithm::no_compression)
+        , trans_source(&trans)
+        , trans(&trans)
         , bmp_cache(nullptr)
         // variables used to read batch of orders "chunks"
         , chunk_size(0)
@@ -222,7 +235,6 @@ public:
         , begin_capture(begin_capture)
         , end_capture(end_capture)
         , max_order_count(0)
-        , verbose(verbose)
         , info_version(0)
         , info_width(0)
         , info_height(0)
@@ -247,6 +259,9 @@ public:
         , info_compression_algorithm(WrmCompressionAlgorithm::no_compression)
         , ignore_frame_in_timeval(false)
         , statistics()
+        , break_privplay_qt(false)
+        , movie_elapsed_qt(0)
+        , verbose(verbose)
     {
         while (this->next_order()){
             this->interpret_order();
@@ -296,7 +311,6 @@ public:
                 return false;
             }
         }
-
         if (!this->remaining_order_count){
             for (gdi::GraphicApi * gd : this->graphic_consumers){
                 gd->sync();
@@ -375,7 +389,7 @@ public:
                         RDP::FrameMarker order;
 
                         order.receive(stream, header);
-                        if (this->verbose > 32){
+                        if (this->verbose & Verbose::rdp_orders){
                             order.log(LOG_INFO);
                         }
                         for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -402,7 +416,7 @@ public:
                     this->statistics.CacheBitmap++;
                     RDPBmpCache cmd;
                     cmd.receive(this->stream, header, this->palette, this->info_bpp);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         cmd.log(LOG_INFO);
                     }
                     this->bmp_cache->put(cmd.id, cmd.idx, cmd.bmp, cmd.key1, cmd.key2);
@@ -417,7 +431,7 @@ public:
                     this->statistics.CacheGlyph++;
                     RDPGlyphCache cmd;
                     cmd.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         cmd.log(LOG_INFO);
                     }
                     this->gly_cache.set_glyph(
@@ -456,7 +470,7 @@ public:
                 case RDP::DESTBLT:
                     this->statistics.DstBlt++;
                     this->ssc.destblt.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.destblt.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -466,7 +480,7 @@ public:
                 case RDP::MULTIDSTBLT:
                     this->statistics.MultiDstBlt++;
                     this->ssc.multidstblt.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.multidstblt.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -476,7 +490,7 @@ public:
                 case RDP::MULTIOPAQUERECT:
                     this->statistics.MultiOpaqueRect++;
                     this->ssc.multiopaquerect.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.multiopaquerect.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -486,7 +500,7 @@ public:
                 case RDP::MULTIPATBLT:
                     this->statistics.MultiPatBlt++;
                     this->ssc.multipatblt.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.multipatblt.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -496,7 +510,7 @@ public:
                 case RDP::MULTISCRBLT:
                     this->statistics.MultiScrBlt++;
                     this->ssc.multiscrblt.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.multiscrblt.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -506,7 +520,7 @@ public:
                 case RDP::PATBLT:
                     this->statistics.PatBlt++;
                     this->ssc.patblt.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.patblt.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -516,7 +530,7 @@ public:
                 case RDP::SCREENBLT:
                     this->statistics.ScrBlt++;
                     this->ssc.scrblt.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.scrblt.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -526,7 +540,7 @@ public:
                 case RDP::LINE:
                     this->statistics.LineTo++;
                     this->ssc.lineto.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.lineto.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -536,7 +550,7 @@ public:
                 case RDP::RECT:
                     this->statistics.OpaqueRect++;
                     this->ssc.opaquerect.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.opaquerect.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -547,7 +561,7 @@ public:
                     {
                         this->statistics.MemBlt++;
                         this->ssc.memblt.receive(this->stream, header);
-                        if (this->verbose > 32){
+                        if (this->verbose & Verbose::rdp_orders){
                             this->ssc.memblt.log(LOG_INFO, clip);
                         }
                         const Bitmap & bmp = this->bmp_cache->get(this->ssc.memblt.cache_id, this->ssc.memblt.cache_idx);
@@ -566,7 +580,7 @@ public:
                     {
                         this->statistics.Mem3Blt++;
                         this->ssc.mem3blt.receive(this->stream, header);
-                        if (this->verbose > 32){
+                        if (this->verbose & Verbose::rdp_orders){
                             this->ssc.mem3blt.log(LOG_INFO, clip);
                         }
                         const Bitmap & bmp = this->bmp_cache->get(this->ssc.mem3blt.cache_id, this->ssc.mem3blt.cache_idx);
@@ -584,7 +598,7 @@ public:
                 case RDP::POLYLINE:
                     this->statistics.Polyline++;
                     this->ssc.polyline.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.polyline.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -594,7 +608,7 @@ public:
                 case RDP::ELLIPSESC:
                     this->statistics.EllipseSC++;
                     this->ssc.ellipseSC.receive(this->stream, header);
-                    if (this->verbose > 32){
+                    if (this->verbose & Verbose::rdp_orders){
                         this->ssc.ellipseSC.log(LOG_INFO, clip);
                     }
                     for (gdi::GraphicApi * gd : this->graphic_consumers){
@@ -637,7 +651,7 @@ public:
                         this->ignore_frame_in_timeval = true;
                     }
 
-                    if (this->verbose > 16) {
+                    if (this->verbose & Verbose::timestamp) {
                         LOG( LOG_INFO, "TIMESTAMP %lu.%lu mouse (x=%" PRIu16 ", y=%" PRIu16 ")\n"
                            , static_cast<unsigned long>(this->record_now.tv_sec)
                            , static_cast<unsigned long>(this->record_now.tv_usec)
@@ -656,7 +670,7 @@ public:
                         }
                     }
 
-                    if (this->verbose > 16) {
+                    if (this->verbose & Verbose::timestamp) {
                         for (auto data = input_data, end = data + input_len/4; data != end; data += 4) {
                             uint8_t         key8[6];
                             const size_t    len = UTF32toUTF8(data, 4, key8, sizeof(key8)-1);
@@ -683,22 +697,25 @@ public:
                             gd->sync();
                         }
 
-                        struct timeval now     = tvtime();
+                        this->movie_elapsed_qt = difftimeval(this->record_now, this->start_record_now);
+
+                        /*struct timeval now     = tvtime();
                         uint64_t       elapsed = difftimeval(now, this->start_synctime_now);
 
                         uint64_t movie_elapsed = difftimeval(this->record_now, this->start_record_now);
+                        this->movie_elapsed_qt = movie_elapsed;
 
                         if (elapsed < movie_elapsed) {
                             struct timespec wtime     = {
                                   static_cast<time_t>( (movie_elapsed - elapsed) / 1000000LL)
                                 , static_cast<time_t>(((movie_elapsed - elapsed) % 1000000LL) * 1000)
                                 };
-                            struct timespec wtime_rem = { 0, 0 };
+                            struct timespec wtime_rem = { 0, 0 };*/
 
-                            while ((nanosleep(&wtime, &wtime_rem) == -1) && (errno == EINTR)) {
+                            /*while ((nanosleep(&wtime, &wtime_rem) == -1) && (errno == EINTR)) {
                                 wtime = wtime_rem;
                             }
-                        }
+                        } */
                     }
                 }
             }
@@ -874,13 +891,14 @@ public:
                              , (bitmap_data.flags & BITMAP_COMPRESSION)
                              );
 
-                if (this->verbose > 32){
+                if (this->verbose & Verbose::rdp_orders){
                     bitmap_data.log(LOG_INFO, "         ");
                 }
 
                 for (gdi::GraphicApi * gd : this->graphic_consumers){
                     gd->draw(bitmap_data, bitmap);
                 }
+
             }
             break;
             case POINTER:
@@ -964,22 +982,25 @@ public:
                             gd->sync();
                         }
 
-                        struct timeval now     = tvtime();
+                        this->movie_elapsed_qt = difftimeval(this->record_now, this->start_record_now);
+
+                        /*struct timeval now     = tvtime();
                         uint64_t       elapsed = difftimeval(now, this->start_synctime_now);
 
                         uint64_t movie_elapsed = difftimeval(this->record_now, this->start_record_now);
+
 
                         if (elapsed < movie_elapsed) {
                             struct timespec wtime     = {
                                   static_cast<time_t>( (movie_elapsed - elapsed) / 1000000LL)
                                 , static_cast<time_t>(((movie_elapsed - elapsed) % 1000000LL) * 1000)
                                 };
-                            struct timespec wtime_rem = { 0, 0 };
+                            struct timespec wtime_rem = { 0, 0 };*/
 
-                            while ((nanosleep(&wtime, &wtime_rem) == -1) && (errno == EINTR)) {
+                            /*while ((nanosleep(&wtime, &wtime_rem) == -1) && (errno == EINTR)) {
                                 wtime = wtime_rem;
                             }
-                        }
+                        }*/
                     }
                 }
             break;
@@ -991,7 +1012,7 @@ public:
 
 
     void process_windowing( InStream & stream, const RDP::AltsecDrawingOrderHeader & header) {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::probe) {
             LOG(LOG_INFO, "rdp_orders::process_windowing");
         }
 
@@ -1028,7 +1049,7 @@ public:
 
     void process_window_information( InStream & stream, const RDP::AltsecDrawingOrderHeader &
                                    , uint32_t FieldsPresentFlags) {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::probe) {
             LOG(LOG_INFO, "rdp_orders::process_window_information");
         }
 
@@ -1082,7 +1103,7 @@ public:
 
     void process_notification_icon_information( InStream & stream, const RDP::AltsecDrawingOrderHeader &
                                               , uint32_t FieldsPresentFlags) {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::probe) {
             LOG(LOG_INFO, "rdp_orders::process_notification_icon_information");
         }
 
@@ -1114,7 +1135,7 @@ public:
 
     void process_desktop_information( InStream & stream, const RDP::AltsecDrawingOrderHeader &
                                     , uint32_t FieldsPresentFlags) {
-        if (this->verbose & 64) {
+        if (this->verbose & Verbose::probe) {
             LOG(LOG_INFO, "rdp_orders::process_desktop_information");
         }
 
@@ -1140,6 +1161,10 @@ public:
         this->privplay([](time_t){}, requested_to_stop);
     }
 
+    bool play_qt() {
+        return this->privplay_qt([](time_t){});
+    }
+
     template<class CbUpdateProgress>
     void play(CbUpdateProgress update_progess, bool const & requested_to_stop) {
         time_t last_sent_record_now = 0;
@@ -1155,7 +1180,7 @@ private:
     template<class CbUpdateProgress>
     void privplay(CbUpdateProgress update_progess, bool const & requested_to_stop) {
         while (!requested_to_stop && this->next_order()) {
-            if (this->verbose > 8) {
+            if (this->verbose & Verbose::play) {
                 LOG( LOG_INFO, "replay TIMESTAMP (first timestamp) = %u order=%u\n"
                    , unsigned(this->record_now.tv_sec), unsigned(this->total_orders_count));
             }
@@ -1179,6 +1204,53 @@ private:
                 break;
             }
         }
+    }
+
+    template<class CbUpdateProgress>
+    bool privplay_qt(CbUpdateProgress update_progess) {
+
+        struct timeval now     = tvtime();
+        uint64_t       elapsed = difftimeval(now, this->start_synctime_now);
+
+        bool res(false);
+
+        if (elapsed >= this->movie_elapsed_qt) {
+            if (this->next_order()) {
+                if (this->verbose & Verbose::play) {
+                    LOG( LOG_INFO, "replay TIMESTAMP (first timestamp) = %u order=%u\n"
+                    , unsigned(this->record_now.tv_sec), unsigned(this->total_orders_count));
+                }
+
+                if (this->remaining_order_count > 0) {
+                    res = true;
+                }
+
+                this->interpret_order();
+
+                if (  (this->begin_capture.tv_sec == 0) || this->begin_capture <= this->record_now ) {
+                    for (gdi::CaptureApi * cap : this->capture_consumers){
+                        cap->snapshot(
+                            this->record_now, this->mouse_x, this->mouse_y
+                        , this->ignore_frame_in_timeval
+                        );
+                    }
+
+                    this->ignore_frame_in_timeval = false;
+
+                    update_progess(this->record_now.tv_sec);
+                }
+                if (this->max_order_count && this->max_order_count <= this->total_orders_count) {
+                    break_privplay_qt = true;
+                }
+                if (this->end_capture.tv_sec && this->end_capture < this->record_now) {
+                    break_privplay_qt = true;
+                }
+            } else {
+                break_privplay_qt = true;
+            }
+        }
+
+        return res;
     }
 };
 

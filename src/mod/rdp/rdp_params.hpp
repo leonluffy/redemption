@@ -23,12 +23,16 @@
 
 #include "utils/log.hpp"
 #include "utils/translation.hpp"
+#include "core/RDP/caches/bmpcache.hpp"
+#include "mod/rdp/rdp_log.hpp"
 
 #include <string>
 #include <chrono>
 
 class Transport;
 class auth_api;
+class Theme;
+class Font;
 
 struct ModRDPParams {
     const char * target_user;
@@ -67,7 +71,8 @@ struct ModRDPParams {
     std::chrono::milliseconds    session_probe_disconnected_application_limit {};
     std::chrono::milliseconds    session_probe_disconnected_session_limit {};
     std::chrono::milliseconds    session_probe_idle_session_limit {};
-    const char *                 session_probe_alternate_shell = "";
+    const char *                 session_probe_exe_or_file = "";
+    const char *                 session_probe_arguments = "";
 
     bool         enable_transparent_mode = false;
     const char * output_filename = "";
@@ -138,21 +143,29 @@ struct ModRDPParams {
     const char * client_execute_working_dir = "";
     const char * client_execute_arguments = "";
 
-    uint32_t verbose;
-    uint32_t cache_verbose = 0;
+
+    Font const & font;
+    Theme const & theme;
+
+    RDPVerbose verbose;
+    BmpCache::Verbose cache_verbose = BmpCache::Verbose::none;
 
     ModRDPParams( const char * target_user
                 , const char * target_password
                 , const char * target_host
                 , const char * client_address
                 , int key_flags
-                , uint32_t verbose = 0
+                , Font const & font
+                , Theme const & theme
+                , RDPVerbose verbose
                 )
         : target_user(target_user)
         , target_password(target_password)
         , target_host(target_host)
         , client_address(client_address)
         , key_flags(key_flags)
+        , font(font)
+        , theme(theme)
         , verbose(verbose)
     {}
 
@@ -273,11 +286,11 @@ struct ModRDPParams {
                 lang == Translation::FR ? "FR" :
                 "<unknown>";
         };
-        RDP_PARAMS_LOG("%s",     to_lang,            lang);
+        RDP_PARAMS_LOG("%s",     to_lang,               lang);
 
-        RDP_PARAMS_LOG("%s",     yes_or_no,          allow_using_multiple_monitors);
+        RDP_PARAMS_LOG("%s",     yes_or_no,             allow_using_multiple_monitors);
 
-        RDP_PARAMS_LOG("%s",     yes_or_no,          adjust_performance_flags_for_recording);
+        RDP_PARAMS_LOG("%s",     yes_or_no,             adjust_performance_flags_for_recording);
 
         RDP_PARAMS_LOG("0x%04X", RDP_PARAMS_LOG_GET,    client_execute_flags);
 
@@ -285,8 +298,8 @@ struct ModRDPParams {
         RDP_PARAMS_LOG("%s",     s_or_none,             client_execute_working_dir);
         RDP_PARAMS_LOG("%s",     s_or_none,             client_execute_arguments);
 
-        RDP_PARAMS_LOG("0x%08X", RDP_PARAMS_LOG_GET, verbose);
-        RDP_PARAMS_LOG("0x%08X", RDP_PARAMS_LOG_GET, cache_verbose);
+        RDP_PARAMS_LOG("0x%08X", static_cast<unsigned>, verbose);
+        RDP_PARAMS_LOG("0x%08X", static_cast<unsigned>, cache_verbose);
 
 #undef RDP_PARAMS_LOG
 #undef RDP_PARAMS_LOG_GET

@@ -86,22 +86,18 @@ BOOST_AUTO_TEST_CASE(TestOutmetaTransport)
 BOOST_AUTO_TEST_CASE(TestOutmetaTransportWithSum)
 {
     unsigned sec_start = 1352304810;
-    Inifile ini;
-    ini.configuration_holder().set_value("crypto", "key0",
-                                         "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
-                                         "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
-    ini.configuration_holder().set_value("crypto", "key1", "12345678901234567890123456789012");
-
-    LCGRandom rnd(0);
-
-    CryptoContext cctx(rnd, ini);
-
     {
+        CryptoContext cctx;
+        cctx.set_master_key(cstr_array_view(
+            "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+            "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+        ));
+        cctx.set_hmac_key(cstr_array_view("12345678901234567890123456789012"));
         timeval now;
         now.tv_sec = sec_start;
         now.tv_usec = 0;
         const int groupid = 0;
-        OutMetaSequenceTransportWithSum wrm_trans(&cctx, "./", "./", "xxx", now, 800, 600, groupid);
+        OutMetaSequenceTransportWithSum wrm_trans(cctx, "./", "./", "xxx", now, 800, 600, groupid);
         wrm_trans.send("AAAAX", 5);
         wrm_trans.send("BBBBX", 5);
         wrm_trans.next();
@@ -152,7 +148,7 @@ BOOST_AUTO_TEST_CASE(TestRequestFullCleaning)
     now.tv_sec = 1352304810;
     now.tv_usec = 0;
     const int groupid = 0;
-    OutMetaSequenceTransport wrm_trans("./", "./hash-", "xxx", now, 800, 600, groupid, nullptr, 0,
+    OutMetaSequenceTransport wrm_trans("./", "./hash-", "xxx", now, 800, 600, groupid, nullptr,
                                        FilenameGenerator::PATH_FILE_COUNT_EXTENSION);
     wrm_trans.send("AAAAX", 5);
     wrm_trans.send("BBBBX", 5);
@@ -180,20 +176,14 @@ long write(transbuf::ochecksum_buf_null_buf & buf, char const (&s)[N]) {
 
 BOOST_AUTO_TEST_CASE(TestOSumBuf)
 {
-    Inifile ini;
-
-    ini.set<cfg::crypto::key0>(
+    CryptoContext cctx;
+    cctx.set_master_key(cstr_array_view(
         "\x00\x01\x02\x03\x04\x05\x06\x07"
         "\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F"
         "\x10\x11\x12\x13\x14\x15\x16\x17"
         "\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F"
-    );
-    ini.set<cfg::crypto::key1>("12345678901234567890123456789012");
-
-    LCGRandom rnd(0);
-    CryptoContext cctx(rnd, ini);
-    cctx.get_master_key();
-//    memcpy(cctx.hmac_key, "12345678901234567890123456789012", 32);
+    ));
+    cctx.set_hmac_key(cstr_array_view("12345678901234567890123456789012"));
     transbuf::ochecksum_buf_null_buf buf(cctx.get_hmac_key());
     buf.open();
     BOOST_CHECK_EQUAL(write(buf, "ab"), 2);

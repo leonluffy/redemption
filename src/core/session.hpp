@@ -82,7 +82,6 @@ class Session {
 
     Front * front;
 
-    UdevRandom gen;
     TimeSystem timeobj;
 
     class Client {
@@ -99,7 +98,7 @@ class Session {
                     , client_sck
                     , ini.get<cfg::globals::authfile>().c_str()
                     , 0
-                    , ini.get<cfg::debug::auth>()
+                    , to_verbose_flags(ini.get<cfg::debug::auth>())
         )
         , acl( ini
              , activity_checker
@@ -122,7 +121,7 @@ class Session {
     static const time_t select_timeout_tv_sec = 3;
 
 public:
-    Session(int sck, Inifile & ini, CryptoContext & cctx)
+    Session(int sck, Inifile & ini, CryptoContext & cctx, Random & rnd)
             : ini(ini)
             , perf_last_info_collect_time(0)
             , perf_pid(getpid())
@@ -130,7 +129,10 @@ public:
         try {
             TRANSLATIONCONF.set_ini(&ini);
 
-            SocketTransport front_trans("RDP Client", sck, "", 0, this->ini.get<cfg::debug::front>());
+            SocketTransport front_trans(
+                "RDP Client", sck, "", 0,
+                to_verbose_flags(this->ini.get<cfg::debug::front>())
+            );
             // Contruct auth_trans (SocketTransport) and auth_event (wait_obj)
             //  here instead of inside Sessionmanager
 
@@ -140,12 +142,13 @@ public:
 
             time_t now = time(nullptr);
 
-            this->front = new Front( front_trans, this->gen
+            this->front = new Front( front_trans, rnd
                                    , this->ini, cctx, this->ini.get<cfg::client::fast_path>(), mem3blt_support
                                    , now);
 
-            ModuleManager mm(*this->front, this->ini, this->gen, this->timeobj);
-            BackEvent_t signal = BACK_EVENT_NONE;
+            ModuleManager mm(*this->front, this->ini, rnd, this->timeobj);
+            BackEvent_t signal       = BACK_EVENT_NONE;
+            BackEvent_t front_signal = BACK_EVENT_NONE;
 
             // Under conditions (if this->ini.get<cfg::video::inactivity_pause>() == true)
             PauseRecord pause_record(this->ini.get<cfg::video::inactivity_timeout>(), *this->front, mm, ini);
@@ -237,18 +240,23 @@ public:
                     try {
                         this->front->incoming(mm.get_callback(), now);
                     } catch (Error & e) {
-                        if (
-                            // Can be caused by client disconnect.
-                            (e.id != ERR_X224_RECV_ID_IS_RD_TPDU) &&
-                            // Can be caused by client disconnect.
-                            (e.id != ERR_MCS_APPID_IS_MCS_DPUM) &&
-                            (e.id != ERR_RDP_HANDSHAKE_TIMEOUT) &&
-                            // Can be caused by wabwatchdog.
-                            (e.id != ERR_TRANSPORT_NO_MORE_DATA)) {
-                            LOG(LOG_ERR, "Proxy data processing raised error %u : %s", e.id, e.errmsg(false));
+                        if (ERR_DISCONNECT_BY_USER == e.id) {
+                            front_signal = BACK_EVENT_NEXT;
                         }
-                        run_session = false;
-                        continue;
+                        else {
+                            if (
+                                // Can be caused by client disconnect.
+                                (e.id != ERR_X224_RECV_ID_IS_RD_TPDU) &&
+                                // Can be caused by client disconnect.
+                                (e.id != ERR_MCS_APPID_IS_MCS_DPUM) &&
+                                (e.id != ERR_RDP_HANDSHAKE_TIMEOUT) &&
+                                // Can be caused by wabwatchdog.
+                                (e.id != ERR_TRANSPORT_NO_MORE_DATA)) {
+                                LOG(LOG_ERR, "Proxy data processing raised error %u : %s", e.id, e.errmsg(false));
+                            }
+                            run_session = false;
+                            continue;
+                        }
                     } catch (...) {
                         LOG(LOG_ERR, "Proxy data processing raised unknown error");
                         run_session = false;
@@ -301,13 +309,20 @@ public:
                                 }
                             }
                             catch (Error const & e) {
-                                if ((e.id == ERR_SESSION_PROBE_LAUNCH) &&
-                                    (this->ini.get<cfg::mod_rdp::session_probe_on_launch_failure>() ==
-                                     SessionProbeOnLaunchFailure::retry_without_session_probe)) {
-                                    this->ini.get_ref<cfg::mod_rdp::enable_session_probe>() = false;
+                                if (e.id == ERR_SESSION_PROBE_LAUNCH) {
+                                    if (this->ini.get<cfg::mod_rdp::session_probe_on_launch_failure>() ==
+                                        SessionProbeOnLaunchFailure::retry_without_session_probe) {
+                                        this->ini.get_ref<cfg::mod_rdp::enable_session_probe>() = false;
 
-                                    signal = BACK_EVENT_RETRY_CURRENT;
-                                    mm.mod->get_event().reset();
+                                        signal = BACK_EVENT_RETRY_CURRENT;
+                                        mm.mod->get_event().reset();
+                                    }
+                                    else if (this->client) {
+                                        this->client->acl.report("SESSION_PROBE_LAUNCH_FAILED", "");
+                                    }
+                                    else {
+                                        throw;
+                                    }
                                 }
                                 else if (e.id == ERR_SESSION_PROBE_DISCONNECTION_RECONNECTION) {
                                     signal = BACK_EVENT_RETRY_CURRENT;
@@ -412,7 +427,7 @@ public:
                         }
 
                         if (this->client) {
-                            run_session = this->client->acl.check(mm, now, signal);
+                            run_session = this->client->acl.check(mm, now, signal, front_signal);
                         }
                         else if (signal == BACK_EVENT_STOP) {
                             mm.mod->get_event().reset();

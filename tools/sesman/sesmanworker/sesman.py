@@ -53,7 +53,7 @@ def rvalue(value):
         return u''
     return value
 
-DEBUG = False
+DEBUG = True
 def mdecode(item):
     if not item:
         return ""
@@ -152,6 +152,7 @@ class Sesman():
         self.shared[u'selector_lines_per_page'] = u'0'
         self.shared[u'real_target_device']      = MAGICASK
         self.shared[u'reporting']               = u''
+        self.shared[u'session_log_redirection'] = u'False'
 
         self._trace_type = self.engine.get_trace_type()
         self.language           = None
@@ -322,8 +323,12 @@ class Sesman():
             # Fetch Data from Redemption
             try:
                 while True:
+                    Logger().info(u">>> unpack")
+
                     _is_multi_packet, = unpack(">H", self.proxy_conx.recv(2))
+                    Logger().info(u">>> unpack 1")
                     _packet_size, = unpack(">H", self.proxy_conx.recv(2))
+                    Logger().info(u">>> unpack 2")
                     _data += self.proxy_conx.recv(_packet_size)
                     if not _is_multi_packet:
                         break
@@ -546,7 +551,9 @@ class Sesman():
              The user preferred language will be set as the language to use in
              interactive messages
         """
+        Logger().info(u">>> authentify")
         _status, _error = self.receive_data()
+        Logger().info(u">>> authentify end")
         if not _status:
             return False, _error
 
@@ -1217,9 +1224,16 @@ class Sesman():
             signal.signal(signal.SIGUSR2, self.check_handler)
 
             Logger().info(u"Starting Session, effective login='%s'" % self.effective_login)
+            session_log_file_path = None
+            if self.shared[u'session_log_redirection'].lower() == u'true':
+                session_log_file_path =  u"/var/wab/rdp/recorded/"
+                session_log_file_path += u"%s@%s," % (user, self.shared.get(u'ip_client'))
+                session_log_file_path += u"%s@%s," % (self.shared.get(u'target_login'), self.shared.get(u'target_device'))
+                session_log_file_path =  u".log"
             # Add connection to the observer
             session_id = self.engine.start_session(selected_target, self.pid,
-                                                   self.effective_login)
+                                               self.effective_login, 
+                                               session_log_file_path=session_log_file_path)
             if session_id is None:
                 _status, _error = False, TR(u"start_session_failed")
                 self.send_data({u'rejected': TR(u'start_session_failed')})
@@ -1355,7 +1369,9 @@ class Sesman():
                                 self.target_context.login or ""
                         if u'${PASSWORD}' in app_params.params:
                             kv[u'target_application_password'] = \
-                                self.engine.get_target_password(selected_target)
+                                self.engine.get_target_password(selected_target) \
+                                or self.engine.get_primary_password(selected_target) \
+                                or ''
 
                     # kv[u'target_application'] = selected_target.service_login
                     kv[u'disable_tsk_switch_shortcuts'] = u'yes'
@@ -1559,9 +1575,15 @@ class Sesman():
                                         release_reason = u'Session exception: ' + _reporting_message
                                         self.engine.set_session_status(
                                             result=False, diag=release_reason)
+                                    elif _reporting_reason == u'SESSION_PROBE_LAUNCH_FAILED':
+                                        Logger().info(u'RDP connection terminated. Reason: Session Probe launch failed')
+                                        release_reason = u'Interrupt: Session Probe launch failed'
+                                        self.engine.set_session_status(
+                                            result=False, diag=release_reason)
+                                        self.send_data({u'disconnect_reason': TR(u"session_probe_launch_failed")})
                                     elif _reporting_reason == u'SESSION_PROBE_KEEPALIVE_MISSED':
-                                        Logger().info(u'RDP connection terminated. Reason: Session Probe Keepalive missed')
-                                        release_reason = u'Interrupt: Session Probe Keepalive missed'
+                                        Logger().info(u'RDP connection terminated. Reason: Session Probe keepalive missed')
+                                        release_reason = u'Interrupt: Session Probe keepalive missed'
                                         self.engine.set_session_status(
                                             result=False, diag=release_reason)
                                         self.send_data({u'disconnect_reason': TR(u"session_probe_keepalive_missed")})
@@ -1585,9 +1607,12 @@ class Sesman():
                                     Logger().info(u"Auth channel target=\"%s\"" % self.shared.get(u'auth_channel_target'))
 
                                     if self.shared.get(u'auth_channel_target') == u'GetWabSessionParameters':
-                                        account_login = selected_target.account.login
-                                        application_password = self.engine.get_target_password(selected_target)
-
+                                        app_info = self.engine.get_target_login_info(selected_target)
+                                        account_login = app_info.account_login
+                                        application_password = \
+                                            self.engine.get_target_password(selected_target) \
+                                            or self.engine.get_primary_password(selected_target) \
+                                            or ''
                                         _message = { 'user' : account_login, 'password' : application_password }
 
                                         #Logger().info(u"GetWabSessionParameters (response):" % json.dumps(_message))
@@ -1641,9 +1666,10 @@ class Sesman():
             if close_box and self.back_selector:
                 self.send_data({ u'module': u'close_back',
                                  u'selector' : u'False' })
-                _status, _error = self.receive_data()
-                if _status and self.shared.get(u'selector') == MAGICASK:
-                    return None, "Go back to selector"
+                while True:
+                    _status, _error = self.receive_data()
+                    if _status and self.shared.get(u'selector') == MAGICASK:
+                        return None, "Go back to selector"
             else:
                 self.send_data({u'module': u'close'})
         # Error
@@ -1690,6 +1716,8 @@ class Sesman():
         elif reason == u'SESSION_EXCEPTION':
             pass
         elif reason == u'SESSION_EXCEPTION_NO_RECORD':
+            pass
+        elif reason == u'SESSION_PROBE_LAUNCH_FAILED':
             pass
         elif reason == u'SESSION_PROBE_KEEPALIVE_MISSED':
             pass

@@ -101,7 +101,7 @@ public:
             this->login.set_widget_focus(&this->login.password_edit, Widget2::focus_reason_tabkey);
         }
 
-        this->screen.refresh(this->screen.rect);
+        this->screen.refresh(this->screen.get_rect());
     }
 
     ~FlatLoginMod() override {
@@ -125,11 +125,12 @@ public:
             this->event.signal = BACK_EVENT_STOP;
             this->event.set();
             break;
-        default:
+        case NOTIFY_PASTE: case NOTIFY_COPY: case NOTIFY_CUT:
             if (this->copy_paste) {
                 copy_paste_process_event(this->copy_paste, *reinterpret_cast<WidgetEdit*>(sender), event);
             }
             break;
+        default:;
         }
     }
 

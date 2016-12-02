@@ -21,7 +21,6 @@
 
 #pragma once
 
-//#define LOGPRINT
 
 #ifndef Q_MOC_RUN
 #include <stdio.h>
@@ -30,6 +29,13 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <limits.h>
+#include <dirent.h>
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <boost/algorithm/string.hpp>
 
 #include "core/RDP/caches/brushcache.hpp"
 #include "core/RDP/capabilities/colcache.hpp"
@@ -54,13 +60,6 @@
 #include "core/RDP/orders/RDPOrdersSecondaryGlyphCache.hpp"
 #include "core/RDP/orders/AlternateSecondaryWindowing.hpp"
 
-#include <algorithm>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <boost/algorithm/string.hpp>
-
 #include "core/RDP/pointer.hpp"
 #include "core/RDP/clipboard.hpp"
 #include "core/RDP/channels/rdpdr.hpp"
@@ -68,23 +67,36 @@
 #include "core/front_api.hpp"
 #include "core/channel_list.hpp"
 #include "mod/mod_api.hpp"
+#include "mod/internal/replay_mod.hpp"
 #include "utils/bitmap.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
 #include "core/RDP/capabilities/cap_glyphcache.hpp"
 #include "core/RDP/bitmapupdate.hpp"
-#include "keymap2.hpp"
+#include "keyboard/keymap2.hpp"
 #include "core/client_info.hpp"
+#include "keymaps/Qt4_ScanCode_KeyMap.hpp"
+#include "capture/capture.hpp"
+
+#include <QtGui/QImage>
+#include <QtGui/QRgb>
+#include <QtGui/QBitmap>
+#include <QtGui/QColormap>
+#include <QtGui/QPainter>
+
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfloat-equal"
-#include "keymaps/Qt4_ScanCode_KeyMap.hpp"
-#include <QtGui/QImage>
 #pragma GCC diagnostic pop
+
 #endif
 
 
-#define USER_CONF_PATH "userConfig.config"
-#define TEMP_PATH_TEST "/home/cmoroldo/Bureau/redemption/projects/QT4Client/clipboard_temp/"
+#define USER_CONF_PATH "/config/userConfig.config"
+#define CB_FILE_TEMP_PATH "/clipboard_temp"
+#define REPLAY_PATH "/replay"
+#define KEY_SETTING_PATH "/config/keySetting.config"
+#define LOGINS_PATH "/config/logins.config"
+
 
 class Form_Qt;
 class Screen_Qt;
@@ -127,7 +139,6 @@ private:
         }
     };
 
-
 public:
 
     enum : int {
@@ -149,7 +160,9 @@ public:
     std::string       _localIP;
     int               _nbTry;
     int               _retryDelay;
-    mod_rdp         * _callback;
+    mod_api         * _callback;
+    std::unique_ptr<ReplayMod> _replay_mod;
+    Mod_Qt          * _mod_qt;
     QImage::Format    _imageFormatRGB;
     QImage::Format    _imageFormatARGB;
     ClipboardServerChannelDataSender _to_server_sender;
@@ -157,10 +170,18 @@ public:
     Qt_ScanCode_KeyMap   _qtRDPKeymap;
     int                  _fps;
     int                  _monitorCount;
+    const std::string    MAIN_DIR;
     const std::string    CB_TEMP_DIR;
+    const std::string    USER_CONF_DIR;
+    const std::string    REPLAY_DIR;
     QPixmap            * _cache;
+    QPixmap            * _cache_replay;
     bool                 _span;
     Rect                 _screen_dimensions[MAX_MONITOR_COUNT];
+    bool                 _record;
+    bool                 _replay;
+    int                  _delta_time;
+    int                  _current_screen_index;
 
 
     Front_Qt_API( bool param1
@@ -171,12 +192,22 @@ public:
     , _info()
     , _port(0)
     , _callback(nullptr)
+    , _replay_mod(nullptr)
+    , _mod_qt(nullptr)
     , _qtRDPKeymap()
     , _fps(30)
     , _monitorCount(1)
-    , CB_TEMP_DIR(TEMP_PATH_TEST)
+    , MAIN_DIR(MAIN_PATH)
+    , CB_TEMP_DIR(MAIN_DIR + std::string(CB_FILE_TEMP_PATH))
+    , USER_CONF_DIR(MAIN_DIR + std::string(USER_CONF_PATH))
+    , REPLAY_DIR(MAIN_DIR + std::string(REPLAY_PATH))
     , _cache(nullptr)
+    , _cache_replay(nullptr)
     , _span(false)
+    , _record(false)
+    , _replay(false)
+    , _delta_time(1000000)
+    , _current_screen_index(0)
     {
         this->_to_client_sender._front = this;
     }
@@ -186,7 +217,6 @@ public:
     virtual bool connexionReleased() = 0;
     virtual void closeFromScreen(int screen_index) = 0;
     virtual void RefreshPressed() = 0;
-    virtual void RefreshReleased() = 0;
     virtual void CtrlAltDelPressed() = 0;
     virtual void CtrlAltDelReleased() = 0;
     virtual void disconnexionPressed() = 0;
@@ -204,19 +234,39 @@ public:
     virtual void dropScreen() = 0;
     virtual bool setClientInfo() = 0;
     virtual void writeClientInfo() = 0;
-    virtual void send_FormatListPDU(uint32_t const * formatIDs, std::string const * formatListDataShortName, std::size_t formatIDs_size, bool) = 0;
+    virtual void send_FormatListPDU(uint32_t const * formatIDs, std::string const * formatListDataShortName, std::size_t formatIDs_size) = 0;
     virtual void empty_buffer() = 0;
     virtual bool can_be_start_capture(auth_api *) override { return true; }
     virtual bool can_be_pause_capture() override { return true; }
     virtual bool can_be_resume_capture() override { return true; }
     virtual bool must_be_stop_capture() override { return true; }
     virtual void emptyLocalBuffer() = 0;
+    virtual void replay(std::string const & movie_path) = 0;
+    virtual void load_replay_mod(std::string const & movie_name) = 0;
+    virtual void delete_replay_mod() = 0;
 };
 
 
 
 class Front_Qt : public Front_Qt_API
 {
+    struct Snapshoter : gdi::CaptureApi
+    {
+        Front_Qt & front;
+
+        Snapshoter(Front_Qt & front) : front(front) {}
+
+        std::chrono::microseconds do_snapshot(
+            const timeval& /*now*/, int cursor_x, int cursor_y, bool /*ignore_frame_in_timeval*/
+        ) override {
+            this->front.update_pointer_position(cursor_x, cursor_y);
+            std::chrono::microseconds res(1);
+            return res;
+        }
+        void do_pause_capture(const timeval&) override {}
+        void do_resume_capture(const timeval&) override {}
+    };
+    Snapshoter snapshoter;
 
 public:
     enum : int {
@@ -233,7 +283,7 @@ public:
     };
 
     enum : int {
-        PASTE_TEXT_CONTENT_SIZE = PDU_MAX_SIZE - PDU_HEADER_SIZE
+        PASTE_TEXT_CONTENT_SIZE = PDU_MAX_SIZE
       , PASTE_PIC_CONTENT_SIZE  = PDU_MAX_SIZE - RDPECLIP::METAFILE_HEADERS_SIZE - PDU_HEADER_SIZE
     };
 
@@ -243,14 +293,25 @@ public:
     BGRPalette            mod_palette;
     Form_Qt            * _form;
     Screen_Qt          * _screen[MAX_MONITOR_COUNT] {};
+    QPixmap            * _cache;
+    QPixmap            * _trans_cache;
+    gdi::GraphicApi    * _graph_capture;
+
+    struct MouseData {
+        QImage cursor_image;
+        uint16_t x = 0;
+        uint16_t y = 0;
+    } _mouse_data;
 
     // Connexion socket members
-    Mod_Qt             * _mod_qt;
     ClipBoard_Qt       * _clipboard_qt;
     int                  _timer;
     bool                 _connected;
     bool                 _monitorCountNegociated;
     ClipboardVirtualChannel  _clipboard_channel;
+    Capture            * _capture;
+    Font                 _font;
+    std::string          _error;
 
     // Keyboard Controllers members
     Keymap2              _keymap;
@@ -259,15 +320,12 @@ public:
     uint8_t              _keyboardMods;
     CHANNELS::ChannelDefArray   _cl;
 
-    //  Clipboard Channel Management members
+    // Clipboard Channel Management members
     uint32_t                    _requestedFormatId = 0;
     std::string                 _requestedFormatName;
-    std::unique_ptr<uint8_t[]>  _bufferRDPClipboardChannel;
-    size_t                      _bufferRDPClipboardChannelSize;
-    size_t                      _bufferRDPClipboardChannelSizeTotal;
-    int                         _bufferRDPCLipboardMetaFilePic_width;
-    int                         _bufferRDPCLipboardMetaFilePic_height;
-    int                         _bufferRDPClipboardMetaFilePicBPP;
+    bool                        _waiting_for_data;
+
+
     struct ClipbrdFormatsList{
         enum : uint16_t {
               CF_QT_CLIENT_FILEGROUPDESCRIPTORW = 48025
@@ -302,18 +360,31 @@ public:
                 index++;
             }
         }
-    }                           _clipbrdFormatsList;
-    int                         _cItems;
-    int                         _lindexToRequest;
-    int                         _streamIDToRequest;
-    struct CB_in_Files {
-        int         size;
-        std::string name;
-    };
-    std::vector<CB_in_Files>    _items_list;
-    bool                        _waiting_for_data;
-    int                         _lindex;
 
+    } _clipbrdFormatsList;
+
+    struct CB_FilesList {
+        struct CB_in_Files {
+            int         size;
+            std::string name;
+        };
+        int                      cItems = 0;
+        int                      lindexToRequest = 0;
+        int                      streamIDToRequest = 0;
+        std::vector<CB_in_Files> itemslist;
+        int                      lindex = 0;
+
+    }  _cb_filesList;
+
+    struct CB_Buffers {
+        std::unique_ptr<uint8_t[]>  data = nullptr;
+        size_t size = 0;
+        size_t sizeTotal = 0;
+        int    pic_width = 0;
+        int    pic_height = 0;
+        int    pic_bpp = 0;
+
+    } _cb_buffers;
 
 
 
@@ -331,13 +402,13 @@ public:
 
     virtual void update_pointer_position(uint16_t xPos, uint16_t yPos) override;
 
-    virtual int server_resize(int width, int height, int bpp) override;
+    virtual ResizeResult server_resize(int width, int height, int bpp) override;
 
     void send_buffer_to_clipboard();
 
-    void process_server_clipboard_indata(int flags, InStream & chunk);
+    void process_server_clipboard_indata(int flags, InStream & chunk, CB_Buffers & cb_buffers, CB_FilesList & cb_filesList, ClipBoard_Qt * clipboard_qt);
 
-    void send_FormatListPDU(const uint32_t * formatIDs, const std::string * formatListDataShortName, std::size_t formatIDs_size,  bool) override;
+    void send_FormatListPDU(const uint32_t * formatIDs, const std::string * formatListDataShortName, std::size_t formatIDs_size) override;
 
     void send_to_clipboard_Buffer(InStream & chunk);
 
@@ -347,7 +418,7 @@ public:
 
     void empty_buffer() override;
 
-    void process_client_clipboard_outdata(uint64_t total_length, OutStream & out_streamfirst, int firstPartSize, uint8_t const * data);
+    void process_client_clipboard_out_data(const uint64_t total_length, OutStream & out_streamfirst, size_t firstPartSize, uint8_t const * data, const size_t data_len);
 
     virtual void set_pointer(Pointer const & cursor) override;
 
@@ -355,30 +426,117 @@ public:
 
     void show_out_stream(int flags, OutStream & chunk, size_t length);
 
-    Screen_Qt * getMainScreen();
+    Screen_Qt * getMainScreen() override;
 
-    virtual void emptyLocalBuffer();
+    virtual void emptyLocalBuffer() override;
+
+    void setScreenDimension();
+
+    void load_replay_mod(std::string const & movie_name) override;
+
+    void delete_replay_mod() override;
 
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //---------------------------------------
     //   GRAPHIC FUNCTIONS (factorization)
-    //---------------------------------------
+    //----------------------------- ----------
+
+    template<class Op>
+    void draw_memblt_op(const Rect & drect, const Bitmap & bitmap);
+
+
+    struct Op_0x11 {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+             return ~(src | dst);                           // | 0x11 | ROP: 0x001100A6 (NOTSRCERASE) |
+         }                                                  // |      | RPN: DSon                     |
+     };                                                     // +------+-------------------------------+
+
+    struct Op_0x22 {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+             return (~src & dst);                           // | 0x22 | ROP: 0x00220326               |
+         }                                                  // |      | RPN: DSna                     |
+     };                                                     // +------+-------------------------------+
+
+     struct Op_0x33 {
+        uchar op(const uchar src, const uchar) const {      // +------+-------------------------------+
+             return (~src);                                 // | 0x33 | ROP: 0x00330008 (NOTSRCCOPY)  |
+        }                                                   // |      | RPN: Sn                       |
+     };                                                     // +------+-------------------------------+
+
+     struct Op_0x44 {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+            return (src & ~dst);                            // | 0x44 | ROP: 0x00440328 (SRCERASE)    |
+        }                                                   // |      | RPN: SDna                     |
+    };                                                      // +------+-------------------------------+
+
+    struct Op_0x55 {
+        uchar op(const uchar, const uchar dst) const {      // +------+-------------------------------+
+             return (~dst);                                 // | 0x55 | ROP: 0x00550009 (DSTINVERT)   |
+        }                                                   // |      | RPN: Dn                       |
+     };                                                     // +------+-------------------------------+
+
+    struct Op_0x66 {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+            return (src ^ dst);                             // | 0x66 | ROP: 0x00660046 (SRCINVERT)   |
+        }                                                   // |      | RPN: DSx                      |
+     };                                                     // +------+-------------------------------+
+
+     struct Op_0x77 {
+         uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
+             return ~(src & dst);                           // | 0x77 | ROP: 0x007700E6               |
+         }                                                  // |      | RPN: DSan                     |
+     };                                                     // +------+-------------------------------+
+
+    struct Op_0x88 {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+            return (src & dst);                             // | 0x88 | ROP: 0x008800C6 (SRCAND)      |
+        }                                                   // |      | RPN: DSa                      |
+     };                                                     // +------+-------------------------------+
+
+     struct Op_0x99 {
+         uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
+            return ~(src ^ dst);                            // | 0x99 | ROP: 0x00990066               |
+        }                                                   // |      | RPN: DSxn                     |
+     };                                                     // +------+-------------------------------+
+
+     struct Op_0xBB {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+            return (~src | dst);                            // | 0xBB | ROP: 0x00BB0226 (MERGEPAINT)  |
+        }                                                   // |      | RPN: DSno                     |
+     };                                                     // +------+-------------------------------+
+
+     struct Op_0xDD {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+            return (src | ~dst);                            // | 0xDD | ROP: 0x00DD0228               |
+        }                                                   // |      | RPN: SDno                     |
+     };                                                     // +------+-------------------------------+
+
+    struct Op_0xEE {
+        uchar op(const uchar src, const uchar dst) const {  // +------+-------------------------------+
+            return (src | dst);                             // | 0xEE | ROP: 0x00EE0086 (SRCPAINT)    |
+        }                                                   // |      | RPN: DSo                      |
+    };                                                      // +------+-------------------------------+
+
 
     void draw_RDPScrBlt(int srcx, int srcy, const Rect & drect, bool invert);
 
     QColor u32_to_qcolor(uint32_t color);
 
+    QColor u32_to_qcolor_r(uint32_t color);
+
     QImage::Format bpp_to_QFormat(int bpp, bool alpha) override;
 
     void draw_MemBlt(const Rect & drect, const Bitmap & bitmap, bool invert, int srcx, int srcy);
 
+    void draw_RDPPatBlt(const Rect & rect, const QColor color, const QPainter::CompositionMode mode, const Qt::BrushStyle style);
+
+    void draw_RDPPatBlt(const Rect & rect, const QPainter::CompositionMode mode);
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //-----------------------------
     //       DRAW FUNCTIONS
     //-----------------------------
@@ -437,14 +595,13 @@ public:
 
     virtual void draw(const RDP::RAIL::NonMonitoredDesktop & order) override;
 
-    virtual void draw(const RDPColCache   & cmd);
+    virtual void draw(const RDPColCache   & cmd) override;
 
-    virtual void draw(const RDPBrushCache & cmd);
+    virtual void draw(const RDPBrushCache & cmd) override;
 
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //------------------------
     //      CONSTRUCTOR
     //------------------------
@@ -455,15 +612,14 @@ public:
 
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //------------------------
     //      CONTROLLERS
     //------------------------
 
-    void mousePressEvent(QMouseEvent *e, int screen_index) override;
+    void mousePressEvent(QMouseEvent *e, int screen_shift) override;
 
-    void mouseReleaseEvent(QMouseEvent *e, int screen_index) override;
+    void mouseReleaseEvent(QMouseEvent *e, int screen_shift) override;
 
     void keyPressEvent(QKeyEvent *e) override;
 
@@ -471,15 +627,13 @@ public:
 
     void wheelEvent(QWheelEvent *e) override;
 
-    bool eventFilter(QObject *obj, QEvent *e, int screen_index) override;
+    bool eventFilter(QObject *obj, QEvent *e, int screen_shift) override;
 
     void connexionPressed() override;
 
     bool connexionReleased() override;
 
     void RefreshPressed() override;
-
-    void RefreshReleased() override;
 
     void CtrlAltDelPressed() override;
 
@@ -497,16 +651,17 @@ public:
 
     bool connect();
 
-    void disconnect( std::string const &) override;
+    void disconnect(std::string const &) override;
 
     void closeFromScreen(int screen_index) override;
 
     void dropScreen() override;
 
+    void replay(std::string const & movie_path) override;
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //--------------------------------
     //    SOCKET EVENTS FUNCTIONS
     //--------------------------------

@@ -32,9 +32,9 @@
 //#include "utils/png_bitmap.hpp"
 #include "utils/png.hpp"
 #include "utils/bitmap.hpp"
+#include "utils/log.hpp"
 #include "utils/sugar/local_fd.hpp"
-#include "utils/sugar/compiler_attributes.hpp"
-#include "log.hpp"
+#include "cxx/attributes.hpp"
 
 #include <png.h>
 
@@ -96,7 +96,7 @@ inline Bitmap bitmap_from_file_impl(const char * filename)
         return Bitmap{};
     }
     if (png_sig_cmp(type1, 0, 8) == 0) {
-        LOG(LOG_INFO, "Bitmap: image file [%s] is PNG file\n", filename);
+        //LOG(LOG_INFO, "Bitmap: image file [%s] is PNG file\n", filename);
         return bitmap_from_png_without_sig(fd_.get(), filename);
     }
 
@@ -284,7 +284,7 @@ Bitmap bitmap_from_bmp_without_sig(int fd, const char * filename)
                 break;
             case 8:
                 file_Qpp = 2;
-                CPP_FALLTHROUGH;
+                REDEMPTION_CXX_FALLTHROUGH;
             case 4:
                 REDASSERT(header.clr_used * 4 <= 8192);
                 if (not read_all(fd, stream_data, header.clr_used * 4)){

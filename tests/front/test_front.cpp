@@ -167,10 +167,6 @@ BOOST_AUTO_TEST_CASE(TestFront)
 
         time_t now = 1450864840;
 
-        LCGRandom gen1(0);
-
-        CryptoContext cctx(gen1, ini);
-
         // Comment the code block below to generate testing data.
         #include "fixtures/trace_front_client.hpp"
 
@@ -178,6 +174,9 @@ BOOST_AUTO_TEST_CASE(TestFront)
         GeneratorTransport front_trans(indata, sizeof(indata), verbose);
 
         BOOST_CHECK(true);
+
+        LCGRandom gen1(0);
+        CryptoContext cctx;
 
         const bool fastpath_support = false;
         const bool mem3blt_support  = false;
@@ -227,7 +226,9 @@ BOOST_AUTO_TEST_CASE(TestFront)
                                    , "10.10.47.36"
                                    , "10.10.43.33"
                                    , 2
-                                   , 0
+                                   , ini.get<cfg::font>()
+                                   , ini.get<cfg::theme>()
+                                   , to_verbose_flags(0)
                                    );
         mod_rdp_params.device_id                       = "device_id";
         mod_rdp_params.enable_tls                      = false;
@@ -245,7 +246,7 @@ BOOST_AUTO_TEST_CASE(TestFront)
         //mod_rdp_params.certificate_change_action       = 0;
         //mod_rdp_params.extra_orders                    = "";
         mod_rdp_params.server_redirection_support        = true;
-        mod_rdp_params.verbose = verbose;
+        mod_rdp_params.verbose = to_verbose_flags(verbose);
 
         // To always get the same client random, in tests
         LCGRandom gen2(0);
@@ -352,10 +353,6 @@ BOOST_AUTO_TEST_CASE(TestFront2)
 
         time_t now = 1450864840;
 
-        LCGRandom gen1(0);
-
-        CryptoContext cctx(gen1, ini);
-
         // Comment the code block below to generate testing data.
         #include "fixtures/trace_front_client.hpp"
 
@@ -364,6 +361,8 @@ BOOST_AUTO_TEST_CASE(TestFront2)
 
         BOOST_CHECK(true);
 
+        LCGRandom gen1(0);
+        CryptoContext cctx;
         const bool fastpath_support = false;
         const bool mem3blt_support  = false;
 
@@ -413,7 +412,9 @@ BOOST_AUTO_TEST_CASE(TestFront2)
                                    , "10.10.47.36"
                                    , "10.10.43.33"
                                    , 2
-                                   , 0
+                                   , ini.get<cfg::font>()
+                                   , ini.get<cfg::theme>()
+                                   , to_verbose_flags(0)
                                    );
         mod_rdp_params.device_id                       = "device_id";
         mod_rdp_params.enable_tls                      = false;
@@ -431,7 +432,7 @@ BOOST_AUTO_TEST_CASE(TestFront2)
         //mod_rdp_params.certificate_change_action       = 0;
         //mod_rdp_params.extra_orders                    = "";
         mod_rdp_params.server_redirection_support        = true;
-        mod_rdp_params.verbose = verbose;
+        mod_rdp_params.verbose = to_verbose_flags(verbose);
 
         // To always get the same client random, in tests
         LCGRandom gen2(0);
@@ -539,10 +540,6 @@ BOOST_AUTO_TEST_CASE(TestFront3)
 
         time_t now = 1450864840;
 
-        LCGRandom gen1(0);
-
-        CryptoContext cctx(gen1, ini);
-
         // Comment the code block below to generate testing data.
         #include "fixtures/trace_front_client_patblt.hpp"
 
@@ -552,6 +549,8 @@ BOOST_AUTO_TEST_CASE(TestFront3)
 
         BOOST_CHECK(true);
 
+        LCGRandom gen1(0);
+        CryptoContext cctx;
         const bool fastpath_support = false;
         const bool mem3blt_support  = false;
 
@@ -652,6 +651,8 @@ BOOST_AUTO_TEST_CASE(TestFront3)
                                    , "10.10.47.36"
                                    , "10.10.43.33"
                                    , 2
+                                   , ini.get<cfg::font>()
+                                   , ini.get<cfg::theme>()
                                    , 0
                                    );
         mod_rdp_params.device_id                       = "device_id";
@@ -670,7 +671,7 @@ BOOST_AUTO_TEST_CASE(TestFront3)
         //mod_rdp_params.certificate_change_action       = 0;
         //mod_rdp_params.extra_orders                    = "";
         mod_rdp_params.server_redirection_support        = true;
-        mod_rdp_params.verbose = verbose;
+        mod_rdp_params.verbose = to_verbose_flags(verbose);
 
         // To always get the same client random, in tests
         LCGRandom gen2(0);

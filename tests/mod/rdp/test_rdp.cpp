@@ -82,6 +82,8 @@ BOOST_AUTO_TEST_CASE(TestModRDPXPServer)
                                    , "10.10.47.175"
                                    , "10.10.9.161"
                                    , 7
+                                   , ini.get<cfg::font>()
+                                   , ini.get<cfg::theme>()
                                    , verbose
                                    );
         mod_rdp_params.enable_tls                      = false;
@@ -174,7 +176,9 @@ BOOST_AUTO_TEST_CASE(TestModRDPWin2008Server)
                                , "10.10.47.36"
                                , "10.10.43.33"
                                , 2
-                               , 0
+                               , ini.get<cfg::font>()
+                               , ini.get<cfg::theme>()
+                               , RDPVerbose{}
                                );
     mod_rdp_params.device_id                       = "device_id";
     mod_rdp_params.enable_tls                      = false;
@@ -260,6 +264,8 @@ BOOST_AUTO_TEST_CASE(TestModRDPW2003Server)
                                , "10.10.47.205"
                                , "0.0.0.0"
                                , 2
+                               , ini.get<cfg::font>()
+                               , ini.get<cfg::theme>()
                                , verbose
                                );
     mod_rdp_params.enable_tls                      = false;
@@ -351,6 +357,8 @@ BOOST_AUTO_TEST_CASE(TestModRDPW2000Server)
                                , "10.10.47.39"
                                , "0.0.0.0"
                                , 2
+                               , ini.get<cfg::font>()
+                               , ini.get<cfg::theme>()
                                , 0
                                );
     mod_rdp_params.enable_tls                      = false;

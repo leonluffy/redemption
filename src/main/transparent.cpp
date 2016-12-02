@@ -179,13 +179,8 @@ int main(int argc, char * argv[]) {
         LOG(LOG_ERR, "Failed to set socket TCP_NODELAY option on client socket");
     }
     SocketTransport front_trans( "RDP Client", one_shot_server.sck, "0.0.0.0", 0
-                               , ini.get<cfg::debug::front>(), nullptr);
+                               , to_verbose_flags(ini.get<cfg::debug::front>()), nullptr);
     wait_obj front_event;
-
-    UdevRandom gen;
-    TimeSystem timeobj;
-
-    CryptoContext cctx(gen, ini);
 
     // Remove existing Persistent Key List file.
     unlink(persistent_key_list_filename.c_str());
@@ -205,6 +200,9 @@ int main(int argc, char * argv[]) {
 
     time_t now = time(nullptr);
 
+    UdevRandom gen;
+    TimeSystem timeobj;
+    CryptoContext cctx;
     const bool fastpath_support = true;
     const bool mem3blt_support  = true;
     Front front(front_trans, gen, ini, cctx,
@@ -256,7 +254,7 @@ int main(int argc, char * argv[]) {
 
             int client_sck = ip_connect(target_device.c_str(), target_port, 3, 1000);
             SocketTransport mod_trans( "RDP Server", client_sck, target_device.c_str(), target_port
-                                     , ini.get<cfg::debug::mod_rdp>(), &ini.get_ref<cfg::context::auth_error_message>());
+                                     , to_verbose_flags(ini.get<cfg::debug::mod_rdp>()), &ini.get_ref<cfg::context::auth_error_message>());
 
             ClientInfo client_info = front.client_info;
 
@@ -265,7 +263,9 @@ int main(int argc, char * argv[]) {
                                        , target_device.c_str()
                                        , "0.0.0.0"   // client ip is silenced
                                        , front.keymap.key_flags
-                                       , ini.get<cfg::debug::mod_rdp>()
+                                       , ini.get<cfg::font>()
+                                       , ini.get<cfg::theme>()
+                                       , to_verbose_flags(ini.get<cfg::debug::mod_rdp>())
                                        );
             //mod_rdp_params.enable_tls                          = true;
             mod_rdp_params.enable_nla                          = ini.get<cfg::mod_rdp::enable_nla>();
@@ -288,7 +288,7 @@ int main(int argc, char * argv[]) {
             mod_rdp_params.enable_persistent_disk_bitmap_cache = ini.get<cfg::mod_rdp::persistent_disk_bitmap_cache>();
             mod_rdp_params.enable_cache_waiting_list           = ini.get<cfg::mod_rdp::cache_waiting_list>();
             mod_rdp_params.password_printing_mode              = ini.get<cfg::debug::password>();
-            mod_rdp_params.cache_verbose                       = ini.get<cfg::debug::cache>();
+            mod_rdp_params.cache_verbose                       = to_verbose_flags(ini.get<cfg::debug::cache>());
 
             mod_rdp_params.allow_channels                      = &(ini.get<cfg::mod_rdp::allow_channels>());
             mod_rdp_params.deny_channels                       = &(ini.get<cfg::mod_rdp::deny_channels>());

@@ -28,7 +28,7 @@
 #include "core/RDP/orders/RDPOrdersPrimaryOpaqueRect.hpp"
 #include "gdi/graphic_api.hpp"
 
-inline void fill_region(gdi::GraphicApi & drawable, const Region & region, int bg_color) {
+inline void fill_region(gdi::GraphicApi & drawable, const SubRegion & region, int bg_color) {
     for (const Rect & rect : region.rects) {
         drawable.draw(RDPOpaqueRect(rect, bg_color), rect);
     }
@@ -203,7 +203,7 @@ public:
             this->current_focus->focus(reason);
         }
         if (!tmp_has_focus) {
-            this->refresh(this->rect);
+            this->refresh(this->get_rect());
         }
     }
     void blur() override {
@@ -214,7 +214,7 @@ public:
         if (this->current_focus) {
             this->current_focus->blur();
         }
-        this->refresh(this->rect);
+        this->refresh(this->get_rect());
     }
 
     Widget2 * get_next_focus(Widget2 * w, bool loop) {
@@ -317,7 +317,7 @@ public:
     }
 
     void draw(const Rect & clip) override {
-        Rect rect_intersect = clip.intersect(this->rect);
+        Rect rect_intersect = clip.intersect(this->get_rect());
         this->draw_inner_free(rect_intersect, this->get_bg_color());
         this->draw_children(rect_intersect);
     }
@@ -327,21 +327,21 @@ public:
             Widget2 * w = this->impl->get(iter_w_current);
             REDASSERT(w);
 
-            w->refresh(clip.intersect(w->rect));
+            w->refresh(clip.intersect(w->get_rect()));
 
             iter_w_current = this->impl->get_next(iter_w_current);
         }
     }
     virtual void draw_inner_free(const Rect & clip, int bg_color) {
-        Region region;
-        region.rects.push_back(clip.intersect(this->rect));
+        SubRegion region;
+        region.rects.push_back(clip.intersect(this->get_rect()));
 
         CompositeContainer::iterator iter_w_current = this->impl->get_first();
         while (iter_w_current != reinterpret_cast<CompositeContainer::iterator>(CompositeContainer::invalid_iterator)) {
             Widget2 * w = this->impl->get(iter_w_current);
             REDASSERT(w);
 
-            Rect rect_widget = clip.intersect(w->rect);
+            Rect rect_widget = clip.intersect(w->get_rect());
             if (!rect_widget.isempty()) {
                 region.subtract_rect(rect_widget);
             }
@@ -353,7 +353,7 @@ public:
     }
 
     //virtual void hide_child(const Rect & clip, int bg_color) {
-    //    Region region;
+    //    SubRegion region;
     //
     //    CompositeContainer::iterator iter_w_current = this->impl->get_first();
     //    while (iter_w_current != reinterpret_cast<CompositeContainer::iterator>(CompositeContainer::invalid_iterator)) {
@@ -388,7 +388,7 @@ public:
             do {
                 Widget2 * w = this->impl->get(iter_w_current);
                 REDASSERT(w);
-                w->set_xy(x + w->dx(), y + w->dy());
+                w->set_xy(x + w->x(), y + w->y());
 
                 iter_w_current = this->impl->get_next(iter_w_current);
             }
@@ -441,23 +441,24 @@ public:
     }
 
     Widget2 * widget_at_pos(int16_t x, int16_t y) override {
-        if (!this->rect.contains_pt(x, y)) {
+        if (!this->get_rect().contains_pt(x, y)) {
             return nullptr;
         }
         if (this->current_focus) {
-            if (this->current_focus->rect.contains_pt(x, y)) {
+            if (this->current_focus->get_rect().contains_pt(x, y)) {
                 return this->current_focus;
             }
         }
-        CompositeContainer::iterator iter_w_current = this->impl->get_first();
+        // Foreground widget is the last in the list.
+        CompositeContainer::iterator iter_w_current = this->impl->get_last();
         while (iter_w_current != reinterpret_cast<CompositeContainer::iterator>(CompositeContainer::invalid_iterator)) {
             Widget2 * w = this->impl->get(iter_w_current);
             REDASSERT(w);
-            if (w->rect.contains_pt(x, y)) {
+            if (w->get_rect().contains_pt(x, y)) {
                 return w;
             }
 
-            iter_w_current = this->impl->get_next(iter_w_current);
+            iter_w_current = this->impl->get_previous(iter_w_current);
         }
 
         return nullptr;
@@ -536,8 +537,7 @@ public:
     ~WidgetComposite() override {}
 
     void draw(const Rect & clip) override {
-        Rect rect_intersect = clip.intersect(this->rect);
+        Rect rect_intersect = clip.intersect(this->get_rect());
         this->draw_children(rect_intersect);
     }
 };
-

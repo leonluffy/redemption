@@ -174,11 +174,11 @@ public:
             return ;
         }
 
-        RDPECLIP::RecvFactory recv_factory(stream);
+        RDPECLIP::RecvPredictor rp(stream);
 
-        switch (recv_factory.msgType) {
+        switch (rp.msgType) {
             case RDPECLIP::CB_FORMAT_LIST:
-                RDPECLIP::FormatListPDU().recv(stream, recv_factory);
+                RDPECLIP::FormatListPDU().recv(stream);
                 this->send_to_front_channel(RDPECLIP::FormatListResponsePDU(true));
                 this->has_clipboard_ = false;
                 this->clipboard_str_.clear();
@@ -186,7 +186,7 @@ public:
             //case RDPECLIP::CB_FORMAT_LIST_RESPONSE:
             //    break;
             //case RDPECLIP::CB_FORMAT_DATA_REQUEST:
-            //    RDPECLIP::FormatDataRequestPDU().recv(stream, recv_factory);
+            //    RDPECLIP::FormatDataRequestPDU().recv(stream);
             //    this->send_to_front_channel_and_set_buf_size(
             //        this->clipboard_str_.size() * 2 /*utf8 to utf16*/ + sizeof(RDPECLIP::CliprdrHeader) + 4 /*data_len*/,
             //        RDPECLIP::FormatDataResponsePDU(true), this->clipboard_str_.c_str()
@@ -194,18 +194,18 @@ public:
             //    break;
             case RDPECLIP::CB_FORMAT_DATA_RESPONSE: {
                 RDPECLIP::FormatDataResponsePDU format_data_response_pdu;
-                format_data_response_pdu.recv(stream, recv_factory);
-                if (format_data_response_pdu.msgFlags() == RDPECLIP::CB_RESPONSE_OK) {
+                format_data_response_pdu.recv(stream);
+                if (format_data_response_pdu.header.msgFlags() == RDPECLIP::CB_RESPONSE_OK) {
 
                     if ((flags & CHANNELS::CHANNEL_FLAG_LAST) != 0) {
-                        if (!stream.in_check_rem(format_data_response_pdu.dataLen())) {
+                        if (!stream.in_check_rem(format_data_response_pdu.header.dataLen())) {
                             LOG( LOG_ERR
                                , "selector::send_to_selector truncated CB_FORMAT_DATA_RESPONSE dataU16, need=%" PRIu32 " remains=%zu"
-                               , format_data_response_pdu.dataLen(), stream.in_remain());
+                               , format_data_response_pdu.header.dataLen(), stream.in_remain());
                             throw Error(ERR_RDP_PROTOCOL);
                         }
 
-                        this->clipboard_str_.utf16_push_back(stream.get_current(), format_data_response_pdu.dataLen() / 2);
+                        this->clipboard_str_.utf16_push_back(stream.get_current(), format_data_response_pdu.header.dataLen() / 2);
 
                         if (this->paste_edit_) {
                             this->paste_edit_->insert_text(this->clipboard_str_.c_str());
@@ -222,7 +222,7 @@ public:
                             throw Error(ERR_RDP_PROTOCOL);
                         }
 
-                        this->long_data_response_size = format_data_response_pdu.dataLen() - stream.in_remain();
+                        this->long_data_response_size = format_data_response_pdu.header.dataLen() - stream.in_remain();
                         this->clipboard_str_.utf16_push_back(stream.get_current(), stream.in_remain() / 2);
                     }
                 }

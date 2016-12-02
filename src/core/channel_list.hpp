@@ -356,9 +356,9 @@ namespace CHANNELS {
     static const uint32_t PROXY_CHUNKED_VIRTUAL_CHANNEL_DATA_LENGTH_LIMIT = 1024 * 1024 * 10;   // 10 Mb
 
     struct VirtualChannelPDU {
-        uint32_t verbose;
+        bool verbose;
 
-        explicit VirtualChannelPDU(uint32_t verbose = 0) : verbose(verbose) {}
+        explicit VirtualChannelPDU(bool verbose = 0) : verbose(verbose) {}
 
         void send_to_server( Transport & trans, CryptContext & crypt_context, int encryptionLevel
                            , uint16_t userId, uint16_t channelId, uint32_t length, uint32_t flags
@@ -401,15 +401,15 @@ namespace CHANNELS {
                     sec::flags = proto::cast(encryptionLevel ? SEC::SEC_ENCRYPT : 0)
                 ),
                 proto::hook([this, channelId](auto... args){
-                    if (enable_verbose && (this->verbose & (128 | 16))) {
+                    if (enable_verbose && this->verbose) {
                         LOG(LOG_INFO, "Sec clear payload to send (channelId=%d):", channelId);
                         hexdump_d(args...);
                     }
                 }),
                 proto::values(
-                    proto::types::u32_le{{length}},
-                    proto::types::u32_le{{flags}},
-                    proto::types::bytes{{chunk, chunk_size}}
+                    proto::types::u32_le{length},
+                    proto::types::u32_le{flags},
+                    proto::types::bytes{chunk, chunk_size}
                 )
             );
         }

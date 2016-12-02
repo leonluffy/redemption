@@ -75,7 +75,7 @@ public:
         this->screen.add_widget(&this->dialog_widget);
         this->dialog_widget.set_widget_focus(&this->dialog_widget.ok, Widget2::focus_reason_tabkey);
         this->screen.set_widget_focus(&this->dialog_widget, Widget2::focus_reason_tabkey);
-        this->screen.refresh(this->screen.rect);
+        this->screen.refresh(this->screen.get_rect());
 
         if (this->dialog_widget.challenge) {
             this->dialog_widget.set_widget_focus(this->dialog_widget.challenge, Widget2::focus_reason_tabkey);
@@ -92,11 +92,12 @@ public:
         switch (event) {
             case NOTIFY_SUBMIT: this->accepted(); break;
             case NOTIFY_CANCEL: this->refused(); break;
-            default:
+            case NOTIFY_PASTE: case NOTIFY_COPY: case NOTIFY_CUT:
             if (this->copy_paste) {
                 copy_paste_process_event(this->copy_paste, *reinterpret_cast<WidgetEdit*>(sender), event);
             }
             break;
+            default:;
         }
     }
 

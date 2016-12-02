@@ -25,7 +25,6 @@
 
 #include "utils/log.hpp"
 #include "RDPSerializer.hpp"
-#include "gdi/input_pointer_api.hpp"
 #include "gcc.hpp"
 #include "sec.hpp"
 #include "mcs.hpp"
@@ -410,7 +409,7 @@ namespace detail
     };
 }
 
-class GraphicsUpdatePDU : private detail::GraphicsUpdatePDUBuffer, public RDPSerializer, public gdi::MouseInputApi
+class GraphicsUpdatePDU : private detail::GraphicsUpdatePDUBuffer, public RDPSerializer
 {
     uint16_t     & userid;
     int          & shareid;
@@ -432,7 +431,6 @@ public:
                      , int & shareid
                      , int & encryptionLevel
                      , CryptContext & encrypt
-                     , const Inifile & ini
                      , const uint8_t bpp
                      , BmpCache & bmp_cache
                      , GlyphCache & gly_cache
@@ -444,12 +442,12 @@ public:
                      , bool fastpath_support
                      , rdp_mppc_enc * mppc_enc
                      , bool compression
-                     , uint32_t verbose
+                     , Verbose verbose
                      )
         : RDPSerializer( this->buffer_stream_orders.get_data_stream()
                        , this->buffer_stream_bitmaps.get_data_stream()
                        , bpp, bmp_cache, gly_cache, pointer_cache
-                       , bitmap_cache_version, use_bitmap_comp, op2, max_bitmap_size, ini, verbose)
+                       , bitmap_cache_version, use_bitmap_comp, op2, max_bitmap_size, verbose)
         , userid(userid)
         , shareid(shareid)
         , encryptionLevel(encryptionLevel)
@@ -466,7 +464,7 @@ public:
     ~GraphicsUpdatePDU() override {}
 
     void init_orders() {
-        if (this->ini.get<cfg::debug::primary_orders>() > 3) {
+        if (this->verbose & Verbose::internal_buffer) {
             LOG( LOG_INFO
                , "GraphicsUpdatePDU::init::Initializing orders batch mcs_userid=%u shareid=%u"
                , this->userid
@@ -475,7 +473,7 @@ public:
     }
 
     void init_bitmaps() {
-        if (this->ini.get<cfg::debug::primary_orders>() > 3) {
+        if (this->verbose & Verbose::internal_buffer) {
             LOG( LOG_INFO
                , "GraphicsUpdatePDU::init::Initializing bitmaps batch mcs_userid=%u shareid=%u"
                , this->userid
@@ -496,7 +494,7 @@ public:
 protected:
     void flush_orders() override {
         if (this->order_count > 0){
-            if (this->ini.get<cfg::debug::primary_orders>() > 3) {
+            if (this->verbose & Verbose::internal_buffer) {
                 LOG( LOG_INFO, "GraphicsUpdatePDU::flush_orders: order_count=%zu"
                    , this->order_count);
             }
@@ -514,7 +512,7 @@ protected:
 
     void flush_bitmaps() override {
         if (this->bitmap_count > 0) {
-            if (this->ini.get<cfg::debug::primary_orders>() > 3) {
+            if (this->verbose & Verbose::internal_buffer) {
                 LOG( LOG_INFO
                    , "GraphicsUpdatePDU::flush_bitmaps: bitmap_count=%zu offset=%" PRIu32
                    , this->bitmap_count, this->offset_bitmap_count);
@@ -708,7 +706,7 @@ protected:
     }
 
     void send_pointer(int cache_idx, const Pointer & cursor) override {
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::pointer) {
             LOG(LOG_INFO, "GraphicsUpdatePDU::send_pointer(cache_idx=%u x=%u y=%u)",
                 cache_idx, cursor.x, cursor.y);
         }
@@ -721,7 +719,7 @@ protected:
                             , this->encrypt, this->userid, SERVER_UPDATE_POINTER_COLOR
                             , 0, stream, this->verbose);
 
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::pointer) {
             LOG(LOG_INFO, "GraphicsUpdatePDU::send_pointer done");
         }
     }   // void send_pointer(int cache_idx, const Pointer & cursor)
@@ -758,7 +756,7 @@ protected:
 //      New Pointer Update (section 2.2.9.1.1.4.5).
 
     void set_pointer(int cache_idx) override {
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::pointer) {
             LOG(LOG_INFO, "GraphicsUpdatePDU::set_pointer(cache_idx=%u)", cache_idx);
         }
 
@@ -770,7 +768,7 @@ protected:
                             , this->encrypt, this->userid, SERVER_UPDATE_POINTER_CACHED
                             , 0, stream, this->verbose);
 
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::pointer) {
             LOG(LOG_INFO, "GraphicsUpdatePDU::set_pointer done");
         }
     }   // void set_pointer(int cache_idx)
@@ -778,8 +776,8 @@ protected:
 public:
     using RDPSerializer::set_pointer;
 
-    void update_pointer_position(uint16_t xPos, uint16_t yPos) override {
-        if (this->verbose & 4) {
+    void update_pointer_position(uint16_t xPos, uint16_t yPos) {
+        if (this->verbose & Verbose::pointer) {
             LOG(LOG_INFO, "GraphicsUpdatePDU::update_pointer_position(xPos=%u, yPos=%u)", xPos, yPos);
         }
 
@@ -792,7 +790,7 @@ public:
                             , this->encrypt, this->userid, SERVER_UPDATE_POINTER_POSITION
                             , 0, stream, this->verbose);
 
-        if (this->verbose & 4) {
+        if (this->verbose & Verbose::pointer) {
             LOG(LOG_INFO, "GraphicsUpdatePDU::update_pointer_position done");
         }
     }

@@ -33,12 +33,16 @@
 #include "sashimi/pki.hpp"
 #include "sashimi/libcrypto.hpp"
 
-#include "utils/sugar/compiler_attributes.hpp"
+#include "cxx/attributes.hpp"
+#include "cxx/diagnostic.hpp"
 
 #include <gssapi/gssapi.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdint.h>
+
+REDEMPTION_DIAGNOSTIC_PUSH
+REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wold-style-cast")
 
 struct ssh_session_struct {
     struct error_struct error;
@@ -222,7 +226,6 @@ struct ssh_session_struct {
      *
      * @brief Verify the hmac of a packet
      *
-     * @param  session      The session to use.
      * @param  buffer       The buffer to verify the hmac from.
      * @param  mac          The mac to compare with the hmac.
      *
@@ -624,7 +627,6 @@ struct ssh_session_struct {
 
     z_stream *initcompress(int level) {
         syslog(LOG_INFO, "%s ---", __FUNCTION__);
-        int status;
 
         z_stream *stream = static_cast<z_stream *>(malloc(sizeof(z_stream)));
         if (stream == nullptr) {
@@ -632,7 +634,7 @@ struct ssh_session_struct {
         }
         memset(stream, 0, sizeof(z_stream));
 
-        status = deflateInit(stream, level);
+        int const status = deflateInit(stream, level);
         if (status != Z_OK) {
             free(stream);
             stream = nullptr;
@@ -668,8 +670,6 @@ struct ssh_session_struct {
 
         /* options */
         delete this->auth_auto_state;
-        free(this->serverbanner);
-        free(this->clientbanner);
         free(this->opts.bindaddr);
         free(this->opts.username);
         free(this->opts.host);
@@ -1144,7 +1144,7 @@ struct SshServerSession : public ssh_session_struct
                 /* First, POLLOUT is a sign we may be connected */
                 if(this->socket->state == SSH_SOCKET_CONNECTING){
                     syslog(LOG_INFO, "Received POLLOUT in connecting state");
-                syslog(LOG_INFO, "POLLOUT for write CONNECTED");
+                    syslog(LOG_INFO, "POLLOUT for write CONNECTED");
                     int r = fcntl(this->socket->fd_in, F_SETFL, 0);
                     if (r < 0) {
                         syslog(LOG_INFO, "%s -- fcntl error %s", __FUNCTION__, strerror(errno));
@@ -1154,7 +1154,6 @@ struct SshServerSession : public ssh_session_struct
                     this->socket->write_wontblock = 1;
                     this->socket->state = SSH_SOCKET_CONNECTED;
                     this->session_state = SSH_SESSION_STATE_SOCKET_CONNECTED;
-                    ret = SSH_OK;
                 }
 
                 syslog(LOG_INFO, "POLLOUT for write remain=%d except=%d wontblock=%d",
@@ -1445,8 +1444,6 @@ struct SshServerSession : public ssh_session_struct
      * @brief Sends the "tcpip-forward" global request to ask the server to begin
      *        listening for inbound connections.
      *
-     * @param[in]  session  The ssh session to send the request.
-     *
      * @param[in]  address  The address to bind to on the server. Pass nullptr to bind
      *                      to all available addresses on all protocol families
      *                      supported by the server.
@@ -1525,8 +1522,6 @@ struct SshServerSession : public ssh_session_struct
     /**
      * @brief Sends the "cancel-tcpip-forward" global request to ask the server to
      *        cancel the tcpip-forward request.
-     *
-     * @param[in]  session  The ssh session to send the request.
      *
      * @param[in]  address  The bound address on the server.
      *
@@ -1670,6 +1665,10 @@ struct SshServerSession : public ssh_session_struct
             }
         }
         break;
+        case SSH_CHANNEL_REQ_STATE_PENDING:
+        case SSH_CHANNEL_REQ_STATE_ACCEPTED:
+        case SSH_CHANNEL_REQ_STATE_DENIED:
+        case SSH_CHANNEL_REQ_STATE_ERROR:
         default:
             break;
         }
@@ -1685,9 +1684,9 @@ struct SshServerSession : public ssh_session_struct
      * @brief Gets the banner from socket and saves it in session.
      * Updates the session state
      *
-     * @param  data pointer to the beginning of header
+     * @param  buffer pointer to the beginning of header
      * @param  len size of the banner
-     * @param  user is a pointer to session
+     * @param  error structure to fill in case of error
      * @returns Number of bytes processed, or zero if the banner is not complete.
      */
      // TODO: intermittent segfault here, see what happen
@@ -1838,7 +1837,7 @@ struct SshServerSession : public ssh_session_struct
                 }
 
                 this->packet_state = PACKET_STATE_SIZEREAD;
-                CPP_FALLTHROUGH;
+                REDEMPTION_CXX_FALLTHROUGH;
             case PACKET_STATE_SIZEREAD:
                 syslog(LOG_INFO, "%s --- [F]", __PRETTY_FUNCTION__);
 
@@ -2633,6 +2632,12 @@ struct SshServerSession : public ssh_session_struct
             break;
             case SSH_SESSION_STATE_AUTHENTICATING:
                 break;
+            case SSH_SESSION_STATE_BANNER_RECEIVED:
+            REDEMPTION_CXX_FALLTHROUGH;
+            case SSH_SESSION_STATE_AUTHENTICATED:
+            REDEMPTION_CXX_FALLTHROUGH;
+            case SSH_SESSION_STATE_DISCONNECTED:
+            REDEMPTION_CXX_FALLTHROUGH;
             case SSH_SESSION_STATE_ERROR:
                 this->socket->close();
                 this->session_state = SSH_SESSION_STATE_ERROR;
@@ -2875,11 +2880,6 @@ struct SshServerSession : public ssh_session_struct
                 struct ssh_crypto_struct *crypto = this->next_crypto
                                                  ? this->next_crypto
                                                  : this->current_crypto;
-
-                if (crypto->secret_hash == nullptr){
-                    ssh_set_error(this->error,SSH_FATAL,"Missing secret_hash");
-                    return -1;
-                }
 
                 unsigned char hash[SHA_DIGEST_LENGTH] = {0};
                 SslSha1 sha1;
@@ -3169,11 +3169,6 @@ struct SshServerSession : public ssh_session_struct
                                                  ? this->next_crypto
                                                  : this->current_crypto;
 
-                if (crypto->secret_hash == nullptr){
-                    ssh_set_error(this->error,SSH_FATAL,"Missing secret_hash");
-                    return -1;
-                }
-
                 unsigned char hash[SHA_DIGEST_LENGTH] = {0};
                 SslSha1 sha1;
                 sha1.update(crypto->secret_hash, crypto->digest_len);
@@ -3398,10 +3393,6 @@ struct SshServerSession : public ssh_session_struct
                                                  ? this->next_crypto
                                                  : this->current_crypto;
 
-                if (crypto->secret_hash == nullptr){
-                    ssh_set_error(this->error,SSH_FATAL,"Missing secret_hash");
-                    return SSH_ERROR;
-                }
                 unsigned char hash[SHA_DIGEST_LENGTH] = {0};
                 SslSha1 sha1;
                 sha1.update(crypto->secret_hash, crypto->digest_len);
@@ -3632,14 +3623,6 @@ struct SshServerSession : public ssh_session_struct
                                                  ? this->next_crypto
                                                  : this->current_crypto;
 
-                if (crypto->secret_hash == nullptr){
-                    ssh_set_error(this->error, SSH_FATAL, "Missing secret_hash");
-                    this->out_buffer->buffer_reinit();
-                    syslog(LOG_INFO, "%s --- error", __FUNCTION__);
-                    this->session_state = SSH_SESSION_STATE_ERROR;
-                    return SSH_ERROR;
-                }
-
                 unsigned char hash[SHA_DIGEST_LENGTH] = {0};
                 SslSha1 sha1;
                 sha1.update(crypto->secret_hash, crypto->digest_len);
@@ -3869,6 +3852,7 @@ struct SshServerSession : public ssh_session_struct
                     this->current_crypto->do_compress_in=1;
                 }
             }
+            REDEMPTION_CXX_FALLTHROUGH;
         default:
             ssh_auth_reply_denied_server(this);
         }
@@ -4283,6 +4267,7 @@ struct SshServerSession : public ssh_session_struct
                 syslog(LOG_INFO, "%s error invalid peer signature ---", __FUNCTION__);
                 syslog(LOG_INFO,
                     "Received an invalid  signature from peer");
+                // TODO: shouldn't we close connection if this occurs
                 signature_state = SSH_PUBLICKEY_STATE_WRONG;
                 return;
             }
@@ -5573,8 +5558,27 @@ struct SshServerSession : public ssh_session_struct
         switch (this->session_state){
         case SSH_SESSION_STATE_AUTHENTICATED:
             syslog(LOG_WARNING, "Other side initiating key re-exchange");
+            REDEMPTION_CXX_FALLTHROUGH;
         case SSH_SESSION_STATE_INITIAL_KEX:
             break;
+        case SSH_SESSION_STATE_NONE:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_CONNECTING:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_SOCKET_CONNECTED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_BANNER_RECEIVED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_KEXINIT_RECEIVED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_DH:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_AUTHENTICATING:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_ERROR:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_SESSION_STATE_DISCONNECTED:
+        REDEMPTION_CXX_FALLTHROUGH;
         default:
             ssh_set_error(this->error,  SSH_FATAL,"SSH_KEXINIT received in wrong state");
             this->session_state = SSH_SESSION_STATE_ERROR;
@@ -6021,6 +6025,7 @@ struct SshServerSession : public ssh_session_struct
         break;
         case REQUEST_STRING_CHANNEL_OPEN_UNKNOWN:
             syslog(LOG_INFO, "%s --- REQUEST_CHANNEL_OPEN_UNKNOWN", __FUNCTION__);
+            REDEMPTION_CXX_FALLTHROUGH;
         default:
         break;
         }
@@ -6878,10 +6883,9 @@ struct SshServerSession : public ssh_session_struct
 
     void handle_x11_req_request_server(ssh_channel channel, int want_reply, ssh_buffer_struct *packet)
     {
-        (void)want_reply;
         syslog(LOG_INFO, "%s ---", __FUNCTION__);
         syslog(LOG_INFO,
-          "Received a %s channel_request for channel (%d:%d) (want_reply=%hhd)",
+          "Received a %s channel_request for channel (%d:%d) (want_reply=%d)",
           "x11-req", channel->local_channel, channel->remote_channel, want_reply);
 
         uint8_t x11_single_connection = packet->in_uint8();
@@ -6977,8 +6981,6 @@ struct SshClientSession : public ssh_session_struct
 
     /**
      * @brief Try to authenticate through the "none" method.
-     *
-     * @param[in] session   The ssh session to use.
      *
      * @returns void
      *
@@ -7127,6 +7129,14 @@ struct SshClientSession : public ssh_session_struct
             }
         }
         break;
+        case SSH_CHANNEL_REQ_STATE_PENDING:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_ACCEPTED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_DENIED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_ERROR:
+        REDEMPTION_CXX_FALLTHROUGH;
         default:
         break;
         }
@@ -7182,6 +7192,14 @@ struct SshClientSession : public ssh_session_struct
             }
         }
         break;
+        case SSH_CHANNEL_REQ_STATE_PENDING:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_ACCEPTED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_DENIED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_ERROR:
+        REDEMPTION_CXX_FALLTHROUGH;
         default:
             break;
         }
@@ -7250,6 +7268,14 @@ struct SshClientSession : public ssh_session_struct
             return channel->channel_request(this);
         }
         break;
+        case SSH_CHANNEL_REQ_STATE_PENDING:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_ACCEPTED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_DENIED:
+        REDEMPTION_CXX_FALLTHROUGH;
+        case SSH_CHANNEL_REQ_STATE_ERROR:
+        REDEMPTION_CXX_FALLTHROUGH;
         default:
             break;
         }
@@ -7535,6 +7561,8 @@ struct SshClientSession : public ssh_session_struct
     }
 
 };
+
+REDEMPTION_DIAGNOSTIC_POP
 
 
 // SshServerSession public methods

@@ -80,11 +80,11 @@ class SessionProbeClipboardBasedLauncher : public SessionProbeLauncher {
 
     unsigned int copy_paste_loop_counter = 0;
 
-    uint32_t verbose;
+    const implicit_bool_flags<RDPVerbose> verbose;
 
 public:
     SessionProbeClipboardBasedLauncher(mod_api& mod,
-        const std::string& alternate_shell, uint32_t verbose)
+        const std::string& alternate_shell, RDPVerbose verbose)
     : mod(mod)
     , alternate_shell(alternate_shell)
     , verbose(verbose) {}
@@ -98,7 +98,7 @@ public:
     }
 
     bool on_clipboard_initialize() override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> on_clipboard_initialize");
         }
@@ -135,7 +135,7 @@ public:
     }
 
     bool on_drive_access() override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> on_drive_access");
         }
@@ -156,7 +156,7 @@ public:
     }
 
     bool on_drive_redirection_initialize() override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> on_drive_redirection_initialize");
         }
@@ -167,7 +167,7 @@ public:
     }
 
     bool on_event() override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO, "SessionProbeClipboardBasedLauncher :=> on_event - %d",
                 static_cast<int>(this->state));
         }
@@ -179,11 +179,11 @@ public:
         switch (this->state) {
             case State::RUN_WIN_D_WIN_DOWN:
                 // Windows (down)
-                this->mod.rdp_input_scancode(91,
-                                             param2,
-                                             SlowPath::KBDFLAGS_EXTENDED,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(91,
+                                         param2,
+                                         SlowPath::KBDFLAGS_EXTENDED,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_D_D_DOWN;
 
@@ -192,11 +192,11 @@ public:
 
             case State::RUN_WIN_D_D_DOWN:
                 // d (down)
-                this->mod.rdp_input_scancode(32,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(32,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_D_D_UP;
 
@@ -205,12 +205,12 @@ public:
 
             case State::RUN_WIN_D_D_UP:
                 // d (up)
-                this->mod.rdp_input_scancode(32,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(32,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_D_WIN_UP;
 
@@ -219,13 +219,13 @@ public:
 
             case State::RUN_WIN_D_WIN_UP:
                 // Windows (up)
-                this->mod.rdp_input_scancode(91,
-                                             param2,
-                                             SlowPath::KBDFLAGS_EXTENDED |
-                                                 SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(91,
+                                         param2,
+                                         SlowPath::KBDFLAGS_EXTENDED |
+                                             SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_R_WIN_DOWN;
 
@@ -234,11 +234,11 @@ public:
 
             case State::RUN_WIN_R_WIN_DOWN:
                 // Windows (down)
-                this->mod.rdp_input_scancode(91,
-                                             param2,
-                                             SlowPath::KBDFLAGS_EXTENDED,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(91,
+                                         param2,
+                                         SlowPath::KBDFLAGS_EXTENDED,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_R_R_DOWN;
 
@@ -247,11 +247,11 @@ public:
 
             case State::RUN_WIN_R_R_DOWN:
                 // r (down)
-                this->mod.rdp_input_scancode(19,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(19,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_R_R_UP;
 
@@ -260,12 +260,12 @@ public:
 
             case State::RUN_WIN_R_R_UP:
                 // r (up)
-                this->mod.rdp_input_scancode(19,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(19,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::RUN_WIN_R_WIN_UP;
 
@@ -274,13 +274,13 @@ public:
 
             case State::RUN_WIN_R_WIN_UP:
                 // Windows (up)
-                this->mod.rdp_input_scancode(91,
-                                             param2,
-                                             SlowPath::KBDFLAGS_EXTENDED |
-                                                 SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(91,
+                                         param2,
+                                         SlowPath::KBDFLAGS_EXTENDED |
+                                             SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD;
 
@@ -295,11 +295,11 @@ public:
 
             case State::CLIPBOARD_CTRL_A_CTRL_DOWN:
                 // Ctrl (down)
-                this->mod.rdp_input_scancode(29,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(29,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_A_A_DOWN;
 
@@ -308,11 +308,11 @@ public:
 
             case State::CLIPBOARD_CTRL_A_A_DOWN:
                 // a (down)
-                this->mod.rdp_input_scancode(16,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(16,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_A_A_UP;
 
@@ -321,12 +321,12 @@ public:
 
             case State::CLIPBOARD_CTRL_A_A_UP:
                 // a (up)
-                this->mod.rdp_input_scancode(16,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(16,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_A_CTRL_UP;
 
@@ -335,12 +335,12 @@ public:
 
             case State::CLIPBOARD_CTRL_A_CTRL_UP:
                 // Ctrl (up)
-                this->mod.rdp_input_scancode(29,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(29,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_V_CTRL_DOWN;
 
@@ -349,11 +349,11 @@ public:
 
             case State::CLIPBOARD_CTRL_V_CTRL_DOWN:
                 // Ctrl (down)
-                this->mod.rdp_input_scancode(29,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(29,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_V_V_DOWN;
 
@@ -362,11 +362,11 @@ public:
 
             case State::CLIPBOARD_CTRL_V_V_DOWN:
                 // v (down)
-                this->mod.rdp_input_scancode(47,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(47,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_V_V_UP;
 
@@ -375,12 +375,12 @@ public:
 
             case State::CLIPBOARD_CTRL_V_V_UP:
                 // v (up)
-                this->mod.rdp_input_scancode(47,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(47,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::CLIPBOARD_CTRL_V_CTRL_UP;
 
@@ -389,12 +389,12 @@ public:
 
             case State::CLIPBOARD_CTRL_V_CTRL_UP:
                 // Ctrl (up)
-                this->mod.rdp_input_scancode(29,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(29,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->state = State::ENTER;
 
@@ -407,11 +407,11 @@ public:
 
             case State::ENTER_DOWN:
                 // Enter (down)
-                this->mod.rdp_input_scancode(28,
-                                             param2,
-                                             0,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(28,
+                                         param2,
+                                         0,
+                                         param4,
+                                         keymap);
 
                 this->state = State::ENTER_UP;
 
@@ -420,12 +420,12 @@ public:
 
             case State::ENTER_UP:
                 // Enter (up)
-                this->mod.rdp_input_scancode(28,
-                                             param2,
-                                             SlowPath::KBDFLAGS_DOWN |
-                                                 SlowPath::KBDFLAGS_RELEASE,
-                                             param4,
-                                             keymap);
+                this->rdp_input_scancode(28,
+                                         param2,
+                                         SlowPath::KBDFLAGS_DOWN |
+                                             SlowPath::KBDFLAGS_RELEASE,
+                                         param4,
+                                         keymap);
 
                 this->event.object_and_time = false;
 
@@ -436,7 +436,7 @@ public:
 
             case State::START:
                 if (!this->clipboard_initialized) {
-                    if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+                    if (this->verbose & RDPVerbose::sesprobe_launcher) {
                         LOG(LOG_INFO,
                             "SessionProbeClipboardBasedLauncher :=> launcher managed cliprdr initialization");
                     }
@@ -515,7 +515,7 @@ public:
         (void)offset;
         (void)length;
 
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> on_image_read");
         }
@@ -534,7 +534,7 @@ public:
     }
 
     bool on_server_format_data_request() override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> on_server_format_data_request");
         }
@@ -571,7 +571,7 @@ public:
     }
 
     bool on_server_format_list_response() override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> on_server_format_list_response");
         }
@@ -649,7 +649,7 @@ public:
     }
 
     void stop(bool bLaunchSuccessful) override {
-        if (this->verbose & MODRDP_LOGLEVEL_SESPROBE_LAUNCHER) {
+        if (this->verbose & RDPVerbose::sesprobe_launcher) {
             LOG(LOG_INFO,
                 "SessionProbeClipboardBasedLauncher :=> stop");
         }
@@ -755,6 +755,10 @@ private:
 //        this->state = State::RUN;
 
 //        this->event.set(this->short_delay);
+    }
+
+    void rdp_input_scancode(long param1, long param2, long device_flags, long time, Keymap2 *) {
+        this->mod.send_input(time, RDP_INPUT_SCANCODE, device_flags, param1, param2);
     }
 };  // class SessionProbeClipboardBasedLauncher
 

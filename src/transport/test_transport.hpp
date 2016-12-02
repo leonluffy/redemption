@@ -165,7 +165,7 @@ public:
     }
 
 private:
-    void do_recv(char ** pbuffer, size_t len) override {
+    void do_recv(uint8_t ** pbuffer, size_t len) override {
         const ssize_t res = this->buf.read(*pbuffer, len);
         if (res < 0){
             this->status = false;
@@ -192,22 +192,25 @@ protected:
 
 struct GeneratorTransport : public InputTransportDynarray
 {
-    GeneratorTransport(const void * data, size_t len, uint32_t verbose = 0)
+    GeneratorTransport(const void * data, size_t len, bool verbose = false)
+    : verbose(verbose)
     {
-        (void)verbose;
         if (this->buffer().open(len, data)) {
             throw Error(ERR_TRANSPORT_OPEN_FAILED);
         }
     }
 
-    void do_send(const char * const buffer, size_t len) override {
+    void do_send(const uint8_t * const buffer, size_t len) override {
         LOG(LOG_INFO, "do_send %zu bytes", len);
-        if (verbose > 127){
+        if (this->verbose){
             LOG(LOG_INFO, "Sending on target (-1) %zu bytes", len);
             hexdump_c(buffer, len);
             LOG(LOG_INFO, "Sent dumped on target (-1) %zu bytes", len);
         }
     }
+
+private:
+    bool verbose;
 };
 
 
@@ -224,7 +227,7 @@ class CheckTransport
     };
 
 public:
-    CheckTransport(const char * data, size_t len, uint32_t verbose = 0)
+    CheckTransport(const char * data, size_t len, bool verbose = false)
     : data(new(std::nothrow) uint8_t[len])
     , len(len)
     , current(0)
@@ -255,9 +258,8 @@ public:
     }
 
 private:
-    void do_send(const char * const data_, size_t len) override
+    void do_send(const uint8_t * const data, size_t len) override
     {
-        auto data = reinterpret_cast<uint8_t const*>(data_);
         const size_t available_len = std::min<size_t>(this->len - this->current, len );
         if (0 != memcmp(data, this->data.get() + this->current, available_len)){
             // data differs, find where
@@ -308,7 +310,7 @@ public:
     TestTransport(
         const char * outdata, size_t outlen,
         const char * indata, size_t inlen,
-        uint32_t verbose = 0)
+        bool verbose = false)
     : check(indata, inlen, verbose)
     , gen(outdata, outlen, verbose)
     , public_key_length(0)
@@ -338,12 +340,12 @@ public:
     }
 
 private:
-    void do_recv(char ** pbuffer, size_t len) override {
+    void do_recv(uint8_t ** pbuffer, size_t len) override {
 
         this->gen.recv(pbuffer, len);
     }
 
-    void do_send(const char * const buffer, size_t len) override {
+    void do_send(const uint8_t * const buffer, size_t len) override {
         this->check.send(buffer, len);
     }
 };
@@ -353,7 +355,7 @@ private:
 class LogTransport
 : public Transport
 {
-    void do_send(const char * const buffer, size_t len) override {
+    void do_send(const uint8_t * const buffer, size_t len) override {
         LOG(LOG_INFO, "Sending on target (-1) %zu bytes", len);
         hexdump_c(buffer, len);
         LOG(LOG_INFO, "Sent dumped on target (-1) %zu bytes", len);
@@ -369,13 +371,13 @@ public:
     InStream    in_stream{buf};
     OutStream   out_stream{buf};
 
-    void do_recv(char ** pbuffer, size_t len) override {
-        char * buffer = *pbuffer;
+    void do_recv(uint8_t ** pbuffer, size_t len) override {
+        uint8_t * buffer = *pbuffer;
         this->in_stream.in_copy_bytes(buffer, len);
-        (*pbuffer) = buffer + len;
+        *pbuffer = buffer + len;
     }
 
-    void do_send(const char * const buffer, size_t len) override {
+    void do_send(const uint8_t * const buffer, size_t len) override {
         this->out_stream.out_copy_bytes(buffer, len);
     }
 };
