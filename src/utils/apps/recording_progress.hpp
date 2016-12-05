@@ -18,6 +18,7 @@
     Author(s): Christophe Grosjean, Raphael Zhou, Jonathan Poelen
 */
 
+#include "utils/log.hpp"
 #include "utils/sugar/noncopyable.hpp"
 
 #include <iostream>

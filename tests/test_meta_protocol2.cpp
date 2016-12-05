@@ -23,8 +23,8 @@ namespace XXX {
 
     constexpr auto desc = proto::desc(
         a, b, c, d, e, f,
-        proto::sz<proto::types::u8>{},
-        proto::sz_with_self<proto::types::u8>{}
+        proto::next_pkts_sz<proto::types::u8>{},
+        proto::current_pkts_sz<proto::types::u8>{}
     );
 }
 
@@ -287,11 +287,11 @@ void other_test()
 //         .else_
 //             [proto::params[b] &= 1]
 
-        , proto::sz<proto::types::u8>{}
+        , proto::next_pkts_sz<proto::types::u8>{}
         , proto::creater<lazy>(a)
         , proto::creater<lazy2>(a, b)
         , proto::if_(a)
-            [proto::sz<proto::types::u8>{}]
+            [proto::next_pkts_sz<proto::types::u8>{}]
         , proto::retype<proto::types::u8>
             (a | a)
         , a |= a | a
@@ -326,7 +326,7 @@ void other_test()
     std::cout << "\n\n";
 
     PROTO_VAR(proto::types::u16_encoding, c);
-    auto b2 = proto::desc(proto::sz<proto::types::u16_encoding>{});
+    auto b2 = proto::desc(proto::next_pkts_sz<proto::types::u16_encoding>{});
     auto b3 = proto::desc(c);
 
     bool used = false;
@@ -463,7 +463,7 @@ void other_test()
             used = true;
         }),
         proto::desc(
-            proto::sz_with_self<proto::types::u16_encoding>{},
+            proto::current_pkts_sz<proto::types::u16_encoding>{},
             c
         )(c = 2_c),
         proto::value(proto::types::bytes{{"abc", 3}})
@@ -472,9 +472,9 @@ void other_test()
 
 
     auto desc_subpkt = proto::desc2(
-        proto::desc<class desc_a>(proto::sz<proto::types::u8>{}),
-        proto::desc<class desc_b>(proto::sz<proto::types::u8>{}),
-        proto::desc<class desc_c>(proto::sz<proto::types::u8>{}),
+        proto::desc<class desc_a>(proto::next_pkts_sz<proto::types::u8>{}),
+        proto::desc<class desc_b>(proto::next_pkts_sz<proto::types::u8>{}),
+        proto::desc<class desc_c>(proto::next_pkts_sz<proto::types::u8>{}),
         proto::desc<class desc_d>(proto::val<class sub_a, proto::types::u8>{{7_c}})
     );
 
