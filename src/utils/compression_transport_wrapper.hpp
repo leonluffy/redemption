@@ -32,32 +32,20 @@ struct CompressionTransportWrapper
         WrmCompressionAlgorithm compression_algorithm,
         uint32_t verbose = 0)
     : compression_algorithm(compression_algorithm)
-    , compressors(trans)
     {
-        switch (this->get_algorithm()) {
-            case WrmCompressionAlgorithm::gzip:
-                new (&this->compressors.gzip_trans) GZipTransport(trans, verbose);
-                break;
-            case WrmCompressionAlgorithm::snappy:
-                new (&this->compressors.snappy_trans) SnappyTransport(trans, verbose);
-                break;
-            case WrmCompressionAlgorithm::no_compression:
-                break;
-        }
+        this->construct(trans, verbose);
+    }
+
+    void reset(Transport & trans, WrmCompressionAlgorithm compression_algorithm, uint32_t verbose = 0)
+    {
+        this->destroy();
+        this->compression_algorithm = compression_algorithm;
+        this->construct(trans, verbose);
     }
 
     ~CompressionTransportWrapper()
     {
-        switch (this->get_algorithm()) {
-            case WrmCompressionAlgorithm::gzip:
-                this->compressors.gzip_trans.~GZipTransport();
-                break;
-            case WrmCompressionAlgorithm::snappy:
-                this->compressors.snappy_trans.~SnappyTransport();
-                break;
-            case WrmCompressionAlgorithm::no_compression:
-                break;
-        }
+        this->destroy();
     }
 
     Transport & get()
@@ -87,13 +75,41 @@ private:
         SnappyTransport snappy_trans;
         Transport *     trans;
 
-        explicit CompressionTransport(Transport & trans)
-        : trans(&trans)
+        explicit CompressionTransport()
         {}
 
         ~CompressionTransport()
         {}
     } compressors;
+
+    void construct(Transport & trans, uint32_t verbose)
+    {
+        switch (this->get_algorithm()) {
+            case WrmCompressionAlgorithm::gzip:
+                new (&this->compressors.gzip_trans) GZipTransport(trans, verbose);
+                break;
+            case WrmCompressionAlgorithm::snappy:
+                new (&this->compressors.snappy_trans) SnappyTransport(trans, verbose);
+                break;
+            case WrmCompressionAlgorithm::no_compression:
+                this->compressors.trans = &trans;
+                break;
+        }
+    }
+
+    void destroy()
+    {
+        switch (this->get_algorithm()) {
+            case WrmCompressionAlgorithm::gzip:
+                this->compressors.gzip_trans.~GZipTransport();
+                break;
+            case WrmCompressionAlgorithm::snappy:
+                this->compressors.snappy_trans.~SnappyTransport();
+                break;
+            case WrmCompressionAlgorithm::no_compression:
+                break;
+        }
+    }
 };
 
 typedef CompressionTransportWrapper<GZipCompressionOutTransport, SnappyCompressionOutTransport> CompressionOutTransportWrapper;

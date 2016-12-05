@@ -52,10 +52,19 @@ public:
     wait_obj()
     : set_state(false)
     , signal(BACK_EVENT_NONE)
+    , trigger_time(tvtime())
     , object_and_time(false)
     , waked_up_by_time(false)
     {
+    }
+
+    void full_reset()
+    {
+        this->set_state = false;
+        this->signal = BACK_EVENT_NONE;
         this->trigger_time = tvtime();
+        this->object_and_time = false;
+        this->waked_up_by_time = false;
     }
 
     void reset()

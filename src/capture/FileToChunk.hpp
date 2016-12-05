@@ -212,9 +212,7 @@ public:
                 }
 
                 // re-init
-                this->compression_wrapper.~CompressionTransportWrapper();
-                new (&this->compression_wrapper) CompressionInTransportWrapper(
-                    *this->trans_source, this->info_compression_algorithm);
+                this->compression_wrapper.reset(*this->trans_source, this->info_compression_algorithm);
                 this->trans = &this->compression_wrapper.get();
             }
 
