@@ -2183,8 +2183,11 @@ namespace proto
     namespace detail
     {
         template<class T>
-        using has_ignore_or_maybe_ignore_value = brigand::bool_<
-            std::is_same<ignore_t, T>{} or meta::is_layout<maybe_impl, T>{}
+        using is_maybe = meta::is_layout<maybe_impl, T>;
+
+        template<class T>
+        using has_ignore_or_maybe = brigand::bool_<
+            std::is_same<ignore_t, T>{} or is_maybe<T>{}
         >;
 
         struct ignore_desc
@@ -2200,20 +2203,33 @@ namespace proto
         template<class... Ts>
         struct check_seq_value
         {
-            using list = brigand::transform<brigand::list<Ts...>, brigand::call<value_type_t>>;
-            using i = brigand::index_if<
-                list,
-                brigand::bind<std::is_same, ignore_t, brigand::_1>,
-                brigand::size_t<sizeof...(Ts)>
-            >;
-            using splitted = brigand::split_at<list, i>;
-            using right = brigand::front<brigand::pop_front<splitted>>;
-            using type = brigand::all<right, brigand::call<has_ignore_or_maybe_ignore_value>>;
+            static constexpr bool check()
+            {
+                bool bools[]{std::is_same<ignore_t, value_type_t<Ts>>::value...};
+                enum { no_ignore, has_ignore, has_error }
+                st = no_ignore;
 
-            static const bool value = type::value;
+                for (bool b : bools) {
+                    if (b) {
+                        st = has_ignore;
+                    }
+                    else if (st != has_ignore) {
+                        st = has_error;
+                        break;
+                    }
+                }
+
+                return st == has_error;
+            }
+
+            static const bool value = check();
 
             static_assert(value, "ignored value following a not ignored value");
         };
+
+        constexpr bool is_enable_value(ignore_t const &) { return false; }
+        template<class T> constexpr bool is_enable_value(T const &) { return true; }
+        template<class T> constexpr bool is_enable_value(maybe_impl<T> const & m) { return m.enable; }
 
         template<class Deps, class... Vars>
         struct optseq_impl
@@ -2236,7 +2252,15 @@ namespace proto
             template<class... Vals>
             static auto impl_check(Vals && ... values)
             {
-                // TODO assertion (is_ignored(at, values))
+                #ifndef NDEBUG
+                bool is_enable_values_list[]{is_enable_value(values)...};
+                bool is_ignored = false;
+
+                for (bool is_enable : is_enable_values_list) {
+                    assert(!is_ignored || !is_enable && "previous value is not ignored");
+                    is_ignored |= !is_enable;
+                }
+                #endif
                 return impl(check<check_seq_value<Vals...>>{}, std::forward<Vals>(values)...);
             }
 
