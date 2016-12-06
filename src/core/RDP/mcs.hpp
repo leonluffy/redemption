@@ -3060,38 +3060,158 @@ namespace mcs
             ((MCS::MCSPDU_DisconnectProviderUltimatum << 10) | (reason << 7))
     );
 
-//     constexpr auto connect_response = proto::desc2(
-//         // BER: Application-Defined Type = APPLICATION 102 = Connect-Response
-//         proto::desc(
-//             type = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00_c),
-//             proto::next_pkts_sz
-//         ),
-//         proto::desc(
-//             // Connect-Response::result = rt-successful (0)
-//             // The first byte (0x0a) is the ASN.1 BER encoded Enumerated type. The
-//             // length of the value is given by the second byte (1 byte), and the
-//             // actual value is 0 (rt-successful).
-//             proto::val<class encoded_enumerated, proto::types::u8>{{10_c /* TODO BER_TAG_RESULT*/}},
-//             proto::val<class len, proto::types::u8>{{1_c}},
-//             result = MCS::RT_SUCCESSFUL,
-//
-//             // Connect-Response::calledConnectId = 0
-//             proto::val<class called_connect_id, proto::types::u8>{{0_c}}, // 3 bytes TODO 0 = 3 bytes ???
-//
-//             // Connect-Response::domainParameters (26 bytes)
-//             proto::val<class domain_parameters, proto::types::u8>{{0x30_c /* TODO BER_TAG_MCS_DOMAIN_PARAMS*/}},
-//             proto::val<class domain_parameters_len, proto::types::u8>{{26_c}},
-//             proto::val<class domain_parameters_max_channel_ids, proto::types::u8>{{34_c}},
-//             proto::val<class domain_parameters_max_user_ids, proto::types::u8>{{3_c}},
-//             proto::val<class domain_parameters_max_priorities, proto::types::u8>{{0_c}},
-//             proto::val<class domain_parameters_num_priorities, proto::types::u8>{{1_c}},
-//             proto::val<class domain_parameters_min_throughtout, proto::types::u8>{{0_c}},
-//             proto::val<class domain_parameters_max_height, proto::types::u8>{{1_c}},
-//             proto::val<class domain_parameters_max_mcs_pdu_size, proto::types::u8>{{0xfff8_c}},
-//             proto::val<class domain_parameters_protocol_version, proto::types::u8>{{2_c}},
-//
-//             proto::val<class tag_octet_string, proto::types::u8>{{4_c /* TODO BER_TAG_OCTET_STRING*/}},
-//             proto::next_pkts_sz
-//         )
-//     );
+
+    namespace types
+    {
+        struct ber_integer
+        {
+            using type = uint32_t;
+            using sizeof_ = proto::limited_size<sizeof(type) + 1>;
+
+            proto::safe_int<type> val;
+
+            std::size_t limited_serialize(uint8_t * p) const
+            {
+                assert(!(val & 0xFF000000));
+
+                auto serial = [&p](uint8_t v) { return proto::types::u8{v}.static_serialize(p++); };
+
+                return
+                    serial(MCS::InBerStream::BER_TAG_INTEGER)
+                    + (
+                        (val < 0x80)
+                    ?
+                        serial(1) +
+                        serial(val)
+                    :
+                        (val < 0xfff8) // Actually ffff should also work, but it would break old code
+                    ?
+                        serial(2) +
+                        serial(val >> 8) +
+                        serial(val)
+                    :
+                        serial(3) +
+                        serial(val >> 16) +
+                        serial(val >> 8) +
+                        serial(val)
+                    );
+            }
+
+            // TODO
+            //template<class U, U v>
+            //constexpr static
+            //std::conditional_t<(v < 127), u8, u16_be>
+            //make(std::integral_constant<U, v> x)
+            //{ return {x}; }
+        };
+
+
+        struct ber_u7
+        {
+            using type = uint8_t;
+            using sizeof_ = proto::static_size<sizeof(type)>;
+
+            proto::safe_int<type> val;
+
+            sizeof_ static_serialize(uint8_t * p) const
+            {
+                assert(!(val & 0x80));
+                return proto::types::u8{val}.static_serialize(p);
+            }
+        };
+
+
+        struct ber_u8
+        {
+            using type = uint8_t;
+            using sizeof_ = proto::static_size<sizeof(type)>;
+
+            proto::safe_int<type> val;
+
+            sizeof_ static_serialize(uint8_t * p) const
+            {
+                return
+                    proto::types::u8{0x81_c}.static_serialize(p) +
+                    proto::types::u8{val}.static_serialize(p+1)
+                ;
+            }
+        };
+
+
+        struct ber_u16
+        {
+            using type = uint16_t;
+            using sizeof_ = proto::static_size<sizeof(type) + 1>;
+
+            proto::safe_int<type> val;
+
+            sizeof_ static_serialize(uint8_t * p) const
+            {
+                return
+                    proto::types::u8{0x82_c}.static_serialize(p) +
+                    proto::types::u16_be{val}.static_serialize(p+1)
+                ;
+            }
+        };
+
+
+        struct ber_len
+        {
+            using type = uint16_t;
+            using sizeof_ = proto::limited_size<sizeof(type) + 1>;
+
+            proto::safe_int<type> val;
+
+            sizeof_ limited_serialize(uint8_t * p) const
+            {
+                assert(!(val & 0x80));
+
+                return (val < 0x80)
+                ?
+                    ber_u7{ber_u7::type(val)}.static_serialize(p)
+                :
+                    (val < 0x100)
+                ?
+                    ber_u8{ber_u8::type(val)}.static_serialize(p)
+                :
+                    ber_u16{val}.static_serialize(p)
+                ;
+            }
+        };
+    }
+
+    constexpr auto connect_response = proto::desc2(
+        // BER: Application-Defined Type = APPLICATION 102 = Connect-Response
+        proto::desc(
+            type = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00_c),
+            proto::next_pkts_sz<types::ber_len> // ber_len_u7_or_u16
+        ),
+        proto::desc(
+            // Connect-Response::result = rt-successful (0)
+            // The first byte (0x0a) is the ASN.1 BER encoded Enumerated type. The
+            // length of the value is given by the second byte (1 byte), and the
+            // actual value is 0 (rt-successful).
+            proto::val<class encoded_enumerated, proto::types::u8>{{10_c /* TODO BER_TAG_RESULT*/}},
+            proto::val<class len, types::ber_u7>{{1_c}},
+            result = MCS::RT_SUCCESSFUL,
+
+            // Connect-Response::calledConnectId = 0
+            proto::val<class called_connect_id, types::ber_integer>{{0_c}}, // 3 bytes
+
+            // Connect-Response::domainParameters (26 bytes)
+            proto::val<class domain_parameters, proto::types::u8>{{0x30_c /* TODO BER_TAG_MCS_DOMAIN_PARAMS*/}},
+            proto::val<class domain_parameters_len, types::ber_u7>{{26_c}},
+            proto::val<class domain_parameters_max_channel_ids, types::ber_integer>{{34_c}},
+            proto::val<class domain_parameters_max_user_ids, types::ber_integer>{{3_c}},
+            proto::val<class domain_parameters_max_priorities, types::ber_integer>{{0_c}},
+            proto::val<class domain_parameters_num_priorities, types::ber_integer>{{1_c}},
+            proto::val<class domain_parameters_min_throughtout, types::ber_integer>{{0_c}},
+            proto::val<class domain_parameters_max_height, types::ber_integer>{{1_c}},
+            proto::val<class domain_parameters_max_mcs_pdu_size, types::ber_integer>{{0xfff8_c}},
+            proto::val<class domain_parameters_protocol_version, types::ber_integer>{{2_c}},
+
+            proto::val<class tag_octet_string, proto::types::u8>{{4_c /* TODO BER_TAG_OCTET_STRING*/}},
+            proto::next_pkts_sz<types::ber_len>
+        )
+    );
 }

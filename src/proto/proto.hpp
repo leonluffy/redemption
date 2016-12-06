@@ -430,6 +430,11 @@ namespace proto
                 return (val < 127) ? 1u : 2u;
             }
 
+            constexpr std::size_t real_size() const
+            {
+                return (val <= 127) ? 1 : 2;
+            }
+
             template<class U, U v>
             constexpr static
             std::conditional_t<(v < 127), u8, u16_be>
@@ -487,6 +492,16 @@ namespace proto
             }
 
             // constexpr std::size_t reserved_size() const;
+            // constexpr static std::size_t make() const;
+
+//             template<class U, U v>
+//             constexpr static
+//             std::conditional_t<(v <= 0x3FFF),
+//                 std::conditional_t<(v <= 0x3F), u8, u16_be>,
+//                 std::conditional_t<(v <= 0x3FFFFF), u24_be, u32_be>
+//             >
+//             make(std::integral_constant<U, v> x)
+//             { return {x}; }
         };
 
         template<class E>
@@ -1881,7 +1896,7 @@ namespace proto
     ) { return {}; }
 
 # define PROTO_DSL_BINARY_OPERATORS(op_type, op, op_eq) \
-    PROTO_DSL_BINARY_OPERATOR(false, op_type, op)      \
+    PROTO_DSL_BINARY_OPERATOR(false, op_type, op)       \
     PROTO_DSL_BINARY_OPERATOR(true , op_type, op_eq)
 #endif
 
@@ -2227,6 +2242,48 @@ namespace proto
             static_assert(value, "ignored value following a not ignored value");
         };
 
+        template<class T>
+        constexpr std::size_t
+        get_value_size_impl(tags::static_buffer, T const &)
+        { return sizeof_<T>{}; }
+
+        template<class T>
+        constexpr std::size_t
+        get_value_size_impl(tags::limited_buffer, T const & v)
+        { return v.real_size(); }
+
+        template<std::size_t N, class T>
+        constexpr std::size_t
+        get_value_size_impl(tags::view_buffer, T const & v)
+        { return v.get_view_buffer().size(); }
+
+        template<class Desc>
+        constexpr std::size_t
+        get_value_size(Desc const & v)
+        { return get_value_size_impl(buffer_category<Desc>{}, v); }
+
+        template<class Deps, class Desc, class... Vars>
+        struct optseq_sz_impl
+        {
+            using dependencies = get_dependencies_if_void<Deps, Vars...>;
+            using arguments = brigand::append<proto::get_arguments<Vars>...>;
+
+            inherits<Vars...> values;
+
+            template<class Params>
+            auto to_proto_value(Params params) const
+            {
+                std::size_t const sizes[]{
+                    get_value_size(static_cast<Vars const &>(this->values).to_proto_value(params).desc)...
+                };
+                std::size_t total_size{};
+                for (auto sz : sizes) {
+                    total_size += sz;
+                }
+                return val<Deps, Desc>{checked_cast<t_<Desc>>(total_size)};
+            }
+        };
+
         constexpr bool is_enable_value(ignore_t const &) { return false; }
         template<class T> constexpr bool is_enable_value(T const &) { return true; }
         template<class T> constexpr bool is_enable_value(maybe_impl<T> const & m) { return m.enable; }
@@ -2243,9 +2300,15 @@ namespace proto
             inherits<Vars...> values;
 
             template<class Params>
-            auto to_proto_value(Params params) const
+            constexpr auto to_proto_value(Params params) const
             {
                 return impl_check(static_cast<Vars const &>(this->values).to_proto_value(params)...);
+            }
+
+            template<class Desc>
+            constexpr auto get_optseq_sz() const
+            {
+                return optseq_sz_impl<Deps, Desc, Vars...>{this->values};
             }
 
         private:
@@ -2253,7 +2316,7 @@ namespace proto
             static auto impl_check(Vals && ... values)
             {
                 #ifndef NDEBUG
-                bool is_enable_values_list[]{is_enable_value(values)...};
+                bool const is_enable_values_list[]{is_enable_value(values)...};
                 bool is_ignored = false;
 
                 for (bool is_enable : is_enable_values_list) {

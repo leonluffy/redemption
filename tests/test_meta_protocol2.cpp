@@ -496,18 +496,19 @@ void other_test()
 
 
     used = false;
+    auto optseq = proto::optseq(XXX::b, XXX::d);
     proto::apply(
         buffering2_checker([&used](iovec_array iovs){
             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 3);
+            BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
             CHECK_RANGE(
                 iov2av(iovs[0]),
-                cstr_array_view("\x02\x03\x00")
+                cstr_array_view("\x02\x03\x00\03")
             );
             used = true;
         }),
         proto::desc(
-            proto::optseq(XXX::b, XXX::d)
+            optseq, optseq.get_optseq_sz<proto::types::u8>()
         )(XXX::b = 2_c, XXX::d = 3_c)
     );
     BOOST_CHECK(used);

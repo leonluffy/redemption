@@ -25,6 +25,8 @@
 #include <limits>
 #include <cassert>
 
+#include "cxx/diagnostic.hpp"
+
 // analogous to static_cast<> for integral types
 // with an assert macro if the conversion is overflow or underflow.
 template <class Dst, class Src>
@@ -34,12 +36,12 @@ constexpr Dst checked_cast(Src value)
     static_assert(std::is_integral<Dst>::value, "Dst must be an integral.");
 #ifndef NDEBUG
     using dst_limits = std::numeric_limits<Dst>;
-# pragma GCC diagnostic push
-# pragma GCC diagnostic ignored "-Wsign-compare"
+    REDEMPTION_DIAGNOSTIC_PUSH
+    REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wsign-compare")
     assert(dst_limits::max() >= value);
     assert(dst_limits::min() <= value);
-# pragma GCC diagnostic pop
-# endif
+    REDEMPTION_DIAGNOSTIC_POP
+#endif
     return static_cast<Dst>(value);
 }
 
