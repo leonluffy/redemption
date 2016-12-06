@@ -2602,11 +2602,20 @@ public:
     }
 
     void send_data_indication_ex(uint16_t channelId, uint8_t const * data, std::size_t data_size) override {
-        this->send_data_indication_ex_impl(
-            channelId,
-            [&](StreamSize<65536>, OutStream & stream) {
-                stream.out_copy_bytes(data, data_size);
-            }
+        write_in_transport(
+            this->trans,
+            x224::dt_tpdu(),
+            mcs::data_indication(
+                mcs::initiator = this->userid,
+                mcs::channel_id = channelId,
+                mcs::data_priority = mcs::DataPriority::high,
+                mcs::segmentation = mcs::Segmentation::end
+            ),
+            sec::sec(
+                sec::crypt = this->encrypt,
+                sec::flags = proto::cast(this->encryptionLevel ? SEC::SEC_ENCRYPT : 0)
+            ),
+            proto::value(proto::types::bytes{data, data_size})
         );
     }
 
