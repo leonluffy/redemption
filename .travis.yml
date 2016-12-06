@@ -16,9 +16,9 @@ addons:
 
 cache:
   directories:
-    - ${TRAVIS_BUILD_DIR}/deps/llvm-3.6.2
-    - ${TRAVIS_BUILD_DIR}/deps/llvm-3.7.1
-    - ${TRAVIS_BUILD_DIR}/deps/llvm-3.8.0
+    #- ${TRAVIS_BUILD_DIR}/deps/llvm-3.6.2
+    #- ${TRAVIS_BUILD_DIR}/deps/llvm-3.7.1
+    #- ${TRAVIS_BUILD_DIR}/deps/llvm-3.8.0
     - ${TRAVIS_BUILD_DIR}/deps
 
 
@@ -150,9 +150,10 @@ script:
   - bjam linkflags=-c --toolset=$TOOLSET cxxflags="-std=c++11 $CXXFLAGS" -q exe libs
 
 
-#branches:
-#  only:
-#    - master
+branches:
+ only:
+   - future
+   - master
 
 notifications:
   email:
