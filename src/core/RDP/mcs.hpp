@@ -3105,6 +3105,16 @@ namespace mcs
             //{ return {x}; }
         };
 
+        // TODO sub-project
+        template<std::size_t N1, std::size_t N2>
+        constexpr std::integral_constant<std::size_t, N1+N2>
+        operator+(
+            std::integral_constant<std::size_t, N1> const &,
+            std::integral_constant<std::size_t, N2> const &
+        ) {
+            return {};
+        }
+
 
         struct ber_u7
         {
@@ -3124,7 +3134,7 @@ namespace mcs
         struct ber_u8
         {
             using type = uint8_t;
-            using sizeof_ = proto::static_size<sizeof(type)>;
+            using sizeof_ = proto::static_size<sizeof(type) + 1>;
 
             proto::safe_int<type> val;
 
@@ -3162,7 +3172,7 @@ namespace mcs
 
             proto::safe_int<type> val;
 
-            sizeof_ limited_serialize(uint8_t * p) const
+            std::size_t limited_serialize(uint8_t * p) const
             {
                 assert(!(val & 0x80));
 
@@ -3183,8 +3193,9 @@ namespace mcs
     constexpr auto connect_response = proto::desc2(
         // BER: Application-Defined Type = APPLICATION 102 = Connect-Response
         proto::desc(
-            type = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00_c),
-            proto::next_pkts_sz<types::ber_len> // ber_len_u7_or_u16
+            proto::var<class application_defined_type, proto::types::u16_be>{}
+                = proto::cast(MCS::MCSPDU_CONNECT_RESPONSE | 0x7F00_c),
+            proto::next_pkts_sz<types::ber_len>{} // ber_len_u7_or_u16
         ),
         proto::desc(
             // Connect-Response::result = rt-successful (0)
@@ -3211,7 +3222,7 @@ namespace mcs
             proto::val<class domain_parameters_protocol_version, types::ber_integer>{{2_c}},
 
             proto::val<class tag_octet_string, proto::types::u8>{{4_c /* TODO BER_TAG_OCTET_STRING*/}},
-            proto::next_pkts_sz<types::ber_len>
+            proto::next_pkts_sz<types::ber_len>{}
         )
     );
 }
