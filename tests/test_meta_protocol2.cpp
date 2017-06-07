@@ -1,6 +1,4 @@
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestVerifier
+#define RED_TEST_MODULE TestVerifier
 #include <boost/test/auto_unit_test.hpp>
 
 #define LOGPRINT
@@ -56,7 +54,7 @@ struct log_policy : buffering2_policy_base
     }
 };
 
-BOOST_AUTO_TEST_CASE(proto_test)
+RED_AUTO_TEST_CASE(proto_test)
 {
     struct {
         uint8_t a = 1;
@@ -107,18 +105,18 @@ void test_old() {
     StaticOutStream<128> hstream;
     SEC::Sec_Send(out_stream, data, 10, ~SEC::SEC_ENCRYPT, crypt, 0);
     X224::DT_TPDU_Send(hstream, out_stream.get_offset());
-    BOOST_REQUIRE_EQUAL(4, out_stream.get_offset());
-    BOOST_REQUIRE_EQUAL(7, hstream.get_offset());
+    RED_REQUIRE_EQUAL(4, out_stream.get_offset());
+    RED_REQUIRE_EQUAL(7, hstream.get_offset());
     auto p = out_stream.get_data() - hstream.get_offset();
-    BOOST_REQUIRE_EQUAL(11, out_stream.get_current() - p);
+    RED_REQUIRE_EQUAL(11, out_stream.get_current() - p);
     memcpy(p, hstream.get_data(), hstream.get_offset());
     out_stream = OutStream(p, out_stream.get_current() - p);
     out_stream.out_skip_bytes(out_stream.get_capacity());
     hexdump_c(out_stream.get_data(), out_stream.get_offset());
 }
 
-#include "utils/sugar/bytes_t.hpp"
-inline bool check_range(const_bytes_array p, const_bytes_array mem, char * message)
+#include "utils/sugar/byte.hpp"
+inline bool check_range(const_byte_array p, const_byte_array mem, char * message)
 {
     if (p.size() != mem.size() || memcmp(p.data(), mem.data(), p.size())) {
         if (auto len = p.size()) {
@@ -140,7 +138,7 @@ inline bool check_range(const_bytes_array p, const_bytes_array mem, char * messa
     {                                            \
         char message[1024*64];                   \
         if (!check_range(p, mem, message)) {     \
-            BOOST_CHECK_MESSAGE(false, message); \
+            RED_CHECK_MESSAGE(false, message); \
         }                                        \
     }
 

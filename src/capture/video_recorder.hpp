@@ -27,7 +27,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <iostream>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -42,9 +41,9 @@ extern "C" {
     #endif
 
     #include <libavutil/avutil.h>
+    #include <libavutil/dict.h>
     #include <libavutil/imgutils.h>
     #include <libavcodec/avcodec.h>
-    #include <libavutil/mathematics.h>
     #include <libavformat/avformat.h>
     #include <libswscale/swscale.h>
 }
@@ -108,19 +107,20 @@ class video_recorder
         { return this->frame; }
     };
 
+
+    const int original_height;
+    uint64_t old_frame_index = 0;
+
     /* video output */
 
     std::unique_ptr<uint8_t, default_av_free> picture_buf;
+    AVStream * video_st = nullptr;
 
     AVFramePtr picture;
     AVFramePtr original_picture;
     std::unique_ptr<uint8_t, default_av_free> video_outbuf;
 
-    const int original_height;
-    const int video_outbuf_size;
-
     std::unique_ptr<AVFormatContext, default_av_free_format_context> oc;
-    AVStream *video_st;
     std::unique_ptr<SwsContext, default_sws_free_context> img_convert_ctx;
 
     /* custom IO */
@@ -129,14 +129,8 @@ class video_recorder
 
     AVPacket pkt;
 
-    bool video_frame_prepared;
-    bool has_external_caller;
-
-    const std::chrono::milliseconds duration_frame;
-    std::chrono::milliseconds duration {};
-
-    static const unsigned frame_key_limit = 100;
-    unsigned frame_key = frame_key_limit;
+    //static const unsigned frame_key_limit = 100;
+    //unsigned frame_key = frame_key_limit;
 
 public:
     //typedef int(*read_packet_t)(void *io_params, uint8_t *buf, int buf_size);
@@ -152,11 +146,6 @@ public:
         int log_level
     )
     : original_height(height)
-    , video_outbuf_size(target_width * target_height * 3 * 5)
-    , video_st(nullptr)
-    , video_frame_prepared(false)
-    , has_external_caller(false)
-    , duration_frame(std::max(1000ull / frame_rate, 1ull))
     {
         /* initialize libavcodec, and register all codecs and formats */
         av_register_all();
@@ -194,11 +183,11 @@ public:
             throw Error(ERR_RECORDER_FAILED_TO_ALLOC_STREAM);
         }
 
-        this->video_st->r_frame_rate.den = frame_rate;
         this->video_st->r_frame_rate.num = 1;
+        this->video_st->r_frame_rate.den = frame_rate;
 
-        this->video_st->time_base.den = frame_rate;
         this->video_st->time_base.num = 1;
+        this->video_st->time_base.den = frame_rate;
 
         this->video_st->codec->codec_id = fmt->video_codec;
         this->video_st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
@@ -213,13 +202,17 @@ public:
         // in terms of which frame timestamps are represented.
         // for fixed-fps content, timebase should be 1/framerate
         // and timestamp increments should be identically 1
-        this->video_st->codec->time_base.den = frame_rate;
         this->video_st->codec->time_base.num = 1;
+        this->video_st->codec->time_base.den = frame_rate;
 
-        this->video_st->codec->gop_size = 100;
+        // impact: keyframe, filesize and time of generating
+        // high value = ++time, --size
+        // keyframe managed by this->pkt.flags |= AV_PKT_FLAG_KEY and av_interleaved_write_frame
+        this->video_st->codec->gop_size = std::max(2, frame_rate);
+
         this->video_st->codec->pix_fmt = STREAM_PIX_FMT;
-        this->video_st->codec->flags |= CODEC_FLAG_QSCALE;
-        this->video_st->codec->global_quality = FF_QP2LAMBDA * qscale;
+        this->video_st->codec->flags |= CODEC_FLAG_QSCALE; // TODO
+        this->video_st->codec->global_quality = FF_QP2LAMBDA * qscale; // TODO
 
         REDEMPTION_DIAGNOSTIC_PUSH
         REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wswitch-enum")
@@ -236,13 +229,10 @@ public:
                 this->video_st->codec->flags |= AVFMT_NOTIMESTAMPS;
                 this->video_st->codec->qcompress = 0.0;
                 this->video_st->codec->max_qdiff = 4;
-                this->video_st->codec->gop_size = frame_rate;
+                //this->video_st->codec->gop_size = frame_rate;
             break;
             case AV_CODEC_ID_MPEG2VIDEO:
-                // TODO warning do we need B frames ?
-                // just for testing, we also add B frames
-                this->video_st->codec->max_b_frames = 2;
-                this->video_st->codec->gop_size = frame_rate;
+                //this->video_st->codec->gop_size = frame_rate;
             break;
             case AV_CODEC_ID_MPEG1VIDEO:
                 // Needed to avoid using macroblocks in which some coeffs overflow.
@@ -279,10 +269,31 @@ public:
         // and allocate the necessary encode buffers
         // find the video encoder
 
-        // open the codec
-        if (avcodec_open2(this->video_st->codec, codec, nullptr) < 0) {
-            LOG(LOG_ERR, "video recorder error : failed to open codec");
-            throw Error(ERR_RECORDER_FAILED_TO_OPEN_CODEC);
+        int const video_outbuf_size = target_width * target_height * 3 * 5;
+
+        {
+            struct AVDict {
+                void add(char const * k, char const * v) {
+                    if (av_dict_set(&this->d, k, v, 0) < 0) {
+                        LOG(LOG_ERR, "av_dict_set error on '%s' with '%s'", k, v);
+                    }
+                }
+                ~AVDict() { av_dict_free(&this->d); }
+                AVDictionary *d = nullptr;
+            } av_dict;
+
+            if (this->video_st->codec->codec_id == AV_CODEC_ID_H264) {
+                // low quality  (baseline, main, hight, ...)
+                av_dict.add("profile", "baseline");
+                av_dict.add("preset", "ultrafast");
+                //av_dict.add("vsync", "2");
+            }
+
+            // open the codec
+            if (avcodec_open2(this->video_st->codec, codec, &av_dict.d) < 0) {
+                LOG(LOG_ERR, "video recorder error : failed to open codec");
+                throw Error(ERR_RECORDER_FAILED_TO_OPEN_CODEC);
+            }
         }
 
         struct avcodec_not_close_if_success
@@ -310,7 +321,7 @@ public:
                 as long as they're aligned enough for the architecture, and
                 they're freed appropriately (such as using av_free for buffers
                 allocated with av_malloc) */
-            this->video_outbuf.reset(static_cast<uint8_t*>(av_malloc(this->video_outbuf_size)));
+            this->video_outbuf.reset(static_cast<uint8_t*>(av_malloc(video_outbuf_size)));
             if (!this->video_outbuf){
                 LOG(LOG_ERR, "video recorder error : failed to allocate video output buffer");
                 throw Error(ERR_RECORDER_FAILED_TO_ALLOCATE_PICTURE);
@@ -372,7 +383,7 @@ public:
 
         this->img_convert_ctx.reset(sws_getContext(
             width, height, AV_PIX_FMT_BGR24,
-            target_width, target_height, AV_PIX_FMT_YUV420P,
+            target_width, target_height, STREAM_PIX_FMT,
             SWS_BICUBIC, nullptr, nullptr, nullptr
         ));
 
@@ -385,22 +396,27 @@ public:
 
         av_init_packet(&this->pkt);
         this->pkt.data = this->video_outbuf.get();
-        this->pkt.size = this->video_outbuf_size;
+        this->pkt.size = video_outbuf_size;
 
         av_log_set_level(log_level);
     }
 
     ~video_recorder() {
         // write last frame : we must ensure writing at least one frame to avoid empty movies
-        encoding_video_frame();
+        // encoding_video_frame();
 
-        if (bool(this->video_st->codec->flags & AVFMT_NOTIMESTAMPS)) {
-            auto const frame_rate = 1000u / this->duration_frame.count();
-            int const loop = frame_rate - this->frame_key % frame_rate;
-            for (int i = 0; i < loop; ++i) {
-                encoding_video_frame();
-            }
-        }
+        // write the last second for mp4 (if preset != ultrafast ...)
+        //if (bool(this->video_st->codec->flags & AVFMT_NOTIMESTAMPS)) {
+        //    auto const frame_rate = 1000u / this->duration_frame.count();
+        //    int const loop = frame_rate - this->frame_key % frame_rate;
+        //    for (int i = 0; i < loop; ++i) {
+        //        encoding_video_frame();
+        //    }
+        // --- or --- ?
+        // int got_packet = 1;
+        // for(; got_packet;)
+        //    avcodec_encode_video2(this->video_st->codec, &this->pkt, nullptr, &got_packet);
+        //}
 
         /* write the trailer, if any.  the trailer must be written
          * before you close the CodecContexts open when you wrote the
@@ -412,24 +428,18 @@ public:
         avcodec_close(this->video_st->codec);
     }
 
-    void preparing_video_frame(bool external_caller) {
-        if (external_caller) {
-            this->has_external_caller = true;
-        }
-
-        if (external_caller || !this->video_frame_prepared || !this->has_external_caller) {
-            sws_scale(
-                this->img_convert_ctx.get(),
-                this->original_picture->data, this->original_picture->linesize,
-                0, this->original_height, this->picture->data, this->picture->linesize);
-
-            this->video_frame_prepared = true;
-        }
+    void preparing_video_frame()
+    {
+        /* stat */// LOG(LOG_INFO, "%s", "preparing_video_frame");
+        sws_scale(
+            this->img_convert_ctx.get(),
+            this->original_picture->data, this->original_picture->linesize,
+            0, this->original_height, this->picture->data, this->picture->linesize);
     }
 
-    void encoding_video_frame()
+    void encoding_video_frame(uint64_t frame_index = 1)
     {
-        this->preparing_video_frame(false);
+        /* stat */// LOG(LOG_INFO, "encoding_video_frame");
 
         // encode the image
         // int avcodec_encode_video(AVCodecContext *avctx, uint8_t *buf, int buf_size, const AVFrame *pict);
@@ -467,11 +477,14 @@ public:
          */
         // int avcodec_encode_video2(AVCodecContext *avctx, AVPacket *avpkt, const AVFrame *frame, int *got_packet_ptr);
 
+        auto frame_interval = this->video_st->r_frame_rate.den;
+        auto pts = this->video_st->time_base.den * frame_index / frame_interval;
+        auto dur = this->video_st->time_base.den * (frame_index - this->old_frame_index) / frame_interval;
+        this->pkt.pts = this->pkt.dts = pts;
+        this->picture->pts = pts;
+        this->old_frame_index = frame_index;
+
         int got_packet = 0;
-
-        // fix "non-strictly-monotonic PTS" warning, but grow file
-        //this->picture->pts += this->duration_frame.count();
-
         const int res = avcodec_encode_video2(
             this->video_st->codec,
             &this->pkt,
@@ -479,85 +492,18 @@ public:
             &got_packet);
 
         if (res == 0 && got_packet) {
-            if (this->frame_key == frame_key_limit) {
-                this->pkt.flags |= AV_PKT_FLAG_KEY;
-                this->frame_key = 0;
-            }
-            ++this->frame_key;
+            //if (this->frame_key == frame_key_limit) {
+            //    this->pkt.flags |= AV_PKT_FLAG_KEY;
+            //    this->frame_key = 0;
+            //}
+            //++this->frame_key;
             this->pkt.stream_index = this->video_st->index;
-            this->pkt.duration = this->duration_frame.count();
-            if (!(this->video_st->codec->flags & AVFMT_NOTIMESTAMPS)) {
-                this->pkt.dts = this->duration.count();
-                this->duration += this->duration_frame;
-                this->pkt.pts = this->duration.count();
-            }
+            this->pkt.duration = dur;
 
             if (0 != av_interleaved_write_frame(this->oc.get(), &this->pkt)){
                 LOG(LOG_ERR, "video recorder : failed to write encoded frame");
                 throw Error(ERR_RECORDER_FAILED_TO_WRITE_ENCODED_FRAME);
             }
         }
-
-        this->video_frame_prepared = false;
-    }
-};
-
-
-struct io_video_recorder_with_transport
-{
-    io_video_recorder_with_transport(Transport& trans)
-    : trans(trans)
-    {}
-
-    video_recorder::write_packet_fn_t write_fn() const { return &write_packet; }
-    video_recorder::seek_fn_t seek_fn() const { return &seek; }
-    void * params() const { return &this->trans; }
-
-private:
-    Transport& trans;
-
-    static int write_packet(void *opaque, uint8_t *buf, int buf_size) {
-        Transport * trans       = reinterpret_cast<Transport *>(opaque);
-        int         return_code = buf_size;
-        try {
-            trans->send(buf, buf_size);
-        }
-        catch (Error const & e) {
-            if (e.id == ERR_TRANSPORT_WRITE_NO_ROOM) {
-                LOG(LOG_ERR, "Video write_packet failure, no space left on device (id=%d)", e.id);
-            }
-            else {
-                LOG(LOG_ERR, "Video write_packet failure (id=%d, errnum=%d)", e.id, e.errnum);
-            }
-            return_code = -1;
-        }
-        return return_code;
-    }
-
-    static int64_t seek(void *opaque, int64_t offset, int whence) {
-        // This function is like the fseek() C stdio function.
-        // "whence" can be either one of the standard C values
-        // (SEEK_SET, SEEK_CUR, SEEK_END) or one more value: AVSEEK_SIZE.
-
-        // When "whence" has this value, your seek function must
-        // not seek but return the size of your file handle in bytes.
-        // This is also optional and if you don't implement it you must return <0.
-
-        // Otherwise you must return the current position of your stream
-        //  in bytes (that is, after the seeking is performed).
-        // If the seek has failed you must return <0.
-        if (whence == AVSEEK_SIZE) {
-            LOG(LOG_ERR, "Video seek failure");
-            return -1;
-        }
-        try {
-            Transport *trans = reinterpret_cast<Transport *>(opaque);
-            trans->seek(offset, whence);
-            return offset;
-        }
-        catch (Error const & e){
-            LOG(LOG_ERR, "Video seek failure (id=%d)", e.id);
-            return -1;
-        };
     }
 };

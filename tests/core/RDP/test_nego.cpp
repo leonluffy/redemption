@@ -19,9 +19,7 @@
 
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestNego
+#define RED_TEST_MODULE TestNego
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
@@ -29,9 +27,13 @@
 
 #include "utils/log.hpp"
 #include "core/RDP/nego.hpp"
-#include "transport/test_transport.hpp"
+#include "core/server_notifier_api.hpp"
+#include "test_only/transport/test_transport.hpp"
 
-BOOST_AUTO_TEST_CASE(TestNego)
+#include "test_only/lcg_random.hpp"
+
+
+RED_AUTO_TEST_CASE(TestNego)
 {
     LOG(LOG_INFO, "============= Test Nego Client Side ===========");
     const char client[] =
@@ -123,11 +125,11 @@ BOOST_AUTO_TEST_CASE(TestNego)
         null_server_notifier,
         "/tmp/certif"
         );
-        
-    BOOST_CHECK_EQUAL(nego.state, RdpNego::NEGO_STATE_FINAL);
+
+    RED_CHECK_EQUAL(nego.state, RdpNego::NEGO_STATE_FINAL);
 }
 
-// BOOST_AUTO_TEST_CASE(TestNego2)
+// RED_AUTO_TEST_CASE(TestNego2)
 // {
 //     LOG(LOG_INFO, "============= Test Nego Server Side ===========");
 //     const char client[65000] =
@@ -146,7 +148,7 @@ BOOST_AUTO_TEST_CASE(TestNego)
 // }
 
 
-BOOST_AUTO_TEST_CASE(TestSetIdentity) {
+RED_AUTO_TEST_CASE(TestSetIdentity) {
     LogTransport null_transport;
 
     LCGRandom rand(0);
@@ -157,7 +159,7 @@ BOOST_AUTO_TEST_CASE(TestSetIdentity) {
 
     nego.set_identity("Administrateur", "QA", pass, "Server");
 
-    BOOST_CHECK_EQUAL(0, ::memcmp(pass, nego.password, sizeof(pass)));
+    RED_CHECK_EQUAL(0, ::memcmp(pass, nego.password, sizeof(pass)));
 
     hexdump(pass, sizeof(pass));
 }

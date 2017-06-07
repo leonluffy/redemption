@@ -31,19 +31,18 @@ public:
 
     char buffer[buffer_size];
 
-    int bg_color;
-    int fg_color;
+    BGRColor bg_color;
+    BGRColor fg_color;
 
     CompositeArray composite_array;
 
     Font const & font;
 
 public:
-    WidgetGroupBox( gdi::GraphicApi & drawable, int16_t x, int16_t y
-                  , uint16_t cx, uint16_t cy, Widget2 & parent
+    WidgetGroupBox( gdi::GraphicApi & drawable, Widget2 & parent
                   , NotifyApi * notifier, const char * text
-                  , int fgcolor, int bgcolor, Font const & font)
-    : WidgetParent(drawable, Rect(x, y, cx, cy), parent, notifier)
+                  , BGRColor fgcolor, BGRColor bgcolor, Font const & font)
+    : WidgetParent(drawable, parent, notifier)
     , bg_color(bgcolor)
     , fg_color(fgcolor)
     , font(font) {
@@ -56,63 +55,66 @@ public:
         this->clear();
     }
 
-    void draw(const Rect & clip) override {
+    void rdp_input_invalidate(Rect clip) override {
         Rect rect_intersect = clip.intersect(this->get_rect());
-        WidgetParent::draw_inner_free(rect_intersect, this->bg_color);
 
-        // Box.
-        const uint16_t border           = 6;
-        const uint16_t text_margin      = 6;
-        const uint16_t text_indentation = border + text_margin + 4;
+        if (!rect_intersect.isempty()) {
+            this->drawable.begin_update();
 
-        gdi::TextMetrics tm1(this->font, "bp");
-        gdi::TextMetrics tm2(this->font, this->buffer);
+            WidgetParent::draw_inner_free(rect_intersect, this->bg_color);
 
-        auto gcy = this->cy() - tm1.height / 2 - border;
-        auto gcx = this->cx() - border * 2 + 1;
-        auto px = this->x() + border - 1;
+            // Box.
+            const uint16_t border           = 6;
+            const uint16_t text_margin      = 6;
+            const uint16_t text_indentation = border + text_margin + 4;
 
-        auto wlabel = text_margin * 2 + tm2.width;
-        auto y = this->y() + tm1.height / 2;
+            gdi::TextMetrics tm1(this->font, "bp");
+            gdi::TextMetrics tm2(this->font, this->buffer);
+
+            auto gcy = this->cy() - tm1.height / 2 - border;
+            auto gcx = this->cx() - border * 2 + 1;
+            auto px = this->x() + border - 1;
+
+            auto wlabel = text_margin * 2 + tm2.width;
+            auto y = this->y() + tm1.height / 2;
+
+            auto const color_ctx = gdi::ColorCtx::depth24();
+
+            // Top Line and Label
+            auto rect1 = Rect(px, y, text_indentation - text_margin - border + 2, 1);
+            this->drawable.draw(RDPOpaqueRect(rect1, encode_color24()(this->fg_color)), rect_intersect, color_ctx);
+            gdi::server_draw_text(this->drawable, this->font
+                               , this->x() + text_indentation
+                               , this->y()
+                               , this->buffer
+                               , encode_color24()(this->fg_color)
+                               , encode_color24()(this->bg_color)
+                               , color_ctx
+                               , rect_intersect
+                               );
+            auto rect2 = Rect(px + wlabel + 4, y, gcx + 1 - wlabel - 4, 1);
+            this->drawable.draw(RDPOpaqueRect(rect2, encode_color24()(this->fg_color)), rect_intersect, color_ctx);
+            // Bottom line
+            auto rect3 = Rect(px, y + gcy, gcx + 1, 1);
+            this->drawable.draw(RDPOpaqueRect(rect3, encode_color24()(this->fg_color)), rect_intersect, color_ctx);
+
+            // Left border
+            auto rect4 = Rect(px, y + 1, 1, gcy - 1);
+            this->drawable.draw(RDPOpaqueRect(rect4, encode_color24()(this->fg_color)), rect_intersect, color_ctx);
+
+            // Right Border
+            auto rect5 = Rect(px + gcx, y, 1, gcy);
+            this->drawable.draw(RDPOpaqueRect(rect5, encode_color24()(this->fg_color)), rect_intersect, color_ctx);
 
 
-        // Top Line and Label
-        auto rect1 = Rect(px, y, text_indentation - text_margin - border + 2, 1);
-        this->drawable.draw(RDPOpaqueRect(rect1, this->fg_color), clip);
-        gdi::server_draw_text(this->drawable, this->font
-                           , this->x() + text_indentation
-                           , this->y()
-                           , this->buffer
-                           , this->fg_color
-                           , this->bg_color
-                           , rect_intersect
-                           );
-        auto rect2 = Rect(px + wlabel + 4, y, gcx + 1 - wlabel - 4, 1);
-        this->drawable.draw(RDPOpaqueRect(rect2, this->fg_color), clip);
-        // Bottom line
-        auto rect3 = Rect(px, y + gcy, gcx + 1, 1);
-        this->drawable.draw(RDPOpaqueRect(rect3, this->fg_color), clip);
+            WidgetParent::invalidate_children(rect_intersect);
 
-        // Left border
-        auto rect4 = Rect(px, y + 1, 1, gcy - 1);
-        this->drawable.draw(RDPOpaqueRect(rect4, this->fg_color), clip);
-
-        // Right Border
-        auto rect5 = Rect(px + gcx, y, 1, gcy);
-        this->drawable.draw(RDPOpaqueRect(rect5, this->fg_color), clip);
-
-
-        WidgetParent::draw_children(rect_intersect);
+            this->drawable.end_update();
+        }
     }
 
-    int get_bg_color() const override {
+    BGRColor get_bg_color() const override {
         return this->bg_color;
-    }
-
-    void move_xy(int16_t x, int16_t y) {
-        this->set_x(this->x() + x);
-        this->set_y(this->y() + y);
-        this->WidgetParent::move_xy(x,y);
     }
 
     const char * get_text() const {
@@ -130,4 +132,3 @@ public:
         }
     }
 };
-

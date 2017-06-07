@@ -73,20 +73,22 @@ struct LargePointerCaps : public Capability {
     {
     }
 
-    void emit(OutStream & stream) override {
+    void emit(OutStream & stream) const
+    {
         stream.out_uint16_le(this->capabilityType);
         stream.out_uint16_le(this->len);
         stream.out_uint16_le(this->largePointerSupportFlags);
     }
 
-    void recv(InStream & stream, uint16_t len) override {
+    void recv(InStream & stream, uint16_t len)
+    {
         this->len = len;
         this->largePointerSupportFlags = stream.in_uint16_le();
     }
 
-    void log(const char * msg) override {
+    void log(const char * msg) const
+    {
         LOG(LOG_INFO, "%s LargePointer caps (%u bytes)", msg, this->len);
         LOG(LOG_INFO, "LargePointer caps::largePointerSupportFlags %u", this->largePointerSupportFlags);
     }
 };
-

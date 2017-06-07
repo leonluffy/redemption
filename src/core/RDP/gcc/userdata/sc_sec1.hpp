@@ -28,9 +28,10 @@
 
 #pragma once
 
-#include "core/RDP/gcc/data_block_type.hpp"
-#include "utils/stream.hpp"
 #include "core/error.hpp"
+#include "core/RDP/gcc/data_block_type.hpp"
+#include "utils/crypto/ssl_lib.hpp"
+#include "utils/stream.hpp"
 #include "system/openssl.hpp"
 
 #include <inttypes.h>
@@ -497,7 +498,7 @@ struct SCSecurity {
         }
     }
 
-    void emit(OutStream & stream)
+    void emit(OutStream & stream) /* TODO const*/
     {
         stream.out_uint16_le(SC_SECURITY);
 
@@ -713,7 +714,7 @@ struct SCSecurity {
         }
     }
 
-    void log(const char * msg)
+    void log(const char * msg) const
     {
         // --------------------- Base Fields ---------------------------------------
         LOG(LOG_INFO, "%s GCC User Data SC_SECURITY (%u bytes)", msg, this->length);

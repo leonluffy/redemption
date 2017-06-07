@@ -18,26 +18,52 @@
 *   Author(s): Jonathan Poelen
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestSplitter
+#define RED_TEST_MODULE TestSplitter
 #include "system/redemption_unit_tests.hpp"
 
 #include "utils/sugar/numerics/safe_conversions.hpp"
 #include <string>
 
-BOOST_AUTO_TEST_CASE(TestTrim)
+RED_AUTO_TEST_CASE(TestTrim)
 {
-    BOOST_CHECK_EQUAL(int(saturated_cast<signed char>(1233412)), 127);
-    BOOST_CHECK_EQUAL(int(saturated_cast<signed char>(-1233412)), -128);
-    BOOST_CHECK_EQUAL(unsigned(saturated_cast<unsigned char>(1233412)), 255);
-    BOOST_CHECK_EQUAL(unsigned(saturated_cast<unsigned char>(-1233412)), 0);
+    RED_CHECK_EQUAL(int(saturated_cast<signed char>(1233412)), 127);
+    RED_CHECK_EQUAL(int(saturated_cast<signed char>(-1233412)), -128);
+    RED_CHECK_EQUAL(unsigned(saturated_cast<unsigned char>(1233412)), 255);
+    RED_CHECK_EQUAL(unsigned(saturated_cast<unsigned char>(-1233412)), 0);
+    RED_CHECK_EQUAL(saturated_cast<int>(-1233412), -1233412);
 
-    checked_cast<char>(12);
+    RED_CHECK_EQUAL(checked_cast<char>(12), 12);
+    RED_CHECK_EQUAL(checked_cast<int>(12), 12);
 
-    BOOST_CHECK_EQUAL(int(saturated_int<signed char>(122312)), 127);
-    BOOST_CHECK_EQUAL(int(saturated_int<signed char>(122312) = -3213), -128);
+    RED_CHECK_EQUAL(int(saturated_int<signed char>(122312)), 127);
+    RED_CHECK_EQUAL(int(saturated_int<signed char>(122312) = -3213), -128);
 
-    BOOST_CHECK_EQUAL(int(checked_int<signed char>(12)), 12);
-    BOOST_CHECK_EQUAL(int(checked_int<signed char>(12) = 13), 13);
+    RED_CHECK_EQUAL(int(checked_int<signed char>(12)), 12);
+    RED_CHECK_EQUAL(int(checked_int<signed char>(12) = 13), 13);
+
+    enum uE : unsigned char { uMin = 0, uMax = 255 };
+    enum sE : signed char { sMin = -128, sMax = 127 };
+
+    RED_CHECK_EQUAL(int(saturated_cast<sE>(1233412)), 127);
+    RED_CHECK_EQUAL(int(saturated_cast<sE>(-1233412)), -128);
+    RED_CHECK_EQUAL(unsigned(saturated_cast<uE>(1233412)), 255);
+    RED_CHECK_EQUAL(unsigned(saturated_cast<uE>(-1233412)), 0);
+
+    RED_CHECK_EQUAL(checked_cast<char>(12), 12);
+
+    RED_CHECK_EQUAL(int(saturated_int<sE>(122312)), 127);
+    RED_CHECK_EQUAL(int(saturated_int<sE>(122312) = -3213), -128);
+
+    RED_CHECK_EQUAL(int(checked_int<sE>(12)), 12);
+    RED_CHECK_EQUAL(int(checked_int<sE>(12) = 13), 13);
+
+    is_safe_convertible<int, long>{} = std::true_type{}; safe_cast<long>(1);
+    is_safe_convertible<long, int>{} = std::false_type{};
+    is_safe_convertible<signed char, unsigned>{} = std::false_type{};
+    is_safe_convertible<unsigned, signed char>{} = std::false_type{};
+    is_safe_convertible<sE, signed char>{} = std::true_type{}; safe_cast<sE>(static_cast<signed char>(1));
+    is_safe_convertible<uE, long>{} = std::true_type{}; safe_cast<long>(uE{});
+    is_safe_convertible<int, int>{} = std::true_type{}; safe_cast<int>(int{});
+    is_safe_convertible<uE, signed char>{} = std::false_type{};
+    is_safe_convertible<signed char, uE>{} = std::false_type{};
 }

@@ -14,163 +14,309 @@
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
    Product name: redemption, a FLOSS RDP proxy
-   Copyright (C) Wallix 2012
-   Author(s): Christophe Grosjean, Javier Caverni, Xavier Dunat,
-              Martin Potier, Jonathan Poelen, Meng Tan
+   Copyright (C) Wallix 2017
+   Author(s): Christophe Grosjean, Jonatan Poelen
 */
 
 #pragma once
 
-#include <chrono>
-#include <memory>
-
-#include "utils/log.hpp"
-#include "utils/drawable.hpp"
-#include "utils/difftimeval.hpp"
-
-#include "transport/transport.hpp"
-
 #include "gdi/capture_api.hpp"
+#include "transport/transport.hpp"
+#include "transport/out_file_transport.hpp"
+#include "utils/sugar/noncopyable.hpp"
+#include "flv_params.hpp"
+#include "capture/video_recorder.hpp"
+#include "capture/notify_next_video.hpp"
 
-#include "video_recorder.hpp"
+#include <memory>
+#include <chrono>
 
 
-struct VideoParams {
-    unsigned target_width;
-    unsigned target_height;
-    unsigned frame_rate;
-    unsigned qscale;
-    unsigned bitrate;
-    std::string codec;
-    unsigned verbosity;
-};
+struct timeval;
+class video_recorder;
+class RDPDrawable;
 
-class VideoCapture : public gdi::CaptureApi
+
+struct VideoTransportBase : Transport
 {
-    Transport & trans;
+    VideoTransportBase(const int groupid, ReportMessageApi * report_message);
 
-    VideoParams video_params;
+    void seek(int64_t offset, int whence) override;
 
-    const Drawable & drawable;
-    std::unique_ptr<video_recorder> recorder;
+    ~VideoTransportBase();
 
-    timeval start_video_capture;
-    std::chrono::microseconds inter_frame_interval;
-    bool no_timestamp;
-
-public:
-    VideoCapture(
-        const timeval & now,
-        Transport & trans,
-        const Drawable & drawable,
-        bool no_timestamp,
-        VideoParams video_params)
-    : trans(trans)
-    , video_params(std::move(video_params))
-    , drawable(drawable)
-    , start_video_capture(now)
-    , inter_frame_interval(1000000L / this->video_params.frame_rate)
-    , no_timestamp(no_timestamp)
-    {
-        if (this->video_params.verbosity) {
-            LOG(LOG_INFO, "Video recording %d x %d, rate: %d, qscale: %d, brate: %d, codec: %s",
-                this->video_params.target_width, this->video_params.target_height,
-                this->video_params.frame_rate, this->video_params.qscale, this->video_params.bitrate,
-                this->video_params.codec.c_str());
-        }
-
-        this->next_video();
-    }
-
-    void next_video() {
-        if (this->recorder) {
-            this->recorder.reset();
-            this->trans.next();
-        }
-
-        io_video_recorder_with_transport io{this->trans};
-        this->recorder.reset(new video_recorder(
-            io.write_fn(), io.seek_fn(), io.params(),
-            drawable.width(), drawable.height(),
-            drawable.pix_len(),
-            drawable.data(),
-            this->video_params.bitrate,
-            this->video_params.frame_rate,
-            this->video_params.qscale,
-            this->video_params.codec.c_str(),
-            this->video_params.target_width,
-            this->video_params.target_height,
-            this->video_params.verbosity
-        ));
-    }
-
-    void preparing_video_frame() {
-        auto & drawable = const_cast<Drawable&>(this->drawable);
-        drawable.trace_mouse();
-        if (!this->no_timestamp) {
-            time_t rawtime = this->start_video_capture.tv_sec;
-            tm tm_result;
-            localtime_r(&rawtime, &tm_result);
-            drawable.trace_timestamp(tm_result);
-        }
-        this->recorder->preparing_video_frame(true);
-        if (!this->no_timestamp) { drawable.clear_timestamp(); }
-        drawable.clear_mouse();
-    }
-
-    void encoding_video_frame() {
-        this->recorder->encoding_video_frame();
-    }
+protected:
+    void force_open();
+    void rename();
+    bool is_open() const;
+    void do_send(const uint8_t * data, size_t len) override;
 
 private:
+    OutFileTransport out_file;
+    const int groupid;
+
+    char tmp_filename[1024];
+
+protected:
+    char final_filename[1024];
+    bool status = true;
+};
+
+
+struct VideoCaptureCtx : noncopyable
+{
+    VideoCaptureCtx(
+        timeval const & now,
+        bool no_timestamp,
+        unsigned frame_rate,
+        RDPDrawable & drawable
+    );
+
+    void frame_marker_event(video_recorder &);
+    void encoding_video_frame(video_recorder &);
+    std::chrono::microseconds snapshot(video_recorder &, timeval const & now, bool ignore_frame_in_timeval);
+
+private:
+    void preparing_video_frame(video_recorder &);
+
+    RDPDrawable & drawable;
+    timeval start_video_capture;
+    std::chrono::microseconds frame_interval;
+    std::chrono::microseconds current_video_time;
+
+    bool no_timestamp;
+    time_t previous_second = 0;
+    bool has_frame_marker = false;
+};
+
+
+struct FullVideoCaptureImpl : gdi::CaptureApi
+{
+    FullVideoCaptureImpl(
+        const timeval & now, const char * const record_path, const char * const basename,
+        const int groupid, bool no_timestamp, RDPDrawable & drawable, FlvParams flv_params
+    );
+
+    ~FullVideoCaptureImpl();
+
+    void frame_marker_event(
+        const timeval& /*now*/, int /*cursor_x*/, int /*cursor_y*/, bool /*ignore_frame_in_timeval*/
+    ) override;
+
     std::chrono::microseconds do_snapshot(
         const timeval& now, int /*cursor_x*/, int /*cursor_y*/, bool ignore_frame_in_timeval
-    ) override {
-        uint64_t tick = difftimeval(now, this->start_video_capture);
-        uint64_t const inter_frame_interval = this->inter_frame_interval.count();
-        if (tick >= inter_frame_interval) {
-            auto encoding_video_frame = [this](time_t rawtime){
-                auto & drawable = const_cast<Drawable&>(this->drawable);
-                drawable.trace_mouse();
-                if (!this->no_timestamp) {
-                    tm tm_result;
-                    localtime_r(&rawtime, &tm_result);
-                    drawable.trace_timestamp(tm_result);
-                    this->recorder->encoding_video_frame();
-                    drawable.clear_timestamp();
-                }
-                else {
-                    this->recorder->encoding_video_frame();
-                }
-                drawable.clear_mouse();
-            };
+    ) override;
 
-            if (ignore_frame_in_timeval) {
-                auto const nframe = tick / inter_frame_interval;
-                encoding_video_frame(this->start_video_capture.tv_sec);
-                auto const usec = inter_frame_interval * nframe;
-                auto sec = usec / 1000000LL;
-                this->start_video_capture.tv_usec += usec - sec * inter_frame_interval;
-                if (this->start_video_capture.tv_usec >= 1000000LL){
-                    this->start_video_capture.tv_usec -= 1000000LL;
-                    ++sec;
-                }
-                this->start_video_capture.tv_sec += sec;
-                tick -= inter_frame_interval * nframe;
-            }
-            else {
-                do {
-                    encoding_video_frame(this->start_video_capture.tv_sec);
-                    this->start_video_capture.tv_usec += inter_frame_interval;
-                    if (this->start_video_capture.tv_usec >= 1000000LL){
-                        this->start_video_capture.tv_sec += 1;
-                        this->start_video_capture.tv_usec -= 1000000LL;
-                    }
-                    tick -= inter_frame_interval;
-                } while (tick >= inter_frame_interval);
-            }
+    std::chrono::microseconds periodic_snapshot(
+        const timeval& now, int cursor_x, int cursor_y, bool ignore_frame_in_timeval
+    ) override;
+
+    void encoding_video_frame();
+
+private:
+    struct TmpFileTransport final : VideoTransportBase
+    {
+        TmpFileTransport(
+            const char * const prefix,
+            const char * const filename,
+            const char * const extension,
+            const int groupid,
+            ReportMessageApi * report_message
+        );
+    } trans_tmp_file;
+
+    video_recorder recorder;
+    VideoCaptureCtx video_cap_ctx;
+};
+
+
+class SequencedVideoCaptureImpl : public gdi::CaptureApi
+{
+    struct SequenceTransport final : VideoTransportBase
+    {
+        struct FileGen {
+            char path[1024];
+            char base[1012];
+            char ext[12];
+            unsigned num = 0;
+        } filegen;
+
+        SequenceTransport(
+            const char * const prefix,
+            const char * const filename,
+            const char * const extension,
+            const int groupid,
+            ReportMessageApi * report_message
+        );
+
+        bool next() override;
+
+        ~SequenceTransport();
+
+    private:
+        void set_final_filename();
+        void do_send(const uint8_t * data, size_t len) override;
+    };
+
+    bool ic_has_first_img = false;
+
+public:
+    std::chrono::microseconds do_snapshot(
+        timeval const & now,
+        int cursor_x, int cursor_y,
+        bool ignore_frame_in_timeval
+    ) override;
+
+    void frame_marker_event(
+        timeval const & now, int cursor_x, int cursor_y, bool ignore_frame_in_timeval
+    ) override;
+
+    std::chrono::microseconds periodic_snapshot(
+        timeval const & now,
+        int cursor_x, int cursor_y,
+        bool ignore_frame_in_timeval
+    ) override;
+
+public:
+    // first next_video is ignored
+    struct FirstImage
+    {
+        SequencedVideoCaptureImpl & first_image_impl;
+
+        const timeval first_image_start_capture;
+
+        FirstImage(timeval const & now, SequencedVideoCaptureImpl & impl)
+        : first_image_impl(impl)
+        , first_image_start_capture(now)
+        {}
+
+        std::chrono::microseconds periodic_snapshot(
+            timeval const & now,
+            int cursor_x, int cursor_y,
+            bool ignore_frame_in_timeval
+        );
+
+        void frame_marker_event(timeval const & now, int cursor_x, int cursor_y, bool ignore_frame_in_timeval);
+
+        std::chrono::microseconds do_snapshot(
+            const timeval& now, int x, int y, bool ignore_frame_in_timeval
+        );
+    } first_image;
+
+public:
+    SequenceTransport vc_trans;
+
+    struct VideoCapture
+    {
+        VideoCapture(
+            const timeval & now,
+            SequenceTransport & trans,
+            RDPDrawable & drawable,
+            bool no_timestamp,
+            FlvParams flv_params
+        );
+
+        ~VideoCapture();
+
+        void next_video();
+
+        void encoding_video_frame();
+
+        void frame_marker_event(const timeval& /*now*/, int /*cursor_x*/, int /*cursor_y*/, bool /*ignore_frame_in_timeval*/);
+
+        std::chrono::microseconds do_snapshot(
+            const timeval& now, int /*cursor_x*/, int /*cursor_y*/, bool ignore_frame_in_timeval
+        );
+
+        std::chrono::microseconds periodic_snapshot(
+            timeval const & now,
+            int cursor_x, int cursor_y,
+            bool ignore_frame_in_timeval
+        );
+
+    private:
+        VideoCaptureCtx video_cap_ctx;
+        std::unique_ptr<video_recorder> recorder;
+        SequenceTransport & trans;
+        FlvParams flv_params;
+        RDPDrawable & drawable;
+    } vc;
+
+    SequenceTransport ic_trans;
+
+    unsigned ic_zoom_factor;
+    unsigned ic_scaled_width;
+    unsigned ic_scaled_height;
+
+    /* const */ RDPDrawable & ic_drawable;
+
+private:
+    std::unique_ptr<uint8_t[]> ic_scaled_buffer;
+
+public:
+    void zoom(unsigned percent);
+
+    void ic_flush();
+
+    void dump24();
+
+    void scale_dump24();
+
+    class VideoSequencer : public gdi::CaptureApi
+    {
+        timeval start_break;
+        std::chrono::microseconds break_interval;
+
+    protected:
+        SequencedVideoCaptureImpl & impl;
+
+    public:
+        VideoSequencer(const timeval & now, std::chrono::microseconds break_interval, SequencedVideoCaptureImpl & impl)
+        : start_break(now)
+        , break_interval(break_interval)
+        , impl(impl)
+        {}
+
+        std::chrono::microseconds get_interval() const
+        {
+            return this->break_interval;
         }
 
-        return std::chrono::microseconds(inter_frame_interval - tick);
-    }
+        void reset_now(const timeval& now);
+
+        std::chrono::microseconds do_snapshot(
+            const timeval& now, int /*cursor_x*/, int /*cursor_y*/, bool /*ignore_frame_in_timeval*/
+        ) override;
+
+        std::chrono::microseconds periodic_snapshot(
+            timeval const & now,
+            int cursor_x, int cursor_y,
+            bool ignore_frame_in_timeval
+        ) override;
+
+        void frame_marker_event(
+            timeval const & now, int cursor_x, int cursor_y, bool ignore_frame_in_timeval
+        ) override;
+    } video_sequencer;
+
+    NotifyNextVideo & next_video_notifier;
+
+    void next_video_impl(const timeval& now, NotifyNextVideo::reason reason);
+
+public:
+    SequencedVideoCaptureImpl(
+        const timeval & now,
+        const char * const record_path,
+        const char * const basename,
+        const int groupid,
+        bool no_timestamp,
+        unsigned image_zoom,
+        /* const */RDPDrawable & drawable,
+        FlvParams flv_params,
+        std::chrono::microseconds video_interval,
+        NotifyNextVideo & next_video_notifier);
+
+    void next_video(const timeval& now);
+
+    void encoding_video_frame();
 };

@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <iostream>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cinttypes>
@@ -46,6 +45,9 @@
 class SocketTransport
 : public Transport
 {
+    size_t total_sent = 0;
+    size_t total_received = 0;
+
 public:
     int sck;
     int sck_closed;
@@ -95,12 +97,14 @@ public:
             delete this->tls;
         }
 
-        if (verbose) {
+        if (bool(verbose)) {
             LOG( LOG_INFO
                , "%s (%d): total_received=%" PRIu64 ", total_sent=%" PRIu64
-               , this->name, this->sck, this->get_total_received(), this->get_total_sent());
+               , this->name, this->sck, this->total_received, this->total_sent);
         }
     }
+
+    int get_fd() const override { return this->sck; }
 
     const uint8_t * get_public_key() const override {
         return this->tls ? this->tls->public_key.get() : nullptr;
@@ -235,38 +239,42 @@ public:
         return rv;
     }
 
-    void do_recv(uint8_t ** pbuffer, size_t len) override {
-        if (this->verbose & Verbose::dump){
+    Read do_atomic_read(uint8_t * buffer, size_t len) override {
+        if (bool(this->verbose & Verbose::dump)) {
             LOG(LOG_INFO, "Socket %s (%d) receiving %zu bytes", this->name, this->sck, len);
         }
 
-        uint8_t * start = *pbuffer;
-        ssize_t res = (this->tls) ? this->tls->privrecv_tls(*pbuffer, len) : this->privrecv(*pbuffer, len);
+        ssize_t res = (this->tls) ? this->tls->privrecv_tls(buffer, len) : this->privrecv(buffer, len);
         //std::cout << "res=" << int(res) << " len=" << int(len) <<  std::endl;
+
+        // we properly reached end of file on a block boundary
+        if (res == 0){
+            return Read::Eof;
+        }
 
         if (res < 0){
             throw Error(ERR_TRANSPORT_NO_MORE_DATA, 0);
         }
-        *pbuffer += res;
 
         if (static_cast<size_t>(res) < len){
             throw Error(ERR_TRANSPORT_NO_MORE_DATA, 0);
         }
 
-        if (this->verbose & Verbose::dump){
+        if (bool(this->verbose & Verbose::dump)) {
             LOG(LOG_INFO, "Recv done on %s (%d) %zu bytes", this->name, this->sck, len);
-            hexdump_c(start, len);
+            hexdump_c(buffer, len);
             LOG(LOG_INFO, "Dump done on %s (%d) %zu bytes", this->name, this->sck, len);
         }
 
-        // TODO move that to base class : accounting_recv(len)
-        this->last_quantum_received += len;
+        this->total_received += len;
+        return Read::Ok;
     }
+
 
     void do_send(const uint8_t * const buffer, size_t len) override {
         if (len == 0) { return; }
 
-        if (this->verbose & Verbose::dump){
+        if (bool(this->verbose & Verbose::dump)) {
             LOG(LOG_INFO, "Sending on %s (%d) %zu bytes", this->name, this->sck, len);
             hexdump_c(buffer, len);
             LOG(LOG_INFO, "Sent dumped on %s (%d) %zu bytes", this->name, this->sck, len);
@@ -283,8 +291,7 @@ public:
             throw Error(ERR_TRANSPORT_NO_MORE_DATA);
         }
 
-        // TODO move that to base class : accounting_send(len)
-        this->last_quantum_sent += len;
+        this->total_sent += len;
     }
 
 private:

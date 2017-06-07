@@ -25,11 +25,12 @@
 #include "configs/config.hpp"
 #include "configs/config_access.hpp"
 #include "core/front_api.hpp"
+#include "mod/internal/copy_paste.hpp"
 #include "mod/internal/locally_integrable_mod.hpp"
-#include "utils/translation.hpp"
 #include "mod/internal/widget2/flat_interactive_target.hpp"
 #include "mod/internal/widget2/language_button.hpp"
 #include "mod/internal/widget2/screen.hpp"
+#include "utils/translation.hpp"
 
 using InteractiveTargetModVariables = vcfg::variables<
     vcfg::var<cfg::globals::target_user,                vcfg::accessmode::is_asked | vcfg::accessmode::set | vcfg::accessmode::get>,
@@ -40,7 +41,8 @@ using InteractiveTargetModVariables = vcfg::variables<
     vcfg::var<cfg::translation::language,               vcfg::accessmode::get>,
     vcfg::var<cfg::font,                                vcfg::accessmode::get>,
     vcfg::var<cfg::theme,                               vcfg::accessmode::get>,
-    vcfg::var<cfg::client::keyboard_layout_proposals,   vcfg::accessmode::get>
+    vcfg::var<cfg::client::keyboard_layout_proposals,   vcfg::accessmode::get>,
+    vcfg::var<cfg::debug::mod_internal,                 vcfg::accessmode::get>
 >;
 
 class InteractiveTargetMod : public LocallyIntegrableMod, public NotifyApi
@@ -52,26 +54,29 @@ class InteractiveTargetMod : public LocallyIntegrableMod, public NotifyApi
     LanguageButton language_button;
     FlatInteractiveTarget challenge;
 
+    CopyPaste copy_paste;
+
     InteractiveTargetModVariables vars;
 
 public:
-    InteractiveTargetMod(InteractiveTargetModVariables vars, FrontAPI & front, uint16_t width, uint16_t height, Rect const & widget_rect, ClientExecute & client_execute)
+    InteractiveTargetMod(InteractiveTargetModVariables vars, FrontAPI & front, uint16_t width, uint16_t height, Rect const widget_rect, ClientExecute & client_execute)
         : LocallyIntegrableMod(front, width, height, vars.get<cfg::font>(), client_execute, vars.get<cfg::theme>())
         , ask_device(vars.is_asked<cfg::context::target_host>())
         , ask_login(vars.is_asked<cfg::globals::target_user>())
         , ask_password((this->ask_login || vars.is_asked<cfg::context::target_password>()))
         , language_button(vars.get<cfg::client::keyboard_layout_proposals>().c_str(), this->challenge, front, front, this->font(), this->theme())
         , challenge(
-            front, widget_rect.x, widget_rect.y, widget_rect.cx + 1, widget_rect.cy + 1,
+            front, widget_rect.x, widget_rect.y, widget_rect.cx, widget_rect.cy,
             this->screen, this,
             this->ask_device, this->ask_login, this->ask_password,
             vars.get<cfg::theme>(),
-            TR("target_info_required", language(vars)),
-            TR("device", language(vars)), vars.get<cfg::globals::target_device>().c_str(),
-            TR("login", language(vars)), vars.get<cfg::globals::target_user>().c_str(),
-            TR("password", language(vars)),
+            TR(trkeys::target_info_required, language(vars)),
+            TR(trkeys::device, language(vars)), vars.get<cfg::globals::target_device>().c_str(),
+            TR(trkeys::login, language(vars)), vars.get<cfg::globals::target_user>().c_str(),
+            TR(trkeys::password, language(vars)),
             vars.get<cfg::font>(),
             &this->language_button)
+        , copy_paste(vars.get<cfg::debug::mod_internal>() != 0)
         , vars(vars)
     {
         this->screen.add_widget(&this->challenge);
@@ -90,7 +95,7 @@ public:
             this->challenge.set_widget_focus(&this->challenge.password_edit,
                                              Widget2::focus_reason_tabkey);
         }
-        this->screen.refresh(this->screen.get_rect());
+        this->screen.rdp_input_invalidate(this->screen.get_rect());
     }
 
     ~InteractiveTargetMod() override {
@@ -102,6 +107,11 @@ public:
         switch (event) {
             case NOTIFY_SUBMIT: this->accepted(); break;
             case NOTIFY_CANCEL: this->refused(); break;
+            case NOTIFY_PASTE: case NOTIFY_COPY: case NOTIFY_CUT:
+                if (this->copy_paste) {
+                    copy_paste_process_event(this->copy_paste, *reinterpret_cast<WidgetEdit*>(sender), event);
+                }
+                break;
             default: ;
         }
     }
@@ -137,12 +147,24 @@ public:
     void draw_event(time_t now, gdi::GraphicApi & gapi) override {
         LocallyIntegrableMod::draw_event(now, gapi);
 
+        if (!this->copy_paste && event.waked_up_by_time) {
+            this->copy_paste.ready(this->front);
+        }
+
         this->event.reset();
     }
 
     bool is_up_and_running() override { return true; }
 
+    void send_to_mod_channel(const char * front_channel_name, InStream& chunk, size_t length, uint32_t flags) override {
+        LocallyIntegrableMod::send_to_mod_channel(front_channel_name, chunk, length, flags);
+
+        if (this->copy_paste && !strcmp(front_channel_name, CHANNELS::channel_names::cliprdr)) {
+            this->copy_paste.send_to_mod_channel(chunk, flags);
+        }
+    }
+
     void move_size_widget(int16_t left, int16_t top, uint16_t width, uint16_t height) override {
-        this->challenge.move_size_widget(left, top, width + 1, height + 1);
+        this->challenge.move_size_widget(left, top, width, height);
     }
 };

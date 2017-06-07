@@ -35,6 +35,7 @@
 // TODO -Wold-style-cast is ignored
 REDEMPTION_DIAGNOSTIC_PUSH
 REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wold-style-cast")
+REDEMPTION_DIAGNOSTIC_GCC_ONLY_IGNORE("-Wzero-as-null-pointer-constant")
 
 extern "C" {
     inline int openssl_print_fp(const char *str, size_t len, void * error_message)
@@ -490,7 +491,7 @@ struct TLSContext
 
         // TODO("Before to have default value certificate doesn't exists")
         bool bad_certificate_path = false;
-        int  checking_exception  = NO_ERROR;
+        error_type checking_exception = NO_ERROR;
 
         // ensures the certificate directory exists
         if (recursive_create_directory(certif_path, S_IRWXU|S_IRWXG, -1) != 0) {

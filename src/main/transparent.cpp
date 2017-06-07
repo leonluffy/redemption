@@ -185,13 +185,14 @@ int main(int argc, char * argv[]) {
     // Remove existing Persistent Key List file.
     unlink(persistent_key_list_filename.c_str());
 
-    OutFileTransport * persistent_key_list_oft = nullptr;
-    int                persistent_key_list_ofd;
+    std::unique_ptr<OutFileTransport> persistent_key_list_oft;
 
-    persistent_key_list_ofd = open(persistent_key_list_filename.c_str(),
-                                   O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP);
-    if (persistent_key_list_ofd != -1) {
-        persistent_key_list_oft = new OutFileTransport(persistent_key_list_ofd);
+    if (unique_fd persistent_key_list_ofd{
+        persistent_key_list_filename,
+        O_CREAT | O_TRUNC | O_WRONLY,
+        S_IRUSR | S_IWUSR | S_IRGRP
+    }) {
+        persistent_key_list_oft.reset(new OutFileTransport(std::move(persistent_key_list_ofd)));
     }
     else {
         LOG(LOG_ERR, "Failed to open Persistent Key List file to writing: name=\"%s\"",
@@ -205,8 +206,11 @@ int main(int argc, char * argv[]) {
     CryptoContext cctx;
     const bool fastpath_support = true;
     const bool mem3blt_support  = true;
-    Front front(front_trans, gen, ini, cctx,
-        fastpath_support, mem3blt_support, now, input_filename.c_str(), persistent_key_list_oft);
+
+    NullReportMessage report_message;
+
+    Front front(front_trans, gen, ini, cctx, report_message,
+        fastpath_support, mem3blt_support, now, input_filename.c_str(), persistent_key_list_oft.get());
     null_mod no_mod(front);
 
     while (front.up_and_running == 0) {
@@ -225,14 +229,15 @@ int main(int argc, char * argv[]) {
             run_mod(mod, front, front_event, nullptr, &front_trans);
         }
         else {
-            OutFileTransport * record_oft = nullptr;
-            int                record_fd  = -1;
+            std::unique_ptr<OutFileTransport> record_oft;
 
             if (!record_filename.empty()) {
-                record_fd = open(record_filename.c_str(), O_CREAT | O_TRUNC | O_WRONLY,
-                                   S_IRUSR | S_IWUSR | S_IRGRP);
-                if (record_fd != -1) {
-                    record_oft = new OutFileTransport(record_fd);
+                if (unique_fd record_fd{
+                    record_filename,
+                    O_CREAT | O_TRUNC | O_WRONLY,
+                    S_IRUSR | S_IWUSR | S_IRGRP
+                }) {
+                    record_oft.reset(new OutFileTransport(std::move(record_fd)));
                 }
                 else {
                     LOG(LOG_ERR, "Failed to open record file to writing: name=\"%s\"",
@@ -240,12 +245,10 @@ int main(int argc, char * argv[]) {
                 }
             }
 
-            InFileTransport * persistent_key_list_ift = nullptr;
-            int               persistent_key_list_ifd;
+            std::unique_ptr<InFileTransport> persistent_key_list_ift;
 
-            persistent_key_list_ifd = open(persistent_key_list_filename.c_str(), O_RDONLY);
-            if (persistent_key_list_ifd != -1) {
-                persistent_key_list_ift = new InFileTransport(persistent_key_list_ifd);
+            if (unique_fd persistent_key_list_ifd{persistent_key_list_filename.c_str(), O_RDONLY}) {
+                persistent_key_list_ift.reset(new InFileTransport(std::move(persistent_key_list_ifd)));
             }
             else {
                 LOG(LOG_ERR, "Failed to open Persistent Key List file to reading: name=\"%s\"",
@@ -265,6 +268,7 @@ int main(int argc, char * argv[]) {
                                        , front.keymap.key_flags
                                        , ini.get<cfg::font>()
                                        , ini.get<cfg::theme>()
+                                       , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
                                        , to_verbose_flags(ini.get<cfg::debug::mod_rdp>())
                                        );
             //mod_rdp_params.enable_tls                          = true;
@@ -272,15 +276,14 @@ int main(int argc, char * argv[]) {
             mod_rdp_params.enable_krb                          = ini.get<cfg::mod_rdp::enable_kerberos>();
             //mod_rdp_params.enable_fastpath                     = true;
             //mod_rdp_params.enable_mem3blt                      = true;
-            mod_rdp_params.enable_bitmap_update                = ini.get<cfg::globals::enable_bitmap_update>();
             //mod_rdp_params.enable_new_pointer                  = true;
             mod_rdp_params.enable_transparent_mode             = true;
             mod_rdp_params.output_filename                     = (output_filename.empty() ? "" : output_filename.c_str());
-            mod_rdp_params.persistent_key_list_transport       = persistent_key_list_ift;
-            mod_rdp_params.transparent_recorder_transport      = record_oft;
+            mod_rdp_params.persistent_key_list_transport       = persistent_key_list_ift.get();
+            mod_rdp_params.transparent_recorder_transport      = record_oft.get();
             mod_rdp_params.auth_channel                        = ini.get<cfg::mod_rdp::auth_channel>();
             mod_rdp_params.alternate_shell                     = ini.get<cfg::mod_rdp::alternate_shell>().c_str();
-            mod_rdp_params.working_dir                         = ini.get<cfg::mod_rdp::shell_working_directory>().c_str();
+            mod_rdp_params.shell_working_dir                   = ini.get<cfg::mod_rdp::shell_working_directory>().c_str();
             mod_rdp_params.rdp_compression                     = ini.get<cfg::mod_rdp::rdp_compression>();
             mod_rdp_params.disconnect_on_logon_user_change     = ini.get<cfg::mod_rdp::disconnect_on_logon_user_change>();
             mod_rdp_params.open_session_timeout                = ini.get<cfg::mod_rdp::open_session_timeout>();
@@ -293,26 +296,15 @@ int main(int argc, char * argv[]) {
             mod_rdp_params.allow_channels                      = &(ini.get<cfg::mod_rdp::allow_channels>());
             mod_rdp_params.deny_channels                       = &(ini.get<cfg::mod_rdp::deny_channels>());
 
+            NullAuthentifier authentifier;
             mod_rdp mod(mod_trans, front, client_info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-                        gen, timeobj, mod_rdp_params);
+                        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
 
             run_mod(mod, front, front_event, &mod_trans, &front_trans);
 
             if (client_sck != -1) {
                 shutdown(client_sck, 2);
                 close(client_sck);
-            }
-
-            if (persistent_key_list_ifd != -1) {
-                delete persistent_key_list_ift;
-
-                close(persistent_key_list_ifd);
-            }
-
-            if (record_fd != -1) {
-                delete record_oft;
-
-                close(record_fd);
             }
         }
     }   // try
@@ -321,12 +313,6 @@ int main(int argc, char * argv[]) {
     }
 
     front.disconnect();
-
-    if (persistent_key_list_ofd != -1) {
-        delete persistent_key_list_oft;
-
-        close(persistent_key_list_ofd);
-    }
 
     shutdown(one_shot_server.sck, 2);
     close(one_shot_server.sck);

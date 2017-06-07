@@ -20,10 +20,13 @@
 
 #pragma once
 
+#include "capture/rdp_ppocr/get_ocr_constants.hpp"
 #include "title_extractor_api.hpp"
 #include "ocr_titles_extractor.hpp"
 #include "ppocr_titles_extractor.hpp"
 #include "ocr_title_filter.hpp"
+#include "core/defines.hpp"
+#include "configs/autogen/enums.hpp"
 
 
 template<class Extractor>
@@ -62,12 +65,12 @@ public:
         auto const best_index = this->title_filter.extract_best_title(this->titles);
 
         if (this->title_filter.has_title_changed()) {
-            auto & title_rect = this->titles[best_index].rect;
+            OcrTitle const & title = this->titles[best_index];
             if (this->enable_title_log) {
-                LOG(LOG_INFO, "Title rect: x=%u y=%u cx=%u cy=%u",
-                    title_rect.x, title_rect.y, title_rect.cx, title_rect.cy);
+                LOG(LOG_INFO, "Title rect: x=%u y=%u cx=%u cy=%u title=%s",
+                    title.rect.x, title.rect.y, title.rect.cx, title.rect.cy, title.text.c_str());
             }
-            const_cast<Drawable&>(this->drawable).tracked_area         = title_rect;
+            const_cast<Drawable&>(this->drawable).tracked_area         = title.rect;
             const_cast<Drawable&>(this->drawable).tracked_area_changed = false;
 
             //return this->titles[best_index].text;

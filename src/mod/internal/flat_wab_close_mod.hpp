@@ -50,8 +50,10 @@ using FlatWabCloseModVariables = vcfg::variables<
 
 class FlatWabCloseMod : public LocallyIntegrableMod, public NotifyApi
 {
-    FlatWabClose     close_widget;
+    FlatWabClose close_widget;
+
     Timeout timeout;
+
     FlatWabCloseModVariables vars;
 
     bool showtimer;
@@ -61,7 +63,7 @@ class FlatWabCloseMod : public LocallyIntegrableMod, public NotifyApi
         explicit temporary_text(FlatWabCloseModVariables vars)
         {
             if (vars.get<cfg::context::module>() == "selector") {
-                snprintf(text, sizeof(text), "%s", TR("selector", language(vars)));
+                snprintf(text, sizeof(text), "%s", TR(trkeys::selector, language(vars)));
             }
             else {
                 // TODO target_application only used for user message, the two branches of alternative should be unified et message prepared by sesman
@@ -80,11 +82,11 @@ class FlatWabCloseMod : public LocallyIntegrableMod, public NotifyApi
 
 public:
     FlatWabCloseMod(FlatWabCloseModVariables vars,
-                    FrontAPI & front, uint16_t width, uint16_t height, Rect const & widget_rect, time_t now,
+                    FrontAPI & front, uint16_t width, uint16_t height, Rect const widget_rect, time_t now,
                     ClientExecute & client_execute, bool showtimer = false, bool back_selector = false)
         : LocallyIntegrableMod(front, width, height, vars.get<cfg::font>(), client_execute, vars.get<cfg::theme>())
         , close_widget(
-            front, widget_rect.x, widget_rect.y, widget_rect.cx + 1, widget_rect.cy + 1,
+            front, widget_rect.x, widget_rect.y, widget_rect.cx, widget_rect.cy,
             this->screen, this,
             vars.get<cfg::context::auth_error_message>().c_str(),
             (vars.is_asked<cfg::globals::auth_user>()
@@ -112,7 +114,7 @@ public:
         this->close_widget.set_widget_focus(&this->close_widget.cancel, Widget2::focus_reason_tabkey);
         this->screen.set_widget_focus(&this->close_widget, Widget2::focus_reason_tabkey);
 
-        this->screen.refresh(this->screen.get_rect());
+        this->screen.rdp_input_invalidate(this->screen.get_rect());
     }
 
     ~FlatWabCloseMod() override {
@@ -159,6 +161,6 @@ public:
     bool is_up_and_running() override { return true; }
 
     void move_size_widget(int16_t left, int16_t top, uint16_t width, uint16_t height) override {
-        this->close_widget.move_size_widget(left, top, width + 1, height + 1);
+        this->close_widget.move_size_widget(left, top, width, height);
     }
 };

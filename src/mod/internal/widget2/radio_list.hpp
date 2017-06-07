@@ -32,7 +32,7 @@ public:
 
     WidgetRadioButton(gdi::GraphicApi & drawable,
                       NotifyApi* notifier, const char * text, bool auto_resize,
-                      int group_id, int fgcolor, int bgcolor,
+                      int group_id, BGRColor fgcolor, BGRColor bgcolor,
                       int xtext = 0, int ytext = 0)
         : Widget2(drawable, Rect(x,y,1,1), parent, notifier, group_id)
         , label(drawable, 1, 1, *this, 0, text, auto_resize, 0, fgcolor, bgcolor, 4, 2)
@@ -47,7 +47,7 @@ public:
 
     virtual ~WidgetRadioButton() {}
 
-    virtual void draw(const Rect& clip)
+    virtual void draw(const Rect clip)
     {
         this->drawable.draw(RDPOpaqueRect(Rect(this->x(), this->y(),
                                                this->label.cy() + 1, this->cy()),
@@ -104,12 +104,12 @@ class WidgetRadioList : public Widget2
     WidgetRadioButton * child_list[AUTOSIZE];
     size_t size;
     int selected;
-    int fgcolor;
-    int bgcolor;
+    BGRColor fgcolor;
+    BGRColor bgcolor;
 
 public:
     WidgetRadioList(mod_api & drawable, int x, int y, Widget2 & parent,
-                    NotifyApi * notifier, int group_id, int fgcolor, int bgcolor)
+                    NotifyApi * notifier, int group_id, BGRColor fgcolor, BGRColor bgcolor)
         : Widget2(drawable, Rect(x, y, 1, 1), parent, notifier, group_id)
         , size(0)
         , selected(-1)
@@ -156,7 +156,7 @@ public:
         return this->selected;
     }
 
-    virtual void draw(const Rect& clip) {
+    virtual void draw(const Rect clip) {
         if (this->size > 0) {
             this->drawable.draw(RDPOpaqueRect(this->rect,
                                               this->child_list[0]->label.bg_color),

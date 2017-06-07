@@ -39,8 +39,8 @@
 #include <string.h>
 #include <memory.h>
 #include <stdarg.h>
-#include <syslog.h>
 
+#include "utils/log.hpp"
 #include "utils/invalid_socket.hpp"
 #include "sashimi/string.hpp"
 
@@ -87,7 +87,7 @@ static inline void ssh_set_error(error_struct & error, int code, const char *des
     va_end(va);
 
     error.error_code = code;
-    syslog(LOG_ERR, "%s", error.error_buffer);
+    LOG(LOG_ERR, "%s", error.error_buffer);
 }
 
 #include "core/error.hpp"
@@ -147,10 +147,10 @@ typedef int (*ssh_event_callback)(socket_t fd, int revents, void *userdata);
  * @brief SSH global request callback. All global request will go through this
  * callback.
  * @param session Current session handler
- * @param type 
- * @param want_reply 
- * @param bind_address
- * @param bind_port
+ * @param type type of global request
+ * @param want_reply does it need a replay from other end ?
+ * @param bind_address target address
+ * @param bind_port target port
  * @param userdata Userdata to be passed to the callback function.
  */
 typedef void (*ssh_global_request_callback) (struct ssh_session_struct * session,
@@ -223,7 +223,6 @@ typedef int (*ssh_auth_gssapi_mic_callback) (const char *user, const char *princ
 
 /**
  * @brief SSH authentication callback.
- * @param session Current session handler
  * @param user User that wants to authenticate
  * @param pubkey public key used for authentication
  * @param signature_state SSH_PUBLICKEY_STATE_NONE if the key is not signed (simple public key probe),
@@ -391,7 +390,6 @@ int ssh_get_key_params(ssh_session_struct * session, ssh_key_struct **privkey);
 
 /* in base64.c */
 struct ssh_buffer_struct * base64_to_bin(const char *source);
-unsigned char *bin_to_base64(const unsigned char *source, int len);
 
 // SSH-TRANS constants
 enum {
@@ -1064,7 +1062,7 @@ LIBSSH_API int ssh_channel_is_open_client(ssh_session_struct * session, ssh_chan
 
 LIBSSH_API ssh_session_struct * ssh_start_new_server_session(ssh_server_callbacks cb_server,
                                             struct ssh_poll_ctx_struct * ctx,
-                                            socket_t fd,
+                                            int fd,
                                             const char * filename, int authmethods);
 LIBSSH_API int ssh_channel_close_server(ssh_session_struct * session, ssh_channel channel);
 LIBSSH_API void ssh_channel_free_server(ssh_session_struct * session, ssh_channel channel);

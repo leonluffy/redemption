@@ -24,438 +24,20 @@
 #include <string>
 
 #define LOGPRINT
-#include "utils/log.hpp"
 
-#include "core/front_api.hpp"
+#include "configs/config.hpp"
+#include "front/client_front.hpp"
+
 #include "core/client_info.hpp"
 #include "transport/socket_transport.hpp"
-#include "core/RDP/RDPDrawable.hpp"
-#include "core/RDP/orders/RDPOrdersSecondaryBrushCache.hpp"
 #include "core/wait_obj.hpp"
 #include "mod/mod_api.hpp"
 #include "utils/redirection_info.hpp"
-#include "core/channel_list.hpp"
 #include "mod/rdp/rdp_params.hpp"
 #include "utils/genrandom.hpp"
 #include "mod/rdp/rdp.hpp"
 #include "program_options/program_options.hpp"
 
-namespace po = program_options;
-//using namespace std;
-
-class ClientFront : public FrontAPI
-{
-    bool verbose;
-    ClientInfo &info;
-    uint8_t                     mod_bpp;
-    BGRPalette                  mod_palette;
-    RDPDrawable gd;
-    CHANNELS::ChannelDefArray   cl;
-
-public:
-    bool can_be_start_capture(auth_api*) override { return false; }
-    bool can_be_pause_capture() override { return false; }
-    bool can_be_resume_capture() override { return false; }
-    bool must_be_stop_capture() override { return false; }
-
-    void flush() {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "flush()");
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-    void draw(const RDPOpaqueRect & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPOpaqueRect new_cmd24 = cmd;
-        new_cmd24.color = color_decode_opaquerect(cmd.color, this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPScrBlt & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip);
-    }
-
-    void draw(const RDPDestBlt & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip);
-    }
-
-    void draw(const RDPMultiDstBlt & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip);
-    }
-
-    void draw(const RDPMultiOpaqueRect & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip);
-    }
-
-    void draw(const RDP::RDPMultiPatBlt & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip);
-    }
-
-    void draw(const RDP::RDPMultiScrBlt & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip);
-    }
-
-    void draw(const RDPPatBlt & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPPatBlt new_cmd24 = cmd;
-        new_cmd24.back_color = color_decode_opaquerect(cmd.back_color, this->mod_bpp, this->mod_palette);
-        new_cmd24.fore_color = color_decode_opaquerect(cmd.fore_color, this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPMemBlt & cmd, const Rect & clip, const Bitmap & bitmap) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip, bitmap);
-    }
-
-    void draw(const RDPMem3Blt & cmd, const Rect & clip, const Bitmap & bitmap) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(cmd, clip, bitmap);
-    }
-
-    void draw(const RDPLineTo & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPLineTo new_cmd24 = cmd;
-        new_cmd24.back_color = color_decode_opaquerect(cmd.back_color, this->mod_bpp, this->mod_palette);
-        new_cmd24.pen.color  = color_decode_opaquerect(cmd.pen.color,  this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPGlyphIndex & cmd, const Rect & clip, const GlyphCache & gly_cache) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPGlyphIndex new_cmd24 = cmd;
-        new_cmd24.back_color = color_decode_opaquerect(cmd.back_color, this->mod_bpp, this->mod_palette);
-        new_cmd24.fore_color = color_decode_opaquerect(cmd.fore_color, this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip, gly_cache);
-    }
-
-    void draw(const RDPPolygonSC & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPPolygonSC new_cmd24 = cmd;
-        new_cmd24.BrushColor  = color_decode_opaquerect(cmd.BrushColor,  this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPPolygonCB & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPPolygonCB new_cmd24 = cmd;
-        new_cmd24.foreColor  = color_decode_opaquerect(cmd.foreColor,  this->mod_bpp, this->mod_palette);
-        new_cmd24.backColor  = color_decode_opaquerect(cmd.backColor,  this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPPolyline & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPPolyline new_cmd24 = cmd;
-        new_cmd24.PenColor  = color_decode_opaquerect(cmd.PenColor,  this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPEllipseSC & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPEllipseSC new_cmd24 = cmd;
-        new_cmd24.color = color_decode_opaquerect(cmd.color, this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPEllipseCB & cmd, const Rect & clip) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO, clip);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        RDPEllipseCB new_cmd24 = cmd;
-        new_cmd24.fore_color = color_decode_opaquerect(cmd.fore_color, this->mod_bpp, this->mod_palette);
-        new_cmd24.back_color = color_decode_opaquerect(cmd.back_color, this->mod_bpp, this->mod_palette);
-        this->gd.draw(new_cmd24, clip);
-    }
-
-    void draw(const RDPColCache   & cmd) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-    void draw(const RDPBrushCache & cmd) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            cmd.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-    void draw(const RDP::FrameMarker & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::NewOrExistingWindow & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::WindowIcon & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::CachedIcon & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::DeletedWindow & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::NewOrExistingNotificationIcons & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::DeletedNotificationIcons & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::ActivelyMonitoredDesktop & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDP::RAIL::NonMonitoredDesktop & order) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            order.log(LOG_INFO);
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(order);
-    }
-
-    void draw(const RDPBitmapData & bitmap_data, const Bitmap & bmp) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            bitmap_data.log(LOG_INFO, "ClientFront");
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.draw(bitmap_data, bmp);
-
-    }
-
-    void set_palette(const BGRPalette&) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "set_palette()");
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-    ResizeResult server_resize(int width, int height, int bpp) override {
-        this->mod_bpp = bpp;
-        this->info.bpp = bpp;
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "server_resize(width=%d, height=%d, bpp=%d", width, height, bpp);
-            LOG(LOG_INFO, "========================================\n");
-        }
-        return ResizeResult::done;
-    }
-
-    void set_pointer(const Pointer & cursor) override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "server_set_pointer");
-            LOG(LOG_INFO, "========================================\n");
-        }
-
-        this->gd.set_pointer(cursor);
-    }
-
-    void begin_update() override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "begin_update");
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-    void end_update() override {
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "end_update");
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-
-    // reutiliser le FakeFront
-    // creer un main calqué sur celui de transparent.cpp et reussir a lancer un mod_rdp
-    const CHANNELS::ChannelDefArray & get_channel_list() const override { return cl; }
-
-    void send_to_channel( const CHANNELS::ChannelDef &, const uint8_t * data, std::size_t length
-                        , std::size_t chunk_size, int flags) override {
-        (void)data;
-        (void)length;
-        (void)chunk_size;
-        (void)flags;
-        if (this->verbose) {
-            LOG(LOG_INFO, "--------- ClientFront ------------------");
-            LOG(LOG_INFO, "send_to_channel");
-            LOG(LOG_INFO, "========================================\n");
-        }
-    }
-
-    ClientFront(ClientInfo & info, bool verbose)
-    : FrontAPI(false, false)
-    , verbose(verbose)
-    , info(info)
-    , mod_bpp(info.bpp)
-    , mod_palette(BGRPalette::no_init())
-    , gd(info.width, info.height, 24)
-    {
-        if (this->mod_bpp == 8) {
-            this->mod_palette = BGRPalette::classic_332();
-        }
-
-        SSL_library_init();
-    }
-
-    void update_pointer_position(uint16_t, uint16_t) override {}
-};
 
 void run_mod(mod_api & mod, ClientFront & front, wait_obj & front_event, SocketTransport * st_mod, SocketTransport * st_front);
 
@@ -477,6 +59,7 @@ int main(int argc, char** argv)
     client_info.bpp = 32;
 
     /* Program options */
+    namespace po = program_options;
     po::options_description desc({
         {'h', "help","produce help message"},
         {'t', "target-device", &target_device, "target device"},
@@ -501,6 +84,7 @@ int main(int argc, char** argv)
 
 
     Inifile ini;
+    SSL_library_init();
     ClientFront front(client_info, verbose > 10);
     ModRDPParams mod_rdp_params( username.c_str()
                                , password.c_str()
@@ -509,6 +93,7 @@ int main(int argc, char** argv)
                                , /*front.keymap.key_flags*/ 0
                                , ini.get<cfg::font>()
                                , ini.get<cfg::theme>()
+                               , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
                                , to_verbose_flags(verbose));
 
     if (verbose > 128) {
@@ -526,8 +111,11 @@ int main(int argc, char** argv)
     UdevRandom gen;
     TimeSystem timeobj;
 
+    NullAuthentifier authentifier;
+    NullReportMessage report_message;
+
     /* mod_api */
-    mod_rdp mod( mod_trans, front, client_info, redir_info, gen, timeobj, mod_rdp_params);
+    mod_rdp mod( mod_trans, front, client_info, redir_info, gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
 
     run_mod(mod, front, front_event, &mod_trans, nullptr);
 

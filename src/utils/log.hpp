@@ -24,8 +24,6 @@
 
 #pragma once
 
-#include <string.h>
-
 // These are used to help coverage chain when function length autodetection (using ctags and gcov) fails
 
 // -Wnull-dereference and clang++
@@ -38,8 +36,6 @@ namespace { namespace compiler_aux_ {
 // REDASSERT behave like assert but instaed of calling abort it triggers a segfault
 // This is handy to get stacktrace while debugging.
 
-
-
 #ifdef NDEBUG
 #define REDASSERT(x)
 #else
@@ -51,51 +47,142 @@ namespace { namespace compiler_aux_ {
 # endif
 #endif
 
-#include "cxx/diagnostic.hpp"
-
-#include <cstdio> // std::printf family
-
-#include <syslog.h>
-
-#include <sys/types.h>
+#include <sys/types.h> // getpid
 #include <unistd.h> // getpid
 
+#include "cxx/diagnostic.hpp"
+#include "cxx/cxx.hpp"
+
+#include <type_traits>
+
+#include <cstdint>
+#include <cstdio> // std::printf family
+#if defined(LOGPRINT) || !defined(LOGNULL)
+# include <cstdarg>
+#endif
+
+#include <syslog.h>
+#include <cstring>
+
+// enum type
+template<class T, typename std::enable_if<std::is_enum<T>::value, bool>::type = 1>
+typename std::underlying_type<T>::type
+log_value(T const & e) { return static_cast<typename std::underlying_type<T>::type>(e); }
+
+namespace detail_ {
+    // has c_str() member
+    template<class T>
+    auto log_value(T const & x, int)
+    -> typename std::enable_if<
+        std::is_same<char const *, decltype(x.c_str())>::value ||
+        std::is_same<char       *, decltype(x.c_str())>::value,
+        char const *
+    >::type
+    { return x.c_str(); }
+
+    template<class T>
+    T const & log_value(T const & x, char)
+    { return x; }
+}
+
+// not enum type
+template<class T, typename std::enable_if<!std::is_enum<T>::value, bool>::type = 1>
+auto log_value(T const & x)
+-> decltype(detail_::log_value(x, 1))
+{ return detail_::log_value(x, 1); }
+
+namespace {
+    template<std::size_t n>
+    struct redemption_log_s
+    {
+        char data[n];
+    };
+}
+
+template<std::size_t n>
+redemption_log_s<n*2+1>
+log_array_02x_format(uint8_t const (&d)[n])
+{
+    redemption_log_s<n*2+1> r;
+    char * p = r.data;
+    for (uint8_t c : d) {
+        *p++ = "012345678abcdef"[c >> 4];
+        *p++ = "012345678abcdef"[c & 0xf];
+    }
+    *p = 0;
+    return r;
+}
+
+template<std::size_t n>
+char const * log_value(redemption_log_s<n> const & x) { return x.data; }
+
+#if ! defined(IN_IDE_PARSER) && REDEMPTION_HAS_INCLUDE(<boost/preprocessor/config/config.hpp>)
+# include <boost/preprocessor/config/config.hpp>
+
+# if BOOST_PP_VARIADICS
+
+#  include <boost/preprocessor/cat.hpp>
+#  include <boost/preprocessor/comparison/greater.hpp>
+#  include <boost/preprocessor/array/pop_front.hpp>
+#  include <boost/preprocessor/array/pop_back.hpp>
+#  include <boost/preprocessor/array/to_list.hpp>
+#  include <boost/preprocessor/array/elem.hpp>
+#  include <boost/preprocessor/list/for_each.hpp>
+#  include <boost/preprocessor/variadic/elem.hpp>
+#  include <boost/preprocessor/variadic/to_list.hpp>
+
+#  define REDEMPTION_LOG_VALUE_PARAM_0(elem)
+#  define REDEMPTION_LOG_VALUE_PARAM_1(elem) , log_value(elem)
+
+#  define REDEMPTION_LOG_VALUE_PARAM(r, data, elem) \
+    BOOST_PP_CAT(REDEMPTION_LOG_VALUE_PARAM_, BOOST_PP_BOOL(BOOST_PP_GREATER(r, 2)))(elem)
+
+#  define LOG_REDEMPTION_VARIADIC_TO_LOG_PARAMETERS(...) \
+    " " BOOST_PP_VARIADIC_ELEM(0, __VA_ARGS__)           \
+    BOOST_PP_LIST_FOR_EACH(                              \
+        REDEMPTION_LOG_VALUE_PARAM,                      \
+        BOOST_PP_NIL,                                    \
+        BOOST_PP_VARIADIC_TO_LIST(__VA_ARGS__)           \
+    )
 
 // checked by the compiler
-#define LOG_FORMAT_CHECK(...) \
-    void(sizeof(printf(" " __VA_ARGS__)))
+#  define LOG_REDEMPTION_FORMAT_CHECK(...)                     \
+    void(sizeof(printf(                                        \
+        LOG_REDEMPTION_VARIADIC_TO_LOG_PARAMETERS(__VA_ARGS__) \
+    )))
+
+#  define REDEMPTION_LOG_VALUE(x) (x)
+
+# endif
+#endif
+
+#ifndef LOG_REDEMPTION_FORMAT_CHECK
+
+# ifndef REDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING
+#   if defined __GNUC__ || defined __clang__
+#       pragma GCC warning "Cannot check format in 'LOG' (no boost preprocessor headers or unsupported variadic macro)"
+#   else
+#       warning "Cannot check format in 'LOG' (no boost preprocessor headers or unsupported variadic macro)"
+#   endif
+# endif
+
+# define LOG_REDEMPTION_FORMAT_CHECK(...) ::compiler_aux_::unused_variables(__VA_ARGS__)
+# define REDEMPTION_LOG_VALUE(x) log_value(x)
+# define LOG_REDEMPTION_VARIADIC_TO_LOG_PARAMETERS(...) __VA_ARGS__
+
+#endif
 
 
 #ifdef IN_IDE_PARSER
 #  define LOG LOGSYSLOG__REDEMPTION__INTERNAL
 
-#elif defined(LOGPRINT)
-#  define LOG(priority, ...)                                                    \
-    LOGCHECK__REDEMPTION__INTERNAL((                                            \
-        LOG_FORMAT_CHECK(__VA_ARGS__),                                          \
-        LOGPRINT__REDEMPTION__INTERNAL(priority, "%s (%d/%d) -- " __VA_ARGS__), \
-        1                                                                       \
-    ))
-
-#elif defined(LOGNULL)
-#  define LOG(priority, ...)                    \
-    LOGCHECK__REDEMPTION__INTERNAL((            \
-        LOG_FORMAT_CHECK(__VA_ARGS__), priority \
-    ))
-
-#elif defined(LOGASMJS) && defined(EM_ASM)
-#  define LOG(priority, ...) LOGCHECK__REDEMPTION__INTERNAL((                \
-        LOG_FORMAT_CHECK(__VA_ARGS__),                                       \
-        LOGPRINT__REDEMPTION__ASMJS(priority, "%s (%d/%d) -- " __VA_ARGS__), \
-        1                                                                    \
-    ))
-
 #else
-#  define LOG(priority, ...)                                                     \
-    LOGCHECK__REDEMPTION__INTERNAL((                                             \
-        LOG_FORMAT_CHECK(__VA_ARGS__),                                           \
-        LOGSYSLOG__REDEMPTION__INTERNAL(priority, "%s (%d/%d) -- " __VA_ARGS__), \
-        1                                                                        \
+#  define LOG(priority, ...)                                     \
+    LOGCHECK__REDEMPTION__INTERNAL((                             \
+        LOG_REDEMPTION_FORMAT_CHECK(__VA_ARGS__),                \
+        LOG__REDEMPTION__INTERNAL(priority, "%s (%d/%d) -- "     \
+        LOG_REDEMPTION_VARIADIC_TO_LOG_PARAMETERS(__VA_ARGS__)), \
+        1                                                        \
     ))
 #endif
 
@@ -125,41 +212,85 @@ namespace {
     inline void LOGCHECK__REDEMPTION__INTERNAL(int)
     {}
 
-    template<class... Ts>
-    void LOGPRINT__REDEMPTION__INTERNAL(int priority, char const * format, Ts const & ... args)
+    namespace compiler_aux_
     {
-        int const pid = getpid();
-        REDEMPTION_DIAGNOSTIC_PUSH
-        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
-        std::printf(format, prioritynames[priority], pid, pid, args...);
-        REDEMPTION_DIAGNOSTIC_POP
-        std::puts("");
+        template<class... Ts>
+        void unused_variables(Ts const & ...)
+        {}
     }
+}
 
-#if defined(LOGASMJS) && defined(EM_ASM)
-    template<class... Ts>
-    void LOGPRINT__REDEMPTION__ASMJS(int priority, char const * format, Ts const & ... args)
-    {
-        int const pid = getpid();
-        char buffer[4096];
-        REDEMPTION_DIAGNOSTIC_PUSH
-        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
-        int len = snprintf(buffer, sizeof(buffer)-2, format, prioritynames[priority], pid, pid, args...);
-        REDEMPTION_DIAGNOSTIC_POP
-        buffer[len] = '\n';
-        buffer[len+1] = 0;
-        EM_ASM_({console.log(Pointer_stringify($0));}, buffer);
-    }
-#endif  // #if defined(LOGASMJS) && defined(EM_ASM)
+REDEMPTION_DIAGNOSTIC_PUSH
+REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
 
+// No inline, one definition by exe. Otherwise, bad config
+REDEMPTION_DIAGNOSTIC_CLANG_IGNORE("-Wmissing-prototypes")
+REDEMPTION_DIAGNOSTIC_GCC_ONLY_IGNORE("-Wmissing-declarations")
+void LOG__REDEMPTION__INTERNAL__IMPL(int priority, char const * format, ...)
+#ifdef IN_IDE_PARSER
+;
+#elif defined(LOGPRINT)
+{
+    (void)priority;
+    va_list ap;
+    va_start(ap, format);
+    std::vprintf(format, ap);
+    std::puts("");
+    va_end(ap);
+}
+#elif defined(LOGNULL)
+{
+    (void)priority;
+    (void)format;
+}
+#elif defined(LOGASMJS) && defined(EM_ASM)
+{
+    (void)priority;
+    va_list ap;
+    char buffer[4096];
+    va_start(ap, format);
+    int len = snprintf(buffer, sizeof(buffer)-2, format, args...);
+    va_end(ap);
+    buffer[len] = '\n';
+    buffer[len+1] = 0;
+    EM_ASM_({console.log(Pointer_stringify($0));}, buffer);
+}
+#else
+# ifdef REDEMPTION_DECL_LOG_SYSLOG
+{
+    va_list ap;
+    va_start(ap, format);
+    vsyslog(priority, format, ap);
+    va_end(ap);
+}
+# else
+;
+# endif
+# ifdef REDEMPTION_DECL_LOG_TEST
+#    error "Missing macro in the .cpp test: LOGNULL or LOGPRINT"
+# endif
+#endif
+
+REDEMPTION_DIAGNOSTIC_POP
+
+namespace
+{
     template<class... Ts>
-    void LOGSYSLOG__REDEMPTION__INTERNAL(int priority, char const * format, Ts const & ... args)
+    void LOG__REDEMPTION__INTERNAL(int priority, char const * format, Ts const & ... args)
     {
+    #if !defined(LOGPRINT) && defined(LOGNULL)
+        compiler_aux_::unused_variables(priority, format, ((void)(args), 1)...);
+    #else
         int const pid = getpid();
-        REDEMPTION_DIAGNOSTIC_PUSH
-        REDEMPTION_DIAGNOSTIC_GCC_IGNORE("-Wformat-nonliteral")
-        syslog(priority, format, prioritynames[priority], pid, pid, args...);
-        REDEMPTION_DIAGNOSTIC_POP
+        LOG__REDEMPTION__INTERNAL__IMPL(
+            priority,
+            format,
+            prioritynames[priority],
+            pid,
+            pid,
+            REDEMPTION_LOG_VALUE(args)...
+        );
+    #endif
     }
 }
 
@@ -255,7 +386,7 @@ inline void hexdump_c(const unsigned char * data, size_t size)
         if (i < 16){
             line += std::sprintf(line, "%*c", static_cast<int>((16-i)*4), ' ');
         }
-        line += std::sprintf(line, " //");
+        line += std::sprintf(line, " // ");
         for (i = 0; i < 16; i++){
             if (j+i >= size){ break; }
             unsigned char tmp = data[j+i];
@@ -294,7 +425,7 @@ inline void hexdump96_c(const unsigned char * data, size_t size)
         if (i < line_length){
             line += std::sprintf(line, "%*c", static_cast<int>((line_length-i)*4), ' ');
         }
-        line += std::sprintf(line, " //");
+        line += std::sprintf(line, " // ");
         for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
             unsigned char tmp = data[j+i];
@@ -333,7 +464,7 @@ inline void hexdump8_c(const unsigned char * data, size_t size)
         if (i < line_length){
             line += std::sprintf(line, "%*c", static_cast<int>((line_length-i)*4), ' ');
         }
-        line += std::sprintf(line, " //");
+        line += std::sprintf(line, " // ");
         for (i = 0; i < line_length; i++){
             if (j+i >= size){ break; }
             unsigned char tmp = data[j+i];
@@ -357,4 +488,3 @@ inline void hexdump8_c(const char * data, size_t size)
 }
 
 } // anonymous namespace
-

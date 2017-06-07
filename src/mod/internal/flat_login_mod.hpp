@@ -47,7 +47,8 @@ using FlatLoginModVariables = vcfg::variables<
     vcfg::var<cfg::theme,                               vcfg::accessmode::get>,
     vcfg::var<cfg::context::opt_message,                vcfg::accessmode::get>,
     vcfg::var<cfg::client::keyboard_layout_proposals,   vcfg::accessmode::get>,
-    vcfg::var<cfg::globals::authentication_timeout,     vcfg::accessmode::get>
+    vcfg::var<cfg::globals::authentication_timeout,     vcfg::accessmode::get>,
+    vcfg::var<cfg::debug::mod_internal,                 vcfg::accessmode::get>
 >;
 
 
@@ -66,7 +67,7 @@ public:
     FlatLoginMod(
         FlatLoginModVariables vars,
         char const * username, char const * password,
-        FrontAPI & front, uint16_t width, uint16_t height, Rect const & widget_rect, time_t now,
+        FrontAPI & front, uint16_t width, uint16_t height, Rect const widget_rect, time_t now,
         ClientExecute & client_execute
     )
         : LocallyIntegrableMod(front, width, height, vars.get<cfg::font>(), client_execute, vars.get<cfg::theme>())
@@ -74,15 +75,16 @@ public:
             vars.get<cfg::client::keyboard_layout_proposals>().c_str(),
             this->login, front, front, this->font(), this->theme())
         , login(
-            front, widget_rect.x, widget_rect.y, widget_rect.cx + 1, widget_rect.cy + 1,
+            front, widget_rect.x, widget_rect.y, widget_rect.cx, widget_rect.cy,
             this->screen, this, "Redemption " VERSION,
             nullptr, nullptr,
-            TR("login", language(vars)),
-            TR("password", language(vars)),
+            TR(trkeys::login, language(vars)),
+            TR(trkeys::password, language(vars)),
             vars.get<cfg::context::opt_message>().c_str(),
             &this->language_button,
             this->font(), Translator(language(vars)), this->theme())
         , timeout(now, vars.get<cfg::globals::authentication_timeout>().count())
+        , copy_paste(vars.get<cfg::debug::mod_internal>() != 0)
         , vars(vars)
     {
         if (vars.get<cfg::globals::authentication_timeout>().count()) {
@@ -101,7 +103,7 @@ public:
             this->login.set_widget_focus(&this->login.password_edit, Widget2::focus_reason_tabkey);
         }
 
-        this->screen.refresh(this->screen.get_rect());
+        this->screen.rdp_input_invalidate(this->screen.get_rect());
     }
 
     ~FlatLoginMod() override {
@@ -166,6 +168,6 @@ public:
     }
 
     void move_size_widget(int16_t left, int16_t top, uint16_t width, uint16_t height) override {
-        this->login.move_size_widget(left, top, width + 1, height + 1);
+        this->login.move_size_widget(left, top, width, height);
     }
 };

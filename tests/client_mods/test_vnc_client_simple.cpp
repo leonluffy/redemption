@@ -22,21 +22,20 @@
 
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestVncClientSimple
+#define RED_TEST_MODULE TestVncClientSimple
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
 
-#include "transport/test_transport.hpp"
+#include "test_only/transport/test_transport.hpp"
 #include "core/client_info.hpp"
 #include "mod/vnc/vnc.hpp"
-#include "front/fake_front.hpp"
+#include "test_only/front/fake_front.hpp"
 
-BOOST_AUTO_TEST_CASE(TestDecodePacket)
+
+RED_AUTO_TEST_CASE(TestDecodePacket)
 {
-    BOOST_CHECK(1);
+    RED_CHECK(1);
 
     ClientInfo info;
     info.keylayout = 0x04C;
@@ -234,7 +233,7 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
 // Socket VNC Target (3) : closing connection
     };
 
-    TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1, verbose);
+    TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
     const bool is_socket_transport = false;
 
     // To always get the same client random, in tests
@@ -248,6 +247,8 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
 
     const VncBogusClipboardInfiniteLoop bogus_clipboard_infinite_loop {};
 
+    NullReportMessage report_message;
+
     mod_vnc mod(
           t
         , "10.10.3.103"
@@ -256,7 +257,7 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
         , info.width
         , info.height
         , font
-        , Translator(Translation::EN)
+        , "label message", "label pass"
         , Theme()
         , info.keylayout
         , 0             /* key_flags */
@@ -267,29 +268,26 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
         , is_socket_transport
         , mod_vnc::ClipboardEncodingType::UTF8
         , bogus_clipboard_infinite_loop
-        , nullptr       // acl
+        , report_message
+        , false
         , verbose);
     mod.get_event().set();
 
     if (verbose > 2){
         LOG(LOG_INFO, "========= CREATION OF MOD VNC DONE ====================\n\n");
     }
-//    BOOST_CHECK(t.status);
+//    RED_CHECK(t.status);
 
     mod.draw_event(time(nullptr), front);
     mod.rdp_input_up_and_running();
     mod.draw_event(time(nullptr), front);
 
-    BOOST_CHECK_EQUAL(front.info.width, 800);
-    BOOST_CHECK_EQUAL(front.info.height, 600);
+    RED_CHECK_EQUAL(front.info.width, 800);
+    RED_CHECK_EQUAL(front.info.height, 600);
+
+    t.disable_remaining_error();
 
 //    mod.draw_event(time(nullptr), front);
-////    BOOST_CHECK(t.status);
-
 //    mod.draw_event(time(nullptr), front);
-////    BOOST_CHECK(t.status);
-
 //    mod.draw_event(time(nullptr), front);
-////    BOOST_CHECK(t.status);
-
 }

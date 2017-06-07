@@ -18,12 +18,13 @@
 *   Author(s): Jonathan Poelen
 */
 
-
 #pragma once
 
 #include "mod/mod_api.hpp"
+#include "mod/rdp/rdp_api.hpp"
 
-class auth_api;
+class AuthApi;
+class ReportMessageApi;
 
 class MMApi
 {
@@ -39,10 +40,10 @@ public:
         , connected(false) {}
     virtual ~MMApi() {}
     virtual void remove_mod() = 0;
-    virtual void new_mod(int target_module, time_t now, auth_api * acl) = 0;
+    virtual void new_mod(int target_module, time_t now, AuthApi &, ReportMessageApi &) = 0;
     virtual int next_module() = 0;
     // virtual int get_mod_from_protocol() = 0;
-    virtual void invoke_close_box(const char * auth_error_message, BackEvent_t & signal, time_t now) {
+    virtual void invoke_close_box(const char * auth_error_message, BackEvent_t & signal, time_t now, AuthApi &, ReportMessageApi &) {
         (void)auth_error_message;
         (void)signal;
         (void)now;
@@ -54,8 +55,8 @@ public:
     virtual bool is_up_and_running() {
         return this->mod && this->mod->is_up_and_running();
     }
-    virtual void record(auth_api *) {}
     virtual void stop_record() {}
-    virtual void check_module() { }
-};
+    virtual void check_module() {}
 
+    virtual rdp_api* get_rdp_api() const { return nullptr; }
+};

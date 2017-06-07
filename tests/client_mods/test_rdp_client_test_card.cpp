@@ -22,9 +22,7 @@
 
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestRdpClientTestCard
+#define RED_TEST_MODULE TestRdpClientTestCard
 #include "system/redemption_unit_tests.hpp"
 
 
@@ -35,11 +33,11 @@
 #include "core/font.hpp"
 #include "mod/internal/test_card_mod.hpp"
 
-#include "../front/fake_front.hpp"
+#include "test_only/front/fake_front.hpp"
 
-BOOST_AUTO_TEST_CASE(TestShowTestCard)
+RED_AUTO_TEST_CASE(TestShowTestCard)
 {
-    BOOST_CHECK(true);
+    RED_CHECK(true);
     ClientInfo info;
     info.keylayout = 0x04C;
     info.console_session = 0;
@@ -52,16 +50,7 @@ BOOST_AUTO_TEST_CASE(TestShowTestCard)
 
     Font font;
 
-    BOOST_CHECK(true);
+    RED_CHECK(true);
     TestCardMod mod(front, info.width, info.height, font);
-    BOOST_CHECK(true);
-    try{
-        mod.draw_event(time(nullptr), front);
-    }
-    catch (const Error & e){
-        // this test is not supposed to be executed
-        // (there should be no exception in draw_event)
-        // but if exception occurs, it is usefull to know which one
-        BOOST_CHECK_EQUAL(0, e.id);
-    };
+    RED_CHECK_NO_THROW(mod.draw_event(time(nullptr), front));
 }

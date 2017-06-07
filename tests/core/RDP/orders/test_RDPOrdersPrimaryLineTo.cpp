@@ -21,9 +21,7 @@
    Using lib boost functions for testing
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestOrderLineTo
+#define RED_TEST_MODULE TestOrderLineTo
 #include "system/redemption_unit_tests.hpp"
 
 //#define LOGPRINT
@@ -31,9 +29,9 @@
 
 #include "core/RDP/orders/RDPOrdersPrimaryLineTo.hpp"
 
-#include "test_orders.hpp"
+#include "./test_orders.hpp"
 
-BOOST_AUTO_TEST_CASE(TestLineTo)
+RED_AUTO_TEST_CASE(TestLineTo)
 {
     using namespace RDP;
 
@@ -41,15 +39,15 @@ BOOST_AUTO_TEST_CASE(TestLineTo)
         StaticOutStream<1000> out_stream;
 
         RDPOrderCommon state_common(0, Rect(0, 0, 0, 0));
-        RDPLineTo state_lineto(0, 0, 0, 0, 0, 0, 0, RDPPen(0, 0, 0));
+        RDPLineTo state_lineto(0, 0, 0, 0, 0, RDPColor{}, 0, RDPPen(0, 0, RDPColor{}));
         RDPOrderCommon newcommon(LINE, Rect(10, 20, 30, 40));
 
-        RDPLineTo(1, 0, 10, 40, 60, 0x102030, 0xFF, RDPPen(0, 1, 0x112233)
+        RDPLineTo(1, 0, 10, 40, 60, encode_color24()(BGRColor{0x102030}), 0xFF, RDPPen(0, 1, encode_color24()(BGRColor{0x112233}))
                   ).emit(out_stream, newcommon, state_common, state_lineto);
 
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(LINE), newcommon.order);
-        BOOST_CHECK_EQUAL(Rect(10, 20, 30, 40), newcommon.clip);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(LINE), newcommon.order);
+        RED_CHECK_EQUAL(Rect(10, 20, 30, 40), newcommon.clip);
 
         uint8_t datas[] = {
             CHANGE | STANDARD | BOUNDS | DELTA,
@@ -71,20 +69,20 @@ BOOST_AUTO_TEST_CASE(TestLineTo)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(0x1D), header.control);
-        BOOST_CHECK_EQUAL(static_cast<uint32_t>(0x37D), header.fields);
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(LINE), common_cmd.order);
-        BOOST_CHECK_EQUAL(Rect(10, 20, 30, 40), common_cmd.clip);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(0x1D), header.control);
+        RED_CHECK_EQUAL(static_cast<uint32_t>(0x37D), header.fields);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(LINE), common_cmd.order);
+        RED_CHECK_EQUAL(Rect(10, 20, 30, 40), common_cmd.clip);
 
         RDPLineTo cmd = state_lineto;
         cmd.receive(in_stream, header);
 
         check<RDPLineTo>(common_cmd, cmd,
             RDPOrderCommon(LINE, Rect(10, 20, 30, 40)),
-            RDPLineTo(1, 0, 10, 40, 60, 0x102030, 0xFF, RDPPen(0, 1, 0x112233)),
+            RDPLineTo(1, 0, 10, 40, 60, encode_color24()(BGRColor{0x102030}), 0xFF, RDPPen(0, 1, encode_color24()(BGRColor{0x112233}))),
             "LineTo 1");
     }
 }

@@ -1089,7 +1089,12 @@ struct KeymapSym {
         }
 
         // The scancode and its extended nature are merged in a new variable (whose most significant bit indicates the extended nature)
-        uint8_t extendedKeyCode = keyCode|((keyboardFlags >> 1)&0x80);
+
+        uint16_t keyboardFlags_pos = keyboardFlags;
+        if (keyboardFlags_pos & KBDFLAGS_EXTENDED) {
+            keyboardFlags_pos -=  KBDFLAGS_EXTENDED;
+        }
+        uint8_t extendedKeyCode = keyCode|((keyboardFlags_pos >> 1)&0x80);
         // The state of that key is updated in the Keyboard status array (1=Make ; 0=Break)
         this->keys_down[extendedKeyCode] = !(keyboardFlags & KBDFLAGS_RELEASE);
 
@@ -1109,7 +1114,7 @@ struct KeymapSym {
                     this->key_flags ^= CAPSLOCK;
                 }
                 break;
-            case 0x45: // numlock
+            case 0xC5: // numlock
                 if (this->keys_down[extendedKeyCode]){
                     this->key_flags ^= NUMLOCK;
                 }
@@ -1247,7 +1252,7 @@ struct KeymapSym {
                     //----------------------------------------
                     // if left ctrl and left alt are pressed, vnc server will convert key combination itself.
                     // if ( (this->is_ctrl_pressed() && this->is_alt_pressed()) ||
-                    if (this->is_right_alt_pressed()) {
+                    if (this->is_alt_pressed()) {
                         layout = &this->keylayout_WORK_altgr_sym;
                         if (this->verbose) {
                             LOG(LOG_INFO, "Use KEYLAYOUT WORK Altgr");

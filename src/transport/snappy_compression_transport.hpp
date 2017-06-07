@@ -52,57 +52,54 @@ public:
     }
 
 private:
-    void do_recv(uint8_t ** pbuffer, size_t len) override {
-        uint8_t * temp_data        = *pbuffer;
-        size_t    temp_data_length = len;
+    Read do_atomic_read(uint8_t * buffer, size_t len) override {
+        size_t    remaining_size = len;
 
-        while (temp_data_length) {
+        while (remaining_size) {
             if (this->uncompressed_data_length) {
                 REDASSERT(this->uncompressed_data);
 
-                const size_t data_length = std::min<size_t>(temp_data_length, this->uncompressed_data_length);
+                const size_t data_length = std::min<size_t>(remaining_size, this->uncompressed_data_length);
 
-                ::memcpy(temp_data, this->uncompressed_data, data_length);
+                ::memcpy(&buffer[len-remaining_size], this->uncompressed_data, data_length);
 
                 this->uncompressed_data        += data_length;
                 this->uncompressed_data_length -= data_length;
 
-                temp_data        += data_length;
-                temp_data_length -= data_length;
+                remaining_size -= data_length;
             }
             else {
                 uint8_t data_buf[SNAPPY_COMPRESSION_TRANSPORT_BUFFER_LENGTH];
 
-                auto end = data_buf;
-                this->source_transport.recv(&end, sizeof(uint16_t));  // compressed_data_length(2);
+                // read compressed_data_length(2);
+                if (Read::Eof == this->source_transport.atomic_read(data_buf, sizeof(uint16_t))){
+                    if (remaining_size == len) {
+                        return Read::Eof;
+                    }
+                    throw Error(ERR_TRANSPORT_READ_FAILED);
+                }
 
                 const uint16_t compressed_data_length = Parse(data_buf).in_uint16_le();
                 //if (this->verbose) {
                 //    LOG(LOG_INFO, "SnappyCompressionInTransport::do_recv: compressed_data_length=%" PRIu16, compressed_data_length);
                 //}
-
-                end = data_buf;
-                this->source_transport.recv(&end, compressed_data_length);
-
+                this->source_transport.recv_boom(data_buf, compressed_data_length);
                 this->uncompressed_data        = this->uncompressed_data_buffer;
                 this->uncompressed_data_length = sizeof(this->uncompressed_data_buffer);
 
                 snappy_status status = ::snappy_uncompress(
-                      reinterpret_cast<char *>(data_buf) , end-data_buf
+                      reinterpret_cast<char *>(data_buf) , compressed_data_length
                     , reinterpret_cast<char *>(this->uncompressed_data), &this->uncompressed_data_length);
                 if (/*this->verbose & 0x2 || */(status != SNAPPY_OK)) {
                     LOG( ((status != SNAPPY_OK) ? LOG_ERR : LOG_INFO)
                        , "SnappyCompressionInTransport::do_recv: snappy_uncompress return %d", status);
                 }
-                //if (this->verbose) {
-                //    LOG( LOG_INFO, "SnappyCompressionInTransport::do_recv: uncompressed_data_length=%zu"
-                //       , this->uncompressed_data_length);
-                //}
             }
         }
-
-        (*pbuffer) = (*pbuffer) + len;
+        return Read::Ok;
     }
+
+
 };  // class SnappyCompressionInTransport
 
 

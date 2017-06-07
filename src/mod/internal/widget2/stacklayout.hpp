@@ -28,10 +28,10 @@
 
 struct WidgetStackLayout : public WidgetLayout {
     size_t selected;
-    int bgcolor;
+    BGRColor bgcolor;
 
-    WidgetStackLayout(gdi::GraphicApi & drawable, const Rect & rect, Widget2 & parent,
-                      NotifyApi * notifier, int group_id = 0, int bgcolor = BLACK)
+    WidgetStackLayout(gdi::GraphicApi & drawable, const Rect rect, Widget2 & parent,
+                      NotifyApi * notifier, int group_id = 0, BGRColor bgcolor = BLACK)
         : WidgetLayout(drawable, rect, parent, notifier, group_id)
         , selected(0)
         , bgcolor(bgcolor)
@@ -40,7 +40,7 @@ struct WidgetStackLayout : public WidgetLayout {
 
     virtual ~WidgetStackLayout() {}
 
-    virtual void draw(const Rect& clip) {
+    virtual void draw(const Rect clip) {
         if (this->selected < this->nb_items) {
             Widget2 *w = this->items[this->selected];
             w->refresh(clip.intersect(this->rect));

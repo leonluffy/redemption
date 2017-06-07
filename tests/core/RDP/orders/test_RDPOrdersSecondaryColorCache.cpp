@@ -21,27 +21,25 @@
    Using lib boost functions for testing
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestOrderColCache
+#define RED_TEST_MODULE TestOrderColCache
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
 
 #include "core/RDP/orders/RDPOrdersSecondaryColorCache.hpp"
 
-#include "test_orders.hpp"
+#include "./test_orders.hpp"
 
-BOOST_AUTO_TEST_CASE(TestColCache)
+RED_AUTO_TEST_CASE(TestColCache)
 {
     using namespace RDP;
 
     {
         StaticOutStream<65536> out_stream;
 
-        BGRPalette palette{BGRPalette::no_init()};
+        BGRPalette palette = BGRPalette::classic_332();
         for (int i = 0; i < 256; ++i){
-            palette.set_color(i, (((i >> 6) & 3) << 16) + (((i>>3) & 7) << 8) + (i & 7));
+            palette.set_color(i, BGRColor((((i >> 6) & 3) << 16) + (((i>>3) & 7) << 8) + (i & 7)));
         }
         RDPColCache newcmd(0, palette);
 
@@ -125,7 +123,7 @@ BOOST_AUTO_TEST_CASE(TestColCache)
         InStream in_stream(out_stream.get_data(), out_stream.get_offset());
 
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & (STANDARD|SECONDARY)));
+        RED_CHECK_EQUAL(true, !!(control & (STANDARD|SECONDARY)));
         RDPSecondaryOrderHeader header(in_stream);
         RDPColCache cmd(0, newcmd.palette);
         cmd.receive(in_stream, header);

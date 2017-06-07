@@ -21,10 +21,14 @@
 
 #pragma once
 
-#include <map>
 #include "bmpcache.hpp"
-#include "transport/transport.hpp"
+#include "transport/crypto_transport.hpp"
 #include "utils/verbose_flags.hpp"
+#include "utils/fileutils.hpp"
+#include "utils/sugar/unique_fd.hpp"
+
+#include <map>
+
 
 namespace RDP {
 struct BitmapCachePersistentListEntry;
@@ -103,8 +107,7 @@ public:
         uint8_t buf[16];
         InStream stream(buf);
 
-        auto end = buf;
-        t.recv(&end, 5);  /* magic(4) + version(1) */
+        t.recv_boom(buf, 5);  /* magic(4) + version(1) */
 
         const uint8_t * magic   = stream.in_uint8p(4);  /* magic(4) */
               uint8_t   version = stream.in_uint8();
@@ -139,15 +142,19 @@ private:
         uint8_t buf[65536];
         InStream stream(buf);
         auto end = buf;
-        t.recv(&end, 2);
+        t.recv_boom(end, 2);
+        end += 2;
 
         uint16_t bitmap_count = stream.in_uint16_le();
-        if (this->verbose & Verbose::from_disk) {
+        if (bool(this->verbose & Verbose::from_disk)) {
             LOG(LOG_INFO, "BmpCachePersister::preload_from_disk: bitmap_count=%u", bitmap_count);
         }
 
+        BGRPalette original_palette = BGRPalette::classic_332();
+
         for (uint16_t i = 0; i < bitmap_count; i++) {
-            t.recv(&end, 13); // sig(8) + original_bpp(1) + cx(2) + cy(2);
+            t.recv_boom(end, 13); // sig(8) + original_bpp(1) + cx(2) + cy(2);
+            end += 13;
 
             uint8_t sig[8];
 
@@ -159,29 +166,31 @@ private:
             uint16_t cx           = stream.in_uint16_le();
             uint16_t cy           = stream.in_uint16_le();
 
-            BGRPalette original_palette{BGRPalette::no_init()};
             if (original_bpp == 8) {
-                t.recv(&end, sizeof(original_palette));
+                // TODO implementation and endianness dependent
+                t.recv_boom(end, sizeof(original_palette));
+                end += sizeof(original_palette);
 
                 stream.in_copy_bytes(const_cast<char*>(original_palette.data()), sizeof(original_palette));
             }
 
             uint16_t bmp_size;
-            t.recv(&end, sizeof(bmp_size));
+            t.recv_boom(end, sizeof(bmp_size));
+            end += sizeof(original_palette);
             bmp_size = stream.in_uint16_le();
 
             end = buf;
             stream = InStream(buf);
 
-            t.recv(&end, bmp_size);
+            t.recv_boom(end, bmp_size);
 
             if (bmp_cache.get_cache(cache_id).persistent()) {
                 map_key key(sig);
 
-                if (this->verbose & Verbose::bmp_info) {
+                if (bool(this->verbose & Verbose::bmp_info)) {
                     LOG( LOG_INFO
                        , "BmpCachePersister::preload_from_disk: sig=\"%s\" original_bpp=%u cx=%u cy=%u bmp_size=%u"
-                       , key.str().c_str(), original_bpp, cx, cy, bmp_size);
+                       , key.str(), original_bpp, cx, cy, bmp_size);
                 }
 
                 REDASSERT(this->bmp_map[cache_id][key].is_valid() == false);
@@ -190,7 +199,7 @@ private:
                           , &original_palette, cx, cy, stream.get_data()
                           , bmp_size);
 
-                uint8_t sha1[20];
+                uint8_t sha1[SslSha1::DIGEST_LENGTH];
                 bmp.compute_sha1(sha1);
                 if (memcmp(sig, sha1, sizeof(sig))) {
                     LOG( LOG_ERR
@@ -226,8 +235,8 @@ public:
 
             container_type::iterator it = this->bmp_map[cache_id].find(key);
             if (it != this->bmp_map[cache_id].end()) {
-                if (this->verbose & Verbose::bmp_info) {
-                    LOG(LOG_INFO, "BmpCachePersister: bitmap found. key=\"%s\"", key.str().c_str());
+                if (bool(this->verbose & Verbose::bmp_info)) {
+                    LOG(LOG_INFO, "BmpCachePersister: bitmap found. key=\"%s\"", key.str());
                 }
 
                 if (this->bmp_cache.get_cache(cache_id).size() > cache_index) {
@@ -236,8 +245,8 @@ public:
 
                 this->bmp_map[cache_id].erase(it);
             }
-            else if (this->verbose & Verbose::bmp_info) {
-                LOG(LOG_WARNING, "BmpCachePersister: bitmap not found!!! key=\"%s\"", key.str().c_str());
+            else if (bool(this->verbose & Verbose::bmp_info)) {
+                LOG(LOG_WARNING, "BmpCachePersister: bitmap not found!!! key=\"%s\"", key.str());
             }
         }
     }
@@ -248,8 +257,7 @@ public:
         uint8_t buf[16];
         InStream stream(buf);
 
-        auto end = buf;
-        t.recv(&end, 5);  /* magic(4) + version(1) */
+        t.recv_boom(buf, 5);  /* magic(4) + version(1) */
 
         const uint8_t * magic   = stream.in_uint8p(4);  /* magic(4) */
               uint8_t   version = stream.in_uint8();
@@ -285,15 +293,19 @@ private:
         uint8_t buf[65536];
         InStream stream(buf);
         auto end = buf;
-        t.recv(&end, 2);
+        t.recv_boom(end, 2);
+        end += 2;
 
         uint16_t bitmap_count = stream.in_uint16_le();
         if (bool(verbose & Verbose::from_disk)) {
             LOG(LOG_INFO, "BmpCachePersister::load_from_disk: bitmap_count=%u", bitmap_count);
         }
 
+        BGRPalette original_palette = BGRPalette::classic_332();
+
         for (uint16_t i = 0; i < bitmap_count; i++) {
-            t.recv(&end, 13); // sig(8) + original_bpp(1) + cx(2) + cy(2);
+            t.recv_boom(end, 13); // sig(8) + original_bpp(1) + cx(2) + cy(2);
+            end +=  13;
 
             union {
                 uint8_t  sig_8[8];
@@ -308,28 +320,30 @@ private:
             uint16_t cx           = stream.in_uint16_le();
             uint16_t cy           = stream.in_uint16_le();
 
-            BGRPalette original_palette{BGRPalette::no_init()};
             if (original_bpp == 8) {
-                t.recv(&end, sizeof(original_palette));
+                // TODO implementation and endianness dependent
+                t.recv_boom(end, sizeof(original_palette));
+                end += sizeof(original_palette);
 
                 stream.in_copy_bytes(const_cast<char*>(original_palette.data()), sizeof(original_palette));
             }
 
             uint16_t bmp_size;
-            t.recv(&end, sizeof(bmp_size));
+            t.recv_boom(end, sizeof(bmp_size));
             bmp_size = stream.in_uint16_le();
 
             end = buf;
             stream = InStream(buf);
 
-            t.recv(&end, bmp_size);
+            t.recv_boom(end, bmp_size);
+            end += bmp_size;
 
             if (bmp_cache.get_cache(cache_id).persistent() && (i < bmp_cache.get_cache(cache_id).size())) {
                 if (bool(verbose & Verbose::bmp_info)) {
                     map_key key(sig.sig_8);
                     LOG( LOG_INFO
                         , "BmpCachePersister::load_from_disk: sig=\"%s\" original_bpp=%u cx=%u cy=%u bmp_size=%u"
-                        , key.str().c_str(), original_bpp, cx, cy, bmp_size);
+                        , key.str(), original_bpp, cx, cy, bmp_size);
                 }
 
                 Bitmap bmp(bmp_cache.bpp, original_bpp, &original_palette, cx, cy, stream.get_data(), stream.get_data() - end);
@@ -391,15 +405,15 @@ private:
                 const uint8_t  * bmp_data = bmp.data();
 
                 // if (bmp_cache.owner == BmpCache::Front) {
-                //     uint8_t sha1[20];
+                //     uint8_t sha1[SslSha1::DIGEST_LENGTH];
                 //     bmp.compute_sha1(sha1);
 
-                //     char sig_sig[20];
+                //     char sig_sig[SslSha1::DIGEST_LENGTH];
 
                 //     snprintf( sig_sig, sizeof(sig_sig), "%02X%02X%02X%02X%02X%02X%02X%02X"
                 //             , sig[0], sig[1], sig[2], sig[3], sig[4], sig[5], sig[6], sig[7]);
 
-                //     char sig_sha1[20];
+                //     char sig_sha1[SslSha1::DIGEST_LENGTH];
 
                 //     snprintf( sig_sha1, sizeof(sig_sig), "%02X%02X%02X%02X%02X%02X%02X%02X"
                 //             , sha1[0], sha1[1], sha1[2], sha1[3], sha1[4], sha1[5], sha1[6], sha1[7]);
@@ -416,7 +430,7 @@ private:
                 if (bool(verbose & Verbose::bmp_info)) {
                     LOG( LOG_INFO
                        , "BmpCachePersister::save_to_disk: sig=\"%s\" original_bpp=%u cx=%u cy=%u bmp_size=%u"
-                       , key.str().c_str(), bmp.bpp(), bmp.cx(), bmp.cy(), bmp_size);
+                       , key.str(), bmp.bpp(), bmp.cx(), bmp.cy(), bmp_size);
                 }
 
                 stream.out_copy_bytes(sig, 8);
@@ -424,6 +438,7 @@ private:
                 stream.out_uint16_le(bmp.cx());
                 stream.out_uint16_le(bmp.cy());
                 if (bmp.bpp() == 8) {
+                    // TODO implementation and endianness dependent
                     stream.out_copy_bytes(bmp.palette().data(), sizeof(bmp.palette()));
                 }
                 stream.out_uint16_le(bmp_size);
@@ -435,3 +450,62 @@ private:
     }
 };
 
+inline void save_persistent_disk_bitmap_cache(
+    BmpCache const & bmp_cache,
+    const char * persistent_path,
+    const char * target_host,
+    uint8_t bpp,
+    ReportError report_error,
+    BmpCachePersister::Verbose verbose
+)
+{
+    // Ensures that the directory exists.
+    if (::recursive_create_directory(persistent_path, S_IRWXU | S_IRWXG, -1) != 0) {
+        LOG( LOG_ERR
+            , "save_persistent_disk_bitmap_cache: failed to create directory \"%s\"."
+            , persistent_path);
+        throw Error(ERR_BITMAP_CACHE_PERSISTENT, 0);
+    }
+
+    char filename_temporary[2048];
+    ::snprintf(filename_temporary, sizeof(filename_temporary) - 1, "%s/PDBC-%s-%d-XXXXXX.tmp",
+        persistent_path, target_host, bpp);
+    filename_temporary[sizeof(filename_temporary) - 1] = '\0';
+
+    int fd = ::mkostemps(filename_temporary, 4, O_CREAT | O_WRONLY);
+    if (fd == -1) {
+        LOG( LOG_ERR
+            , "save_persistent_disk_bitmap_cache: "
+                "failed to open (temporary) file for writing. filename=\"%s\""
+            , filename_temporary);
+        throw Error(ERR_PDBC_SAVE);
+    }
+
+    try
+    {
+        {
+            OutFileTransport oft(unique_fd{fd}, std::move(report_error));
+            BmpCachePersister::save_all_to_disk(bmp_cache, oft, verbose);
+        }
+
+        // Generates the name of file.
+        char filename[2048];
+        ::snprintf(filename, sizeof(filename) - 1, "%s/PDBC-%s-%d", persistent_path, target_host, bpp);
+        filename[sizeof(filename) - 1] = '\0';
+
+        if (::rename(filename_temporary, filename) == -1) {
+            LOG( LOG_WARNING
+                , "save_persistent_disk_bitmap_cache: failed to rename the (temporary) file. "
+                    "old_filename=\"%s\" new_filename=\"%s\""
+                , filename_temporary, filename);
+            ::unlink(filename_temporary);
+        }
+    }
+    catch (...) {
+        LOG( LOG_WARNING
+            , "save_persistent_disk_bitmap_cache: failed to write (temporary) file. "
+                "filename=\"%s\""
+            , filename_temporary);
+        ::unlink(filename_temporary);
+    }
+}

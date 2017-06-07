@@ -26,22 +26,18 @@
 
 #include "utils/apps/app_proxy.hpp"
 
-#include "program_options/program_options.hpp"
-#include "capture/rdp_ppocr/get_ocr_constants.hpp"
-
 #include "capture/cryptofile.hpp"
 #include "utils/genrandom.hpp"
+#include "utils/genfstat.hpp"
+#include "configs/config.hpp"
 
 #include "main/version.hpp"
 
-namespace po = program_options;
-
 int main(int argc, char** argv)
 {
-    Inifile ini;
-
-    UdevRandom rnd;
     CryptoContext cctx;
+    UdevRandom rnd;
+    Fstat fstat;
 
     return app_proxy(
         argc, argv
@@ -52,5 +48,6 @@ int main(int argc, char** argv)
         "and Meng Tan."
       , cctx
       , rnd
+      , fstat
     );
 }

@@ -27,41 +27,26 @@
 #include <stdint.h>
 #include <cstddef>
 
-#include "utils/log.hpp"
 #include "core/error.hpp"
-#include "acl/auth_api.hpp"
+#include "utils/invalid_socket.hpp"
 #include "utils/sugar/noncopyable.hpp"
+#include "utils/sugar/std_stream_proto.hpp"
 
 #include "configs/autogen/enums.hpp"
 
-#include "core/server_notifier_api.hpp"
 
 using std::size_t;
 
+class ServerNotifier;
+
 class Transport : noncopyable
 {
-    uint64_t total_received;
-    uint64_t total_sent;
-
 protected:
     uint32_t seqno;
 
-    uint64_t last_quantum_received;
-    uint64_t last_quantum_sent;
-
-    bool status;
-
-    auth_api * authentifier;
-
 public:
     Transport()
-    : total_received(0)
-    , total_sent(0)
-    , seqno(0)
-    , last_quantum_received(0)
-    , last_quantum_sent(0)
-    , status(true)
-    , authentifier(get_null_authentifier())
+    : seqno(0)
     {}
 
     virtual ~Transport()
@@ -69,39 +54,6 @@ public:
 
     uint32_t get_seqno() const
     { return this->seqno; }
-
-    uint64_t get_total_received() const
-    { return this->total_received + this->last_quantum_received; }
-
-    uint64_t get_last_quantum_received() const
-    { return this->last_quantum_received; }
-
-    uint64_t get_total_sent() const
-    { return this->total_sent + this->last_quantum_sent; }
-
-    uint64_t get_last_quantum_sent() const
-    { return this->last_quantum_sent; }
-
-    virtual bool get_status() const
-    { return this->status; }
-
-    void set_authentifier(auth_api * authentifier)
-    {
-        this->authentifier = authentifier;
-    }
-
-    //void reset_quantum_sent() noexcept
-    //{
-    //    this->last_quantum_sent = 0;
-    //}
-
-    void tick()
-    {
-        this->total_received += this->last_quantum_received;
-        this->total_sent += this->last_quantum_sent;
-        this->last_quantum_received = 0;
-        this->last_quantum_sent = 0;
-    }
 
     virtual void enable_client_tls(
             bool server_cert_store,
@@ -135,24 +87,45 @@ public:
         return 0;
     }
 
-    void recv(char ** pbuffer, size_t len)
+    enum class Read : bool { Eof, Ok };
+
+    /// recv_boom read len bytes into buffer or throw an Error
+    /// if EOF is encountered at that point it's also an error and
+    /// it throws Error(ERR_TRANSPORT_NO_MORE_DATA)
+    void recv_boom(uint8_t * buffer, size_t len)
     {
-        this->do_recv(reinterpret_cast<uint8_t **>(pbuffer), len);
+        if (Read::Eof == this->atomic_read(buffer, len)){
+            throw Error(ERR_TRANSPORT_NO_MORE_DATA);
+        }
     }
 
-    void send(const char * const buffer, size_t len)
+    void recv_boom(char * buffer, size_t len)
     {
-        this->do_send(reinterpret_cast<const uint8_t * const>(buffer), len);
+        this->recv_boom(reinterpret_cast<uint8_t*>(buffer), len);
     }
 
-    void recv(uint8_t ** pbuffer, size_t len)
+    /// atomic_read either read len bytes into buffer or throw an Error
+    /// returned value is either true is read was successful
+    /// or false if nothing was read (End of File reached at block frontier)
+    /// if an exception is thrown buffer is dirty and may have been modified.
+    Read atomic_read(uint8_t * buffer, size_t len) __attribute__ ((warn_unused_result))
     {
-        this->do_recv(pbuffer, len);
+        return this->do_atomic_read(buffer, len);
+    }
+
+    Read atomic_read(char * buffer, size_t len) __attribute__ ((warn_unused_result))
+    {
+        return this->do_atomic_read(reinterpret_cast<uint8_t*>(buffer), len);
     }
 
     void send(const uint8_t * const buffer, size_t len)
     {
         this->do_send(buffer, len);
+    }
+
+    void send(const char * const buffer, size_t len)
+    {
+        this->do_send(reinterpret_cast<const uint8_t*>(buffer), len);
     }
 
     virtual void flush()
@@ -166,16 +139,18 @@ public:
     }
 
 private:
-    virtual void do_recv(uint8_t ** pbuffer, size_t len) {
-        (void)pbuffer;
+    /// Atomic read read exactly the amount of data requested or return an error
+    /// @see atomic_read
+    virtual Read do_atomic_read(uint8_t * buffer, size_t len) {
+        (void)buffer;
         (void)len;
-        throw Error(ERR_TRANSPORT_OUTPUT_ONLY_USED_FOR_SEND);
+        throw Error(ERR_TRANSPORT_INPUT_ONLY_USED_FOR_RECV);
     }
 
     virtual void do_send(const uint8_t * buffer, size_t len) {
         (void)buffer;
         (void)len;
-        throw Error(ERR_TRANSPORT_INPUT_ONLY_USED_FOR_RECV);
+        throw Error(ERR_TRANSPORT_OUTPUT_ONLY_USED_FOR_SEND);
     }
 
 public:
@@ -202,10 +177,15 @@ public:
         return true;
     }
 
-    virtual void request_full_cleaning()
-    {}
+    virtual int get_fd() const { return INVALID_SOCKET; }
 
 private:
     Transport(const Transport &) = delete;
     Transport& operator=(const Transport &) = delete;
 };
+
+
+REDEMPTION_OSTREAM(out, Transport::Read status)
+{
+    return out << (status == Transport::Read::Ok ? "Read::Ok" : "Read::Eof");
+}

@@ -183,7 +183,8 @@ struct GlyphCacheCaps : public Capability {
     GlyphCacheCaps()
     : Capability(CAPSTYPE_GLYPHCACHE, LENGTH_CAPABILITY) {}
 
-    void emit(OutStream & stream)override {
+    void emit(OutStream & stream) const
+    {
         stream.out_uint16_le(this->capabilityType);
         stream.out_uint16_le(this->len);
         for (uint8_t i = 0; i < NUMBER_OF_CACHE; ++i) {
@@ -195,7 +196,8 @@ struct GlyphCacheCaps : public Capability {
         stream.out_uint16_le(this->pad2octets);
     }
 
-    void recv(InStream & stream, uint16_t len) override {
+    void recv(InStream & stream, uint16_t len)
+    {
         this->len               = len;
         for (uint8_t i = 0; i < NUMBER_OF_CACHE; ++i) {
             this->GlyphCache[i].CacheEntries         = stream.in_uint16_le();
@@ -206,7 +208,8 @@ struct GlyphCacheCaps : public Capability {
         this->pad2octets        = stream.in_uint16_le();
     }
 
-    void log(const char * msg) override {
+    void log(const char * msg) const
+    {
         LOG(LOG_INFO, "%s GlyphCache caps (%u bytes)", msg, this->len);
         for (uint8_t i = 0; i < NUMBER_OF_CACHE; ++i) {
             LOG( LOG_INFO, "GlyphCache caps::GlyphCache[%u].CacheEntries=%u"
@@ -219,5 +222,3 @@ struct GlyphCacheCaps : public Capability {
         LOG(LOG_INFO, "GlyphCache caps::pad2octets %u", this->pad2octets);
     }
 };  // struct GlyphCacheCaps
-
-// #ifndef _REDEMPTION_CORE_RDP_CAPABILITIES_GLYPHCACHE_HPP_

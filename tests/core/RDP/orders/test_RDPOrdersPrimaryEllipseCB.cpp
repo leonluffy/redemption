@@ -22,9 +22,7 @@
    Using lib boost functions for testing
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestOrderEllipseCB
+#define RED_TEST_MODULE TestOrderEllipseCB
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
@@ -32,9 +30,9 @@
 
 #include "core/RDP/orders/RDPOrdersPrimaryEllipseCB.hpp"
 
-#include "test_orders.hpp"
+#include "./test_orders.hpp"
 
-BOOST_AUTO_TEST_CASE(TestEllipseCB)
+RED_AUTO_TEST_CASE(TestEllipseCB)
 {
     using namespace RDP;
 
@@ -51,14 +49,14 @@ BOOST_AUTO_TEST_CASE(TestEllipseCB)
 
         // DESTBLT = 0, hence we won't have order change
         RDPOrderCommon state_common(0, Rect(311, 0, 800, 600));
-        RDPEllipseCB state_ellipse(Rect(), 0, 0x00, 0, 0, RDPBrush());
-        BOOST_CHECK(state_ellipse.id() == ELLIPSECB);
+        RDPEllipseCB state_ellipse(Rect(), 0, 0x00, RDPColor{}, RDPColor{}, RDPBrush());
+        RED_CHECK(state_ellipse.id() == ELLIPSECB);
         //state_ellipse.log(1, Rect());
         //state_ellipse.print(Rect());
         RDPOrderCommon newcommon(ELLIPSECB, Rect(311, 0, 800, 600));
         RDPEllipseCB(Rect(300, 400, 50, 60),
                      0xFF, 0x01,
-                     0x102030, 0x112233,
+                     encode_color24()(BGRColor{0x102030}), encode_color24()(BGRColor{0x112233}),
                      RDPBrush(3, 4, 3, 0xDD, reinterpret_cast<const uint8_t*>("\1\2\3\4\5\6\7"))
                      ).emit(out_stream, newcommon, state_common, state_ellipse);
 
@@ -84,18 +82,18 @@ BOOST_AUTO_TEST_CASE(TestEllipseCB)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSECB), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSECB), common_cmd.order);
 
-        RDPEllipseCB cmd(Rect(), 0, 0x00, 0, 0, RDPBrush());
+        RDPEllipseCB cmd(Rect(), 0, 0x00, RDPColor{}, RDPColor{}, RDPBrush());
 
         cmd.receive(in_stream, header);
 
         check<RDPEllipseCB>(common_cmd, cmd,
                             RDPOrderCommon(ELLIPSECB, Rect(311, 0, 800, 600)),
-                            RDPEllipseCB(Rect(300, 400, 50, 60), 0xFF, 0x01, 0x102030, 0x112233,
+                            RDPEllipseCB(Rect(300, 400, 50, 60), 0xFF, 0x01, encode_color24()(BGRColor{0x102030}), encode_color24()(BGRColor{0x112233}),
                                          RDPBrush(3, 4, 0x03, 0xDD,
                                          reinterpret_cast<const uint8_t*>("\1\2\3\4\5\6\7"))),
                             "EllipseCB 1");
@@ -106,12 +104,12 @@ BOOST_AUTO_TEST_CASE(TestEllipseCB)
 
         // DESTBLT = 0, hence we won't have order change
         RDPOrderCommon state_common(0, Rect(311, 0, 800, 600));
-        RDPEllipseCB state_ellipse(Rect(), 0, 0x01, 0, 0, RDPBrush());
+        RDPEllipseCB state_ellipse(Rect(), 0, 0x01, RDPColor{}, RDPColor{}, RDPBrush());
 
         RDPOrderCommon newcommon(ELLIPSECB, Rect(311, 0, 800, 600));
         RDPEllipseCB(Rect(300, 400, 50, 60),
                      0xFF, 0x01,
-                     0x102030, 0x112233,
+                     encode_color24()(BGRColor{0x102030}), encode_color24()(BGRColor{0x112233}),
                      RDPBrush(3, 4, 1, 0xDD)
                      ).emit(out_stream, newcommon, state_common, state_ellipse);
 
@@ -127,18 +125,18 @@ BOOST_AUTO_TEST_CASE(TestEllipseCB)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSECB), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSECB), common_cmd.order);
 
-        RDPEllipseCB cmd(Rect(), 0, 0x01, 0, 0, RDPBrush());
+        RDPEllipseCB cmd(Rect(), 0, 0x01, RDPColor{}, RDPColor{}, RDPBrush());
 
         cmd.receive(in_stream, header);
 
         check<RDPEllipseCB>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSECB, Rect(311, 0, 800, 600)),
-            RDPEllipseCB(Rect(300, 400, 50, 60), 0xFF, 0x01, 0x102030, 0x112233,
+            RDPEllipseCB(Rect(300, 400, 50, 60), 0xFF, 0x01, encode_color24()(BGRColor{0x102030}), encode_color24()(BGRColor{0x112233}),
                 RDPBrush(3, 4, 0x01, 0xDD)),
             "EllipseCB 2");
     }
@@ -147,13 +145,13 @@ BOOST_AUTO_TEST_CASE(TestEllipseCB)
         StaticOutStream<1000> out_stream;
 
         RDPOrderCommon state_common(0, Rect(311, 0, 800, 600));
-        RDPEllipseCB state_ellipse(Rect(), 0, 0x01, 0, 0, RDPBrush(0, 0, 0x03, 0xDD));
+        RDPEllipseCB state_ellipse(Rect(), 0, 0x01, RDPColor{}, RDPColor{}, RDPBrush(0, 0, 0x03, 0xDD));
 
         RDPOrderCommon newcommon(ELLIPSECB, Rect(311, 0, 800, 600));
 
         RDPEllipseCB(Rect(300, 400, 50, 60),
                   0xFF, 0x01,
-                  0x102030, 0x112233,
+                  encode_color24()(BGRColor{0x102030}), encode_color24()(BGRColor{0x112233}),
                   RDPBrush(3, 4, 3, 0xDD, reinterpret_cast<const uint8_t*>("\1\2\3\4\5\6\7"))
                   ).emit(out_stream, newcommon, state_common, state_ellipse);
 
@@ -168,18 +166,18 @@ BOOST_AUTO_TEST_CASE(TestEllipseCB)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSECB), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSECB), common_cmd.order);
 
-        RDPEllipseCB cmd(Rect(), 0, 0x01, 0, 0, RDPBrush(0, 0, 3, 0xDD));
+        RDPEllipseCB cmd(Rect(), 0, 0x01, RDPColor{}, RDPColor{}, RDPBrush(0, 0, 3, 0xDD));
 
         cmd.receive(in_stream, header);
 
         check<RDPEllipseCB>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSECB, Rect(311, 0, 800, 600)),
-            RDPEllipseCB(Rect(300, 400, 50, 60), 0xFF, 0x01, 0x102030, 0x112233,
+            RDPEllipseCB(Rect(300, 400, 50, 60), 0xFF, 0x01, encode_color24()(BGRColor{0x102030}), encode_color24()(BGRColor{0x112233}),
                 RDPBrush(3, 4, 0x03, 0xDD, reinterpret_cast<const uint8_t*>("\1\2\3\4\5\6\7"))),
             "EllipseCB 3");
     }

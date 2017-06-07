@@ -48,7 +48,8 @@ using FlatSelector2ModVariables = vcfg::variables<
     vcfg::var<cfg::globals::host,                       vcfg::accessmode::get>,
     vcfg::var<cfg::translation::language,               vcfg::accessmode::get>,
     vcfg::var<cfg::font,                                vcfg::accessmode::get>,
-    vcfg::var<cfg::theme,                               vcfg::accessmode::get>
+    vcfg::var<cfg::theme,                               vcfg::accessmode::get>,
+    vcfg::var<cfg::debug::mod_internal,                 vcfg::accessmode::get>
 >;
 
 class FlatSelector2Mod : public LocallyIntegrableMod, public NotifyApi
@@ -81,12 +82,12 @@ class FlatSelector2Mod : public LocallyIntegrableMod, public NotifyApi
     int selector_lines_per_page_saved = 0;
 
 public:
-    FlatSelector2Mod(FlatSelector2ModVariables vars, FrontAPI & front, uint16_t width, uint16_t height, Rect const & widget_rect, ClientExecute & client_execute)
+    FlatSelector2Mod(FlatSelector2ModVariables vars, FrontAPI & front, uint16_t width, uint16_t height, Rect const widget_rect, ClientExecute & client_execute)
         : LocallyIntegrableMod(front, width, height, vars.get<cfg::font>(), client_execute, vars.get<cfg::theme>())
         , language_button(vars.get<cfg::client::keyboard_layout_proposals>().c_str(), this->selector, front, front, this->font(), this->theme())
         , selector(
             front, temporary_login(vars).buffer,
-            widget_rect.x, widget_rect.y, widget_rect.cx + 1, widget_rect.cy + 1,
+            widget_rect.x, widget_rect.y, widget_rect.cx, widget_rect.cy,
             this->screen, this,
             vars.is_asked<cfg::context::selector_current_page>()
                 ? "" : configs::make_zstr_buffer(vars.get<cfg::context::selector_current_page>()).get(),
@@ -102,6 +103,7 @@ public:
         , current_page(atoi(this->selector.current_page.get_text()))
         , number_page(atoi(this->selector.number_page.get_text()+1))
         , vars(vars)
+        , copy_paste(vars.get<cfg::debug::mod_internal>() != 0)
     {
         this->selector.set_widget_focus(&this->selector.selector_lines, Widget2::focus_reason_tabkey);
         this->screen.add_widget(&this->selector);
@@ -116,7 +118,7 @@ public:
         this->selector_lines_per_page_saved = available_height / line_height;
         this->vars.set_acl<cfg::context::selector_lines_per_page>(this->selector_lines_per_page_saved);
         this->ask_page();
-        this->selector.refresh(this->selector.get_rect());
+        this->selector.rdp_input_invalidate(this->selector.get_rect());
     }
 
     ~FlatSelector2Mod() override {
@@ -239,10 +241,10 @@ public:
 
         this->refresh_device();
 
-        this->selector.refresh(this->selector.get_rect());
+        this->selector.rdp_input_invalidate(this->selector.get_rect());
 
-        this->selector.current_page.refresh(this->selector.current_page.get_rect());
-        this->selector.number_page.refresh(this->selector.number_page.get_rect());
+        this->selector.current_page.rdp_input_invalidate(this->selector.current_page.get_rect());
+        this->selector.number_page.rdp_input_invalidate(this->selector.number_page.get_rect());
         this->event.reset();
     }
 
@@ -289,14 +291,18 @@ private:
         if (this->selector.selector_lines.get_nb_rows() == 0) {
             this->selector.selector_lines.tab_flag = Widget2::IGNORE_TAB;
             this->selector.selector_lines.focus_flag = Widget2::IGNORE_FOCUS;
-            this->selector.add_device("", TR("no_results", language(this->vars)), "");
+            this->selector.add_device("", TR(trkeys::no_results, language(this->vars)), "");
         } else {
             this->selector.selector_lines.tab_flag = Widget2::NORMAL_TAB;
             this->selector.selector_lines.focus_flag = Widget2::NORMAL_FOCUS;
             this->selector.selector_lines.set_selection(0);
             this->selector.set_widget_focus(&this->selector.selector_lines, Widget2::focus_reason_tabkey);
         }
-        this->selector.rearrange();
+        this->selector.move_size_widget(
+            this->selector.x(),
+            this->selector.y(),
+            this->selector.cx(),
+            this->selector.cy());
     }
 
 public:
@@ -354,6 +360,7 @@ public:
         if (!this->copy_paste && event.waked_up_by_time) {
             this->copy_paste.ready(this->front);
         }
+
         this->event.reset();
     }
 
@@ -368,7 +375,7 @@ public:
     }
 
     void move_size_widget(int16_t left, int16_t top, uint16_t width, uint16_t height) override {
-        this->selector.move_size_widget(left, top, width + 1, height + 1);
+        this->selector.move_size_widget(left, top, width, height);
 
         uint16_t available_height = (this->selector.first_page.y() - 10) - this->selector.selector_lines.y();
         gdi::TextMetrics tm(this->vars.get<cfg::font>(), "Édp");
@@ -382,7 +389,7 @@ public:
 
             this->vars.set_acl<cfg::context::selector_lines_per_page>(available_height / line_height);
             this->ask_page();
-            this->selector.refresh(this->selector.get_rect());
+            this->selector.rdp_input_invalidate(this->selector.get_rect());
         }
     }
 };

@@ -22,9 +22,7 @@
     when connecting from mstsc (mocked up)
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestFrontMstscClientRDP50Bulk
+#define RED_TEST_MODULE TestFrontMstscClientRDP50Bulk
 #include "system/redemption_unit_tests.hpp"
 
 // Comment the code block below to generate testing data.
@@ -39,14 +37,17 @@
 #include "core/font.hpp"
 #include "mod/null/null.hpp"
 #include "mod/internal/test_card_mod.hpp"
-#include "transport/test_transport.hpp"
+#include "test_only/transport/test_transport.hpp"
 #include "configs/config.hpp"
 #include "front/front.hpp"
 // Uncomment the code block below to generate testing data.
 //#include "core/listen.hpp"
 //#include "core/session.hpp"
 
-BOOST_AUTO_TEST_CASE(TestIncomingConnection)
+#include "test_only/lcg_random.hpp"
+
+
+RED_AUTO_TEST_CASE(TestIncomingConnection)
 {
     // Uncomment the code block below to generate testing data.
     //// This server only support one incoming connection before closing listener
@@ -97,16 +98,16 @@ BOOST_AUTO_TEST_CASE(TestIncomingConnection)
     //                           , ini.get<cfg::debug::front>(), 0);
 
     // Comment the code block below to generate testing data.
-    #include "../fixtures/trace_mstsc_client_rdp50bulk.hpp"
+    #include "fixtures/trace_mstsc_client_rdp50bulk.hpp"
 
     // Comment the code block below to generate testing data.
-    uint32_t     verbose = 511;
-    TestTransport front_trans(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1, verbose);
+    TestTransport front_trans(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
 
     ini.set<cfg::client::tls_support>(true);
     ini.set<cfg::client::tls_fallback_legacy>(false);
     ini.set<cfg::client::bogus_user_id>(false);
     ini.set<cfg::client::rdp_compression>(RdpCompression::rdp5);
+    ini.set<cfg::globals::large_pointer_support>(false);
 
     time_t now = 1450864840;
 
@@ -114,7 +115,8 @@ BOOST_AUTO_TEST_CASE(TestIncomingConnection)
     CryptoContext cctx;
     const bool fastpath_support = true;
     const bool mem3blt_support  = false;
-    Front front( front_trans, gen, ini, cctx, fastpath_support, mem3blt_support, now);
+    NullReportMessage report_message;
+    Front front( front_trans, gen, ini, cctx, report_message, fastpath_support, mem3blt_support, now);
     null_mod no_mod(front);
 
     while (front.up_and_running == 0) {
@@ -123,7 +125,7 @@ BOOST_AUTO_TEST_CASE(TestIncomingConnection)
 
     LOG(LOG_INFO, "hostname=%s", front.client_info.hostname);
 
-    BOOST_CHECK_EQUAL(1, front.up_and_running);
+    RED_CHECK_EQUAL(1, front.up_and_running);
     TestCardMod mod(front, front.client_info.width, front.client_info.height, ini.get<cfg::font>());
     mod.draw_event(time(nullptr), front);
 

@@ -50,13 +50,8 @@ static inline const char * basename_len(const char * path, size_t & len)
 
 static inline char * basename_len(char * path, size_t & len)
 {
-    char * tmp = strrchr(path, '/');
-    if (tmp){
-        len = strlen(tmp+1);
-        return tmp+1;
-    }
-    len = strlen(path);
-    return path;
+    char const * const_path = path;
+    return const_cast<char*>(basename_len(const_path, len));
 }
 
 static inline int filesize(const char * path)
@@ -66,6 +61,7 @@ static inline int filesize(const char * path)
     if (status >= 0){
         return sb.st_size;
     }
+    //LOG(LOG_INFO, "%s", strerror(errno));
     return -1;
 }
 
@@ -190,98 +186,6 @@ static inline bool canonical_path( const char * fullpath, char * path, size_t pa
     return true;
 }
 
-static inline void clear_files_flv_meta_png(const char * path, const char * prefix)
-{
-    struct D {
-        DIR * d;
-
-        ~D() { closedir(d); }
-        operator DIR * () const { return d; }
-    } d{opendir(path)};
-
-    if (d){
-//        char static_buffer[8192];
-        char buffer[8192];
-        size_t path_len = strlen(path);
-        size_t prefix_len = strlen(prefix);
-        size_t file_len = 1024;
-//        size_t file_len = pathconf(path, _PC_NAME_MAX) + 1;
-//        char * buffer = static_buffer;
-
-/*
-        if (file_len < 4000){
-            LOG(LOG_WARNING, "File name length is in normal range (%u), using static buffer", static_cast<unsigned>(file_len));
-            file_len = 4000;
-        }
-        else {
-            LOG(LOG_WARNING, "Max file name too large (%u), using dynamic buffer", static_cast<unsigned>(file_len));
-
-            char * buffer = (char*)malloc(file_len + path_len + 1);
-            if (!buffer){
-                LOG(LOG_WARNING, "Memory allocation failed for file name buffer, using static buffer");
-                buffer = static_buffer;
-                file_len = 4000;
-            }
-        }
-*/
-        if (file_len + path_len + 1 > sizeof(buffer)) {
-            LOG(LOG_WARNING, "Path len %zu > %zu", file_len + path_len + 1, sizeof(buffer));
-            return;
-        }
-        strncpy(buffer, path, file_len + path_len + 1);
-        if (buffer[path_len] != '/'){
-            buffer[path_len] = '/'; path_len++; buffer[path_len] = 0;
-        }
-
-        // TODO size_t len = offsetof(struct dirent, d_name) + NAME_MAX + 1 ?
-        const size_t len = offsetof(struct dirent, d_name) + file_len;
-        struct E {
-            dirent * entryp;
-
-            ~E() { free(entryp); }
-            operator dirent * () const { return entryp; }
-            dirent * operator -> () const { return entryp; }
-        } entryp{static_cast<struct dirent *>(malloc(len))};
-        if (!entryp){
-            LOG(LOG_WARNING, "Memory allocation failed for entryp, exiting file cleanup code");
-            return;
-        }
-        struct dirent * result;
-        for (readdir_r(d, entryp, &result) ; result ; readdir_r(d, entryp, &result)) {
-            if ((0 == strcmp(entryp->d_name, ".")) || (0 == strcmp(entryp->d_name, ".."))){
-                continue;
-            }
-
-            if (strncmp(entryp->d_name, prefix, prefix_len)){
-                continue;
-            }
-
-            strncpy(buffer + path_len, entryp->d_name, file_len);
-            const char * eob = buffer + path_len + strlen(entryp->d_name);
-            const bool extension = ((eob[-4] == '.') && (eob[-3] == 'f') && (eob[-2] == 'l') && (eob[-1] == 'v'))
-                          || ((eob[-4] == '.') && (eob[-3] == 'p') && (eob[-2] == 'n') && (eob[-1] == 'g'))
-                          || ((eob[-5] == '.') && (eob[-4] == 'm') && (eob[-3] == 'e') && (eob[-2] == 't') && (eob[-1] == 'a'))
-                          || ((eob[-4] == '.') && (eob[-3] == 'p') && (eob[-2] == 'g') && (eob[-1] == 's'))
-                          ;
-
-            if (!extension){
-                continue;
-            }
-
-            struct stat st;
-            if (stat(buffer, &st) < 0){
-                LOG(LOG_WARNING, "Failed to read file %s [%d: %s]", buffer, errno, strerror(errno));
-                continue;
-            }
-            if (unlink(buffer) < 0){
-                LOG(LOG_WARNING, "Failed to remove file %s [%d: %s]", buffer, errno, strerror(errno));
-            }
-        }
-    }
-    else {
-        LOG(LOG_WARNING, "Failed to open directory %s [%d: %s]", path, errno, strerror(errno));
-    }
-}
 
 static inline int _internal_make_directory(const char *directory, mode_t mode, const int groupid) {
     struct stat st;
@@ -361,7 +265,7 @@ static inline int recursive_delete_directory(const char * directory_path) {
             }
 
             size_t entry_path_length = directory_path_len + strlen(ent->d_name) + 2;
-            // TODO not used alloca !!!
+            // TODO not use alloca !!!
             char * entry_path = reinterpret_cast<char *>(alloca(entry_path_length));
 
             if (entry_path) {

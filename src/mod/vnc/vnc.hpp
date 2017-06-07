@@ -37,6 +37,7 @@
 #include "core/RDP/clipboard.hpp"
 #include "core/RDP/orders/RDPOrdersPrimaryScrBlt.hpp"
 #include "core/RDP/orders/RDPOrdersSecondaryColorCache.hpp"
+#include "core/report_message_api.hpp"
 #include "utils/sugar/update_lock.hpp"
 #include "transport/socket_transport.hpp"
 #include "core/channel_names.hpp"
@@ -44,6 +45,9 @@
 #include "utils/utf.hpp"
 
 #include <cstdlib>
+
+#include <zlib.h>
+
 
 // got extracts of VNC documentation from
 // http://tigervnc.sourceforge.net/cgi-bin/rfbproto
@@ -177,8 +181,8 @@ private:
     const bool is_socket_transport;
 
     bool     clipboard_requesting_for_data_is_delayed = false;
-    uint64_t clipboard_last_client_data_timestamp     = 0;
     int      clipboard_requested_format_id            = 0;
+    std::chrono::microseconds clipboard_last_client_data_timestamp = std::chrono::microseconds{};
 
     ClipboardEncodingType clipboard_server_encoding_type;
 
@@ -188,9 +192,13 @@ private:
 
     uint32_t clipboard_general_capability_flags = 0;
 
-    auth_api * acl;
+    ReportMessageApi & report_message;
 
     time_t beginning;
+
+    bool server_is_apple;
+
+    int keylayout;
 
 public:
     //==============================================================================================================
@@ -201,7 +209,8 @@ public:
            , uint16_t front_width
            , uint16_t front_height
            , Font const & font
-           , Translator const & tr
+           , const char * label_text_message
+           , const char * label_text_password
            , Theme const & theme
            , int keylayout
            , int key_flags
@@ -212,18 +221,17 @@ public:
            , bool is_socket_transport
            , ClipboardEncodingType clipboard_server_encoding_type
            , VncBogusClipboardInfiniteLoop bogus_clipboard_infinite_loop
-           , auth_api * acl
+           , ReportMessageApi & report_message
+           , bool server_is_apple
            , uint32_t verbose
            )
     //==============================================================================================================
-    : InternalMod(front, front_width, front_height, font, theme)
+    : InternalMod(front, front_width, front_height, font, theme, false)
     , challenge(front, front_width, front_height, this->screen, static_cast<NotifyApi*>(this),
-                "Redemption " VERSION, this->theme(),
-                tr("authentication_required"),
-                tr("password"),
+                "Redemption " VERSION, this->theme(), label_text_message, label_text_password,
                 this->font())
     , mod_name{0}
-    , palette(nullptr)
+    , palette(BGRPalette::classic_332())
     , vnc_desktop(0)
     , username{0}
     , password{0}
@@ -241,7 +249,9 @@ public:
     , is_socket_transport(is_socket_transport)
     , clipboard_server_encoding_type(clipboard_server_encoding_type)
     , bogus_clipboard_infinite_loop(bogus_clipboard_infinite_loop)
-    , acl(acl)
+    , report_message(report_message)
+    , server_is_apple(server_is_apple)
+    , keylayout(keylayout)
     {
     //--------------------------------------------------------------------------------------------------------------
         LOG(LOG_INFO, "Creation of new mod 'VNC'");
@@ -258,8 +268,12 @@ public:
 
             throw Error(ERR_VNC_ZLIB_INITIALIZATION);
         }
-
-        keymapSym.init_layout_sym(keylayout);
+        // TODO init layout sym with apple layout
+        if (this->server_is_apple) {
+            keymapSym.init_layout_sym(0x0409);
+        } else {
+            keymapSym.init_layout_sym(keylayout);
+        }
         // Initial state of keys (at least lock keys) is copied from Keymap2
         keymapSym.key_flags = key_flags;
 
@@ -283,6 +297,8 @@ public:
 
         this->screen.clear();
     }
+
+    int get_fd() const override { return this->t.get_fd(); }
 
     void ms_logon(uint64_t gen, uint64_t mod, uint64_t resp) {
         if (this->verbose) {
@@ -323,8 +339,7 @@ public:
 
         auto in_uint32_be = [&]{
             uint8_t buf_stream[4];
-            auto end = buf_stream;
-            this->t.recv(&end, 4);
+            this->t.recv_boom(buf_stream, 4);
             return Parse(buf_stream).in_uint32_be();
 
         };
@@ -339,7 +354,8 @@ public:
                 char   reason[256];
                 char * preason = reason;
 
-                this->t.recv(&preason, std::min<size_t>(sizeof(reason) - 1, reason_length));
+                this->t.recv_boom(preason, std::min<size_t>(sizeof(reason) - 1, reason_length));
+                preason += std::min<size_t>(sizeof(reason) - 1, reason_length);
                 *preason = 0;
 
                 LOG(LOG_INFO, "Reason for the connection failure: %s", preason);
@@ -402,11 +418,29 @@ public:
             return;
         }
 
+        // AltGr or Alt are catched by Appel OS
+
+        // TODO detect if target is a Apple server and set layout to US before to call keymapSym::event()
+
         // TODO As down/up state is not stored in keymapSym, code below is quite dangerous
-        this->keymapSym.event(device_flags, param1);
+        LOG(LOG_INFO, "mod_vnc::rdp_input_scancode(device_flags=%ld, param1=%ld)", device_flags, param1);
+
+
         uint8_t downflag = !(device_flags & KBD_FLAG_UP);
 
+        if (this->server_is_apple) {
+            this->apple_keyboard_translation(device_flags, param1, downflag);
+        } else {
+            this->keyMapSym_event(device_flags, param1, downflag);
+        }
+
+    } // rdp_input_scancode
+
+
+    void keyMapSym_event(int device_flags, long param1, uint8_t downflag) {
+        this->keymapSym.event(device_flags, param1);
         int key = this->keymapSym.get_sym();
+
         if (key > 0) {
             if (this->left_ctrl_pressed) {
                 if (key == 0xfe03) {
@@ -427,7 +461,7 @@ public:
                 this->left_ctrl_pressed = true;
             }
         }
-    } // rdp_input_scancode
+    }
 
     void send_keyevent(uint8_t down_flag, uint32_t key) {
         if (this->verbose) {
@@ -440,6 +474,111 @@ public:
         stream.out_uint32_be(key);
         this->t.send(stream.get_data(), stream.get_offset());
         this->event.set(1000);
+    }
+
+    void apple_keyboard_translation(int device_flags, long param1, uint8_t downflag) {
+
+        switch (this->keylayout) {
+
+            case 0x040c:                                    // French
+                switch (param1) {
+
+                    case 0x0b:
+                        if (this->keymapSym.is_alt_pressed()) {
+                            this->send_keyevent(0, 0xffe9);
+                            this->send_keyevent(downflag, 0xa4); /* @ */
+                            this->send_keyevent(1, 0xffe9);
+                        } else {
+                            this->keyMapSym_event(device_flags, param1, downflag);
+                        }
+                        break;
+
+                    case 0x04:
+                        if (this->keymapSym.is_alt_pressed()) {
+                            this->send_keyevent(0, 0xffe9);
+                            this->send_keyevent(1, 0xffe2);
+                            this->send_keyevent(downflag, 0xa4); /* # */
+                            this->send_keyevent(0, 0xffe2);
+                            this->send_keyevent(1, 0xffe9);
+                        } else {
+                            this->keyMapSym_event(device_flags, param1, downflag);
+                        }
+                        break;
+
+                    case 0x35:
+                        if (this->keymapSym.is_shift_pressed()) {
+                            this->send_keyevent(0, 0xffe2);
+                            this->send_keyevent(downflag, 0x36); /* § */
+                            this->send_keyevent(1, 0xffe2);
+                        } else {
+                            if (device_flags & KeymapSym::KBDFLAGS_EXTENDED) {
+                                this->send_keyevent(1, 0xffe2);
+                                this->send_keyevent(downflag, 0x3e); /* / */
+                                this->send_keyevent(0, 0xffe2);
+                            } else {
+                                this->send_keyevent(downflag, 0x38); /* ! */
+                            }
+                        }
+                        break;
+
+                    case 0x07: /* - */
+                        if (!this->keymapSym.is_shift_pressed()) {
+                            this->send_keyevent(1, 0xffe2);
+                            this->send_keyevent(downflag, 0x3d);
+                            this->send_keyevent(0, 0xffe2);
+                        } else {
+                            this->keyMapSym_event(device_flags, param1, downflag);
+                        }
+                        break;
+
+                    case 0x2b: /* * */
+                        this->send_keyevent(1, 0xffe2);
+                        this->send_keyevent(downflag, 0x2a);
+                        this->send_keyevent(0, 0xffe2);
+                        break;
+
+                    case 0x1b: /* £ */
+                        if (this->keymapSym.is_shift_pressed()) {
+                            this->send_keyevent(downflag, 0x5c);
+                        } else {
+                            this->keyMapSym_event(device_flags, param1, downflag);
+                        }
+                        break;
+
+                    case 0x09: /* _ */
+                        if (!this->keymapSym.is_shift_pressed()) {
+                            this->send_keyevent(1, 0xffe2);
+                            this->send_keyevent(downflag, 0xad);
+                            this->send_keyevent(0, 0xffe2);
+                        } else {
+                            this->send_keyevent(downflag, 0x38); /* 8 */
+                        }
+                        break;
+
+                    case 0x56:
+                        if (this->keymapSym.is_shift_pressed()) {
+                            this->send_keyevent(downflag, 0x7e); /* > */
+                        } else {
+                            this->send_keyevent(1, 0xffe2);
+                            this->send_keyevent(downflag, 0x60); /* < */
+                            this->send_keyevent(0, 0xffe2);
+                        }
+                        break;
+
+                    case 0x0d: /* = */
+                        this->send_keyevent(downflag, 0x2f);
+                        break;
+
+                    default:
+                        this->keyMapSym_event(device_flags, param1, downflag);
+                        break;
+                }
+                break;
+
+            default:
+                this->keyMapSym_event(device_flags, param1, downflag);
+                break;
+        }
     }
 
 protected:
@@ -468,7 +607,6 @@ protected:
     void rdp_input_clip_data(uint8_t * data, size_t data_length) {
         auto client_cut_text = [this](char * str) {
             ::in_place_windows_to_linux_newline_convert(str);
-
             size_t const str_len = ::strlen(str);
 
             StreamBufMaker<65536> buf_maker;
@@ -563,7 +701,7 @@ public:
     } // rdp_input_synchronize
 
 private:
-    void update_screen(const Rect & r, uint8_t incr = 1) {
+    void update_screen(Rect r, uint8_t incr = 1) {
         StaticOutStream<10> stream;
         /* FramebufferUpdateRequest */
         stream.out_uint8(3);
@@ -573,11 +711,10 @@ private:
         stream.out_uint16_be(r.cx);
         stream.out_uint16_be(r.cy);
         this->t.send(stream.get_data(), stream.get_offset());
-    } // rdp_input_invalidate
+    } // update_screen
 
 public:
-    void rdp_input_invalidate(const Rect & r) override {
-
+    void rdp_input_invalidate(Rect r) override {
         if (this->state == WAIT_PASSWORD) {
             this->screen.rdp_input_invalidate(r);
             return;
@@ -587,10 +724,16 @@ public:
             return;
         }
 
-        if (!r.isempty()) {
-            this->update_screen(r, 0);
+        Rect r_ = r.intersect(Rect(0, 0, this->width, this->height));
+
+        if (!r_.isempty()) {
+            this->update_screen(r_, 0);
         }
     } // rdp_input_invalidate
+
+    void refresh(Rect r) override {
+        this->rdp_input_invalidate(r);
+    }
 
 protected:
     static void fill_encoding_types_buffer(const char * encodings, OutStream & stream, uint16_t & number_of_encodings, uint32_t verbose)
@@ -640,7 +783,7 @@ public:
 
             this->challenge.set_widget_focus(&this->challenge.password_edit, Widget2::focus_reason_tabkey);
 
-            this->screen.refresh(this->screen.get_rect());
+            this->screen.rdp_input_invalidate(this->screen.get_rect());
 
             this->state = WAIT_PASSWORD;
             break;
@@ -653,29 +796,27 @@ public:
                 Pointer cursor;
                 cursor.x = 3;
                 cursor.y = 3;
-                cursor.bpp = 24;
+//                cursor.bpp = 24;
                 cursor.width = 32;
                 cursor.height = 32;
                 memset(cursor.data + 31 * (32 * 3), 0xff, 9);
                 memset(cursor.data + 30 * (32 * 3), 0xff, 9);
                 memset(cursor.data + 29 * (32 * 3), 0xff, 9);
                 memset(cursor.mask, 0xff, 32 * (32 / 8));
+                cursor.update_bw();
                 this->front.set_pointer(cursor);
 
-                if (this->acl) {
-                    this->acl->log4(false, "SESSION_ESTABLISHED_SUCCESSFULLY");
-                }
+                this->report_message.log4(false, "SESSION_ESTABLISHED_SUCCESSFULLY");
 
                 LOG(LOG_INFO, "VNC connection complete, connected ok\n");
                 this->front.begin_update();
-                RDPOpaqueRect orect(Rect(0, 0, this->width, this->height), 0);
-                drawable.draw(orect, Rect(0, 0, this->width, this->height));
+                RDPOpaqueRect orect(Rect(0, 0, this->width, this->height), RDPColor{});
+                drawable.draw(orect, Rect(0, 0, this->width, this->height), gdi::ColorCtx::from_bpp(this->bpp, this->palette));
                 this->front.end_update();
 
                 this->state = UP_AND_RUNNING;
-                this->front.can_be_start_capture(this->acl);
+                this->front.can_be_start_capture();
                 this->update_screen(Rect(0, 0, this->width, this->height));
-
                 this->lib_open_clip_channel();
 
                 this->event.object_and_time = false;
@@ -768,8 +909,7 @@ public:
             if (this->is_socket_transport && static_cast<SocketTransport&>(this->t).can_recv()) {
                 try {
                     uint8_t type; /* message-type */
-                    uint8_t * end = &type;
-                    this->t.recv(&end, 1);
+                    this->t.recv_boom(&type, 1);
                     switch (type) {
                         case 0: /* framebuffer update */
                             this->lib_framebuffer_update(drawable);
@@ -818,10 +958,7 @@ public:
 
                 /* protocol version */
                 uint8_t server_protoversion[12];
-                {
-                    auto end = server_protoversion;
-                    this->t.recv(&end, 12);
-                }
+                this->t.recv_boom(server_protoversion, 12);
                 server_protoversion[11] = 0;
                 if (this->verbose) {
                     LOG(LOG_INFO, "Server Protocol Version=%s\n", server_protoversion);
@@ -831,8 +968,7 @@ public:
 
                 int32_t const security_level = [this](){
                     uint8_t buf[4];
-                    auto end = buf;
-                    this->t.recv(&end, sizeof(buf));
+                    this->t.recv_boom(buf, sizeof(buf));
                     return Parse(buf).in_sint32_be();
                 }();
 
@@ -852,8 +988,7 @@ public:
                         }
                         uint8_t buf[16];
                         auto recv = [&](size_t len) {
-                            auto end = buf;
-                            this->t.recv(&end, len);
+                            this->t.recv_boom(buf, len);
                         };
                         recv(16);
 
@@ -880,7 +1015,6 @@ public:
                         int i = Parse(buf).in_uint32_be();
                         if (i != 0) {
                             // vnc password failed
-
                             // Optionnal
                             try
                             {
@@ -890,7 +1024,9 @@ public:
                                 char   reason[256];
                                 char * preason = reason;
 
-                                this->t.recv(&preason, std::min<size_t>(sizeof(reason) - 1, reason_length));
+                                this->t.recv_boom(preason,
+                                                std::min<size_t>(sizeof(reason) - 1, reason_length));
+                                preason += std::min<size_t>(sizeof(reason) - 1, reason_length);
                                 *preason = 0;
 
                                 LOG(LOG_INFO, "Reason for the connection failure: %s", preason);
@@ -927,8 +1063,7 @@ public:
                     {
                         LOG(LOG_INFO, "VNC MS-LOGON Auth");
                         uint8_t buf[8+8+8];
-                        auto end = buf;
-                        this->t.recv(&end, sizeof(buf));
+                        this->t.recv_boom(buf, sizeof(buf));
                         InStream stream(buf);
                         uint64_t gen = stream.in_uint64_be();
                         uint64_t mod = stream.in_uint64_be();
@@ -940,11 +1075,9 @@ public:
                     {
                         LOG(LOG_INFO, "VNC INVALID Auth");
                         uint8_t buf[8192];
-                        auto end = buf;
-                        this->t.recv(&end, 4);
+                        this->t.recv_boom(buf, 4);
                         size_t reason_length = Parse(buf).in_uint32_be();
-                        end = buf;
-                        this->t.recv(&end, reason_length);
+                        this->t.recv_boom(buf, reason_length);
                         hexdump_c(buf, reason_length);
                         throw Error(ERR_VNC_CONNECTION_ERROR);
 
@@ -957,7 +1090,6 @@ public:
 
                 // 7.3.2   ServerInit
                 // ------------------
-
                 // After receiving the ClientInit message, the server sends a
                 // ServerInit message. This tells the client the width and
                 // height of the server's framebuffer, its pixel format and the
@@ -1034,10 +1166,8 @@ public:
 
                 {
                     uint8_t buf[24];
-                    {
-                        auto end = buf;
-                        this->t.recv(&end, sizeof(buf)); // server init
-                    }
+                    this->t.recv_boom(buf, sizeof(buf));  // server init
+
                     InStream stream(buf);
                     this->width = stream.in_uint16_be();
                     this->height = stream.in_uint16_be();
@@ -1061,8 +1191,7 @@ public:
                         LOG(LOG_ERR, "VNC connection error");
                         throw Error(ERR_VNC_CONNECTION_ERROR);
                     }
-                    char * end = this->mod_name;
-                    this->t.recv(&end, lg);
+                    this->t.recv_boom(this->mod_name, lg);
                     this->mod_name[lg] = 0;
                     // LOG(LOG_INFO, "VNC received: mod_name='%s'", this->mod_name);
                 }
@@ -1072,7 +1201,6 @@ public:
                 {
                 // 7.4.1   SetPixelFormat
                 // ----------------------
-
                 // Sets the format in which pixel values should be sent in
                 // FramebufferUpdate messages. If the client does not send
                 // a SetPixelFormat message then the server sends pixel values
@@ -1216,6 +1344,15 @@ public:
                 }
 
                 switch (this->front.server_resize(this->width, this->height, this->bpp)){
+                case FrontAPI::ResizeResult::instant_done:
+                    if (this->verbose) {
+                        LOG(LOG_INFO, "no resizing needed");
+                    }
+                    // no resizing needed
+                    this->state = DO_INITIAL_CLEAR_SCREEN;
+                    this->event.object_and_time = true;
+                    this->event.set();
+                    break;
                 case FrontAPI::ResizeResult::no_need:
                     if (this->verbose) {
                         LOG(LOG_INFO, "no resizing needed");
@@ -1281,7 +1418,6 @@ public:
                 size_t chunk_size = length;
 
                 this->clipboard_requesting_for_data_is_delayed = false;
-
                 this->send_to_front_channel( channel_names::cliprdr
                                            , out_s.get_data()
                                            , length
@@ -1665,7 +1801,8 @@ private:
         uint8_t data_rec[256];
         InStream stream_rec(data_rec);
         uint8_t * end = data_rec;
-        this->t.recv(&end, 3);
+        this->t.recv_boom(end, 3);
+        end += 3;
         stream_rec.in_skip_bytes(1);
         size_t num_recs = stream_rec.in_uint16_be();
 
@@ -1673,7 +1810,8 @@ private:
         for (size_t i = 0; i < num_recs; i++) {
             stream_rec = InStream(data_rec);
             end = data_rec;
-            this->t.recv(&end, 12);
+            this->t.recv_boom(end, 12);
+            end += 12;
             const uint16_t x = stream_rec.in_uint16_be();
             const uint16_t y = stream_rec.in_uint16_be();
             const uint16_t cx = stream_rec.in_uint16_be();
@@ -1693,7 +1831,7 @@ private:
                 for (uint16_t yy = y ; yy < y + cy ; yy += 16) {
                     uint8_t * tmp = raw.get();
                     uint16_t cyy = std::min<uint16_t>(16, cy-(yy-y));
-                    this->t.recv(&tmp, cyy*cx*Bpp);
+                    this->t.recv_boom(tmp, cyy*cx*Bpp);
                     //LOG(LOG_INFO, "draw vnc: x=%d y=%d cx=%d cy=%d", x, yy, cx, cyy);
                     this->draw_tile(Rect(x, yy, cx, cyy), raw.get(), drawable);
                 }
@@ -1704,7 +1842,7 @@ private:
                 uint8_t data_copy_rect[4];
                 InStream stream_copy_rect(data_copy_rect);
                 uint8_t * end = data_copy_rect;
-                this->t.recv(&end, 4);
+                this->t.recv_boom(end, 4);
                 const int srcx = stream_copy_rect.in_uint16_be();
                 const int srcy = stream_copy_rect.in_uint16_be();
                 //LOG(LOG_INFO, "copy rect: x=%d y=%d cx=%d cy=%d encoding=%d src_x=%d, src_y=%d", x, y, cx, cy, encoding, srcx, srcy);
@@ -1726,10 +1864,11 @@ private:
                 InStream stream_rre(data_rre);
 
                 uint8_t * end = data_rre;
-                this->t.recv(&end,
+                this->t.recv_boom(end,
                       4   /* number-of-subrectangles */
                     + Bpp /* background-pixel-value */
                     );
+                end += 4 + Bpp;
 
                 uint32_t number_of_subrectangles_remain = stream_rre.in_uint32_be();
 
@@ -1752,7 +1891,7 @@ private:
 
                     InStream subrectangles(subrectangles_buf);
                     end = subrectangles_buf;
-                    this->t.recv(&end, (Bpp + 8) * number_of_subrectangles_read);
+                    this->t.recv_boom(end, (Bpp + 8) * number_of_subrectangles_read);
 
                     number_of_subrectangles_remain -= number_of_subrectangles_read;
 
@@ -1790,7 +1929,7 @@ private:
                 uint8_t * end = data_zrle;
 
                 //LOG(LOG_INFO, "VNC Encoding: ZRLE, Bpp = %u, x=%u, y=%u, cx=%u, cy=%u", Bpp, x, y, cx, cy);
-                this->t.recv(&end, 4);
+                this->t.recv_boom(end, 4);
 
                 uint32_t zlib_compressed_data_length = Parse(data_zrle).in_uint32_be();
 
@@ -1811,8 +1950,8 @@ private:
 
                 uint8_t zlib_compressed_data[65536];
                 end = zlib_compressed_data;
-                this->t.recv(&end, zlib_compressed_data_length);
-                REDASSERT(end - zlib_compressed_data == zlib_compressed_data_length);
+                this->t.recv_boom(end, zlib_compressed_data_length);
+                REDASSERT(end - zlib_compressed_data == 0);
 
                 ZRLEUpdateContext zrle_update_context;
 
@@ -1911,14 +2050,14 @@ private:
                 const uint8_t *vnc_pointer_mask = cursor_buf + sz_pixel_array;
                 {
                     auto end = cursor_buf;
-                    this->t.recv(&end, sz_pixel_array + sz_bitmask);
+                    this->t.recv_boom(end, sz_pixel_array + sz_bitmask);
                 }
 
                 Pointer cursor;
                 //LOG(LOG_INFO, "Cursor x=%u y=%u", x, y);
                 cursor.x = x;
                 cursor.y = y;
-                cursor.bpp = 24;
+//                cursor.bpp = 24;
                 cursor.width = 32;
                 cursor.height = 32;
                 // a VNC pointer of 1x1 size is not visible, so a default minimal pointer (dot pointer) is provided instead
@@ -1968,6 +2107,7 @@ private:
                     //if (x > 31) { x = 31; }
                     //if (y > 31) { y = 31; }
                 }
+                cursor.update_bw();
                 // TODO we should manage cursors bigger then 32 x 32  this is not an RDP protocol limitation
                 this->front.begin_update();
                 this->front.set_pointer(cursor);
@@ -1990,7 +2130,7 @@ private:
         InStream stream(buf);
         {
             auto end = buf;
-            this->t.recv(&end, 5);
+            this->t.recv_boom(end, 5);
         }
         stream.in_skip_bytes(1);
         int first_color = stream.in_uint16_be();
@@ -2000,15 +2140,15 @@ private:
         InStream stream2(buf2);
         {
             auto end = buf2;
-            this->t.recv(&end, num_colors * 6);
+            this->t.recv_boom(end, num_colors * 6);
         }
 
         if (num_colors <= 256) {
             for (int i = 0; i < num_colors; i++) {
-                const int r = stream2.in_uint16_be() >> 8;
-                const int g = stream2.in_uint16_be() >> 8;
                 const int b = stream2.in_uint16_be() >> 8;
-                this->palette.set_color(first_color + i, (r << 16) | (g << 8) | b);
+                const int g = stream2.in_uint16_be() >> 8;
+                const int r = stream2.in_uint16_be() >> 8;
+                this->palette.set_color(first_color + i, BGRColor(b, g, r));
             }
         }
         else {
@@ -2079,7 +2219,7 @@ private:
         this->to_rdp_clipboard_data = InStream(this->to_rdp_clipboard_data_buffer);
         {
             auto end = this->to_rdp_clipboard_data_buffer;
-            this->t.recv(&end, 7);
+            this->t.recv_boom(end, 7);
         }
         this->to_rdp_clipboard_data.in_skip_bytes(3);   // padding(3)
         const uint32_t clipboard_data_length =          // length(4)
@@ -2097,7 +2237,8 @@ private:
 
             if (clipboard_data_length < this->to_rdp_clipboard_data.get_capacity()) {
                 auto end = this->to_rdp_clipboard_data_buffer;
-                this->t.recv(&end, clipboard_data_length);  // Clipboard data.
+                this->t.recv_boom(end, clipboard_data_length);  // Clipboard data.
+                end += clipboard_data_length;
                 *end++ = '\0';  // Null character.
                 this->to_rdp_clipboard_data.in_skip_bytes(end - this->to_rdp_clipboard_data.get_data());
 
@@ -2136,7 +2277,7 @@ private:
             const uint32_t number_of_bytes_to_read =
                 std::min<uint32_t>(remaining_clipboard_data_length, sizeof(drop));
 
-            this->t.recv(&end, sizeof(number_of_bytes_to_read));
+            this->t.recv_boom(end, sizeof(number_of_bytes_to_read));
             remaining_clipboard_data_length -= number_of_bytes_to_read;
         }
 
@@ -2301,7 +2442,8 @@ private:
                                              | CHANNELS::CHANNEL_FLAG_LAST
                                            );
 
-                const uint64_t MINIMUM_TIMEVAL = 250000LL;
+                using std::chrono::microseconds;
+                constexpr microseconds MINIMUM_TIMEVAL(250000LL);
 
                 if (this->enable_clipboard_up
                 && (format_list_pdu.contains_data_in_text_format
@@ -2317,8 +2459,8 @@ private:
                              RDPECLIP::CF_TEXT : RDPECLIP::CF_UNICODETEXT);
                     }
 
-                    const uint64_t usnow = ustime();
-                    const uint64_t timeval_diff = usnow - this->clipboard_last_client_data_timestamp;
+                    const microseconds usnow = ustime();
+                    const microseconds timeval_diff = usnow - this->clipboard_last_client_data_timestamp;
                     //LOG(LOG_INFO,
                     //    "usnow=%llu clipboard_last_client_data_timestamp=%llu timeval_diff=%llu",
                     //    usnow, this->clipboard_last_client_data_timestamp, timeval_diff);
@@ -2772,7 +2914,7 @@ private:
         return (UP_AND_RUNNING == this->state);
     }
 
-    void draw_tile(const Rect & rect, const uint8_t * raw, gdi::GraphicApi & drawable)
+    void draw_tile(Rect rect, const uint8_t * raw, gdi::GraphicApi & drawable)
     {
         const uint16_t TILE_CX = 32;
         const uint16_t TILE_CY = 32;
@@ -2799,16 +2941,20 @@ private:
 
 public:
     void disconnect(time_t now) override {
-        if (this->acl) {
-            double seconds = ::difftime(now, this->beginning);
 
-            char extra[1024];
-            snprintf(extra, sizeof(extra), "duration='%02d:%02d:%02d'",
-                (int(seconds) / 3600), ((int(seconds) % 3600) / 60),
-                (int(seconds) % 60));
+        double seconds = ::difftime(now, this->beginning);
+        LOG(LOG_INFO, "Client disconnect");
 
-            this->acl->log4(false, "SESSION_DISCONNECTION", extra);
-        }
+        char extra[1024];
+        snprintf(extra, sizeof(extra), "duration=\"%02d:%02d:%02d\"",
+                        (int(seconds) / 3600),
+                        ((int(seconds) % 3600) / 60),
+                        (int(seconds) % 60));
+
+        this->report_message.log4(false, "SESSION_DISCONNECTION", extra);
     }
+
+    Dimension get_dim() const override
+    { return Dimension(this->width, this->height); }
 };
 

@@ -1,4 +1,4 @@
-#define BOOST_TEST_MODULE TestMd5
+#define RED_TEST_MODULE TestMd5
 
 #include "utils/crypto/ssl_md5_direct.hpp"
 #include "utils/crypto/ssl_md4_direct.hpp"
@@ -12,4 +12,4 @@ using SslHMAC_Md4 = SslHMAC_Md4_direct;
 
 using SslRC4 = SslRC4_direct;
 
-#include "system/common/test_ssl_md5.cpp"
+#include "../../system/common/test_ssl_md5.cpp"

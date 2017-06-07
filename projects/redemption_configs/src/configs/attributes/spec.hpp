@@ -90,7 +90,6 @@ namespace types
     struct u32 : unsigned_base { u32(long long = 0) {} };
     struct u64 : unsigned_base { u64(long long = 0) {} };
 
-    template<unsigned Len> struct static_string {};
     template<unsigned Len> struct fixed_string {};
     template<unsigned Len> struct fixed_binary {};
 
@@ -99,7 +98,7 @@ namespace types
 
     struct ip_string {};
 
-    struct path { using fixed_type = fixed_string<globals::path_max>; };
+    struct dirpath { using fixed_type = fixed_string<globals::path_max>; };
 
     template<class T, long min, long max> struct range {};
 }
@@ -125,13 +124,13 @@ namespace spec
     using type_ = bind_<class type_tag, ::cfg_attributes::type_<T>>;
 
     enum class attr {
-        none,
-        hex      = 1 << 0,
-        hidden   = 1 << 1,
-        visible  = 1 << 2,
-        advanced = 1 << 3,
-        iptables = 1 << 4,
-        password = 1 << 5,
+        no_ini_no_gui   = 1 << 0,
+        ini_and_gui     = 1 << 1,
+        hidden_in_gui   = 1 << 2,
+        hex_in_gui      = 1 << 3,
+        advanced_in_gui = 1 << 4,
+        iptables_in_gui = 1 << 5,
+        password_in_gui = 1 << 6,
     };
 
     constexpr attr operator | (attr x, attr y) {
@@ -153,9 +152,9 @@ namespace sesman
 
     enum class io {
         none,
-        read    = 1 << 0,
-        write   = 1 << 1,
-        rw = read | write,
+        sesman_to_proxy = 1 << 0,
+        proxy_to_sesman = 1 << 1,
+        rw = sesman_to_proxy | proxy_to_sesman,
     };
 
     constexpr io operator | (io x, io y) {

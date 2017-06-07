@@ -21,18 +21,25 @@
 
 #pragma once
 
-#include "utils/log.hpp"
-#include "utils/translation.hpp"
+#include "configs/config_access.hpp"
 #include "core/RDP/caches/bmpcache.hpp"
 #include "mod/rdp/rdp_log.hpp"
+#include "utils/log.hpp"
+#include "utils/translation.hpp"
 
-#include <string>
 #include <chrono>
+#include <string>
 
+class ClientExecute;
 class Transport;
-class auth_api;
 class Theme;
 class Font;
+
+using ModRdpVariables = vcfg::variables<
+    vcfg::var<cfg::context::auth_notify,                       vcfg::accessmode::set>,
+    vcfg::var<cfg::context::auth_notify_rail_exec_flags,       vcfg::accessmode::set>,
+    vcfg::var<cfg::context::auth_notify_rail_exec_exe_or_file, vcfg::accessmode::set>
+>;
 
 struct ModRDPParams {
     const char * target_user;
@@ -40,7 +47,7 @@ struct ModRDPParams {
     const char * target_host;
     const char * client_address;
 
-    const char * auth_user = "";
+    const char * primary_user_id = "";
     const char * target_application = "";
 
     bool enable_tls = true;
@@ -48,11 +55,10 @@ struct ModRDPParams {
     bool enable_krb = false;
     bool enable_fastpath = true;           // If true, fast-path must be supported.
     bool enable_mem3blt = true;
-    bool enable_bitmap_update = false;
     bool enable_new_pointer = true;
     bool enable_glyph_cache = false;
     bool enable_session_probe = false;
-    bool enable_session_probe_launch_mask = true;
+    bool session_probe_enable_launch_mask = true;
 
     bool disable_clipboard_log_syslog = false;
     bool disable_clipboard_log_wrm = false;
@@ -73,6 +79,7 @@ struct ModRDPParams {
     std::chrono::milliseconds    session_probe_idle_session_limit {};
     const char *                 session_probe_exe_or_file = "";
     const char *                 session_probe_arguments = "";
+    bool                         session_probe_enable_log = false;
 
     bool         enable_transparent_mode = false;
     const char * output_filename = "";
@@ -81,17 +88,20 @@ struct ModRDPParams {
 
     int key_flags;
 
-    auth_api * acl = nullptr;
-
-    const char * outbound_connection_monitoring_rules = "";
-    const char * process_monitoring_rules           = "";
+    const char * session_probe_extra_system_processes               = "";
+    const char * session_probe_outbound_connection_monitoring_rules = "";
+    const char * session_probe_process_monitoring_rules             = "";
 
     bool         ignore_auth_channel = false;
     const char * auth_channel = "";
 
+    // Application WAB
     const char * alternate_shell = "";
-    const char * working_dir = "";
+    const char * shell_arguments = "";
+    const char * shell_working_dir = "";
+
     bool         use_client_provided_alternate_shell = false;
+
     const char * target_application_account = "";
     const char * target_application_password = "";
 
@@ -138,14 +148,27 @@ struct ModRDPParams {
 
     bool adjust_performance_flags_for_recording = false;
 
+    ClientExecute * client_execute = nullptr;
+
     uint16_t     client_execute_flags;
     const char * client_execute_exe_or_file = "";
     const char * client_execute_working_dir = "";
     const char * client_execute_arguments = "";
 
+    bool         use_client_provided_remoteapp = false;
+
+    bool remote_program = false;
 
     Font const & font;
     Theme const & theme;
+
+    bool clean_up_32_bpp_cursor = false;
+
+    bool large_pointer_support = true;
+
+    std::array<uint8_t, 28>& server_auto_reconnect_packet_ref;
+
+    const char * load_balance_info = "";
 
     RDPVerbose verbose;
     BmpCache::Verbose cache_verbose = BmpCache::Verbose::none;
@@ -157,6 +180,7 @@ struct ModRDPParams {
                 , int key_flags
                 , Font const & font
                 , Theme const & theme
+                , std::array<uint8_t, 28>& server_auto_reconnect_packet_ref
                 , RDPVerbose verbose
                 )
         : target_user(target_user)
@@ -166,6 +190,7 @@ struct ModRDPParams {
         , key_flags(key_flags)
         , font(font)
         , theme(theme)
+        , server_auto_reconnect_packet_ref(server_auto_reconnect_packet_ref)
         , verbose(verbose)
     {}
 
@@ -182,13 +207,12 @@ struct ModRDPParams {
 #define RDP_PARAMS_LOG(format, get, member) \
     LOG(LOG_INFO, "ModRDPParams " #member "=" format, get (this->member))
 #define RDP_PARAMS_LOG_GET
-
         RDP_PARAMS_LOG("\"%s\"", RDP_PARAMS_LOG_GET,    target_user);
         RDP_PARAMS_LOG("\"%s\"", hidden_or_null,        target_password);
         RDP_PARAMS_LOG("\"%s\"", RDP_PARAMS_LOG_GET,    target_host);
         RDP_PARAMS_LOG("\"%s\"", RDP_PARAMS_LOG_GET,    client_address);
 
-        RDP_PARAMS_LOG("\"%s\"", s_or_null,             auth_user);
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             primary_user_id);
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             target_application);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_tls);
@@ -196,11 +220,10 @@ struct ModRDPParams {
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_krb);
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_fastpath);
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_mem3blt);
-        RDP_PARAMS_LOG("%s",     yes_or_no,             enable_bitmap_update);
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_new_pointer);
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_glyph_cache);
         RDP_PARAMS_LOG("%s",     yes_or_no,             enable_session_probe);
-        RDP_PARAMS_LOG("%s",     yes_or_no,             enable_session_probe_launch_mask);
+        RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_enable_launch_mask);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_use_clipboard_based_launcher);
         RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_launch_timeout);
@@ -214,6 +237,7 @@ struct ModRDPParams {
         RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_disconnected_session_limit);
         RDP_PARAMS_LOG("%u",     from_millisec,         session_probe_idle_session_limit);
         RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_customize_executable_name);
+        RDP_PARAMS_LOG("%s",     yes_or_no,             session_probe_enable_log);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             disable_clipboard_log_syslog);
         RDP_PARAMS_LOG("%s",     yes_or_no,             disable_clipboard_log_wrm);
@@ -228,17 +252,18 @@ struct ModRDPParams {
 
         RDP_PARAMS_LOG("%d",     RDP_PARAMS_LOG_GET,    key_flags);
 
-        RDP_PARAMS_LOG("<%p>",   static_cast<void*>,    acl);
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             session_probe_extra_system_processes);
 
-        RDP_PARAMS_LOG("\"%s\"", s_or_null,             outbound_connection_monitoring_rules);
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             session_probe_outbound_connection_monitoring_rules);
 
-        RDP_PARAMS_LOG("\"%s\"", s_or_null,             process_monitoring_rules);
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             session_probe_process_monitoring_rules);
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             ignore_auth_channel);
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             auth_channel);
 
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             alternate_shell);
-        RDP_PARAMS_LOG("\"%s\"", s_or_null,             working_dir);
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             shell_arguments);
+        RDP_PARAMS_LOG("\"%s\"", s_or_null,             shell_working_dir);
         RDP_PARAMS_LOG("%s",     yes_or_no,             use_client_provided_alternate_shell);
         RDP_PARAMS_LOG("\"%s\"", s_or_null,             target_application_account);
         RDP_PARAMS_LOG("\"%s\"", hidden_or_null,        target_application_password);
@@ -292,11 +317,23 @@ struct ModRDPParams {
 
         RDP_PARAMS_LOG("%s",     yes_or_no,             adjust_performance_flags_for_recording);
 
+        RDP_PARAMS_LOG("<%p>",   static_cast<void*>,    client_execute);
+
         RDP_PARAMS_LOG("0x%04X", RDP_PARAMS_LOG_GET,    client_execute_flags);
 
         RDP_PARAMS_LOG("%s",     s_or_none,             client_execute_exe_or_file);
         RDP_PARAMS_LOG("%s",     s_or_none,             client_execute_working_dir);
         RDP_PARAMS_LOG("%s",     s_or_none,             client_execute_arguments);
+
+        RDP_PARAMS_LOG("%s",     yes_or_no,             use_client_provided_remoteapp);
+
+        RDP_PARAMS_LOG("%s",     yes_or_no,             remote_program);
+
+        RDP_PARAMS_LOG("%s",     yes_or_no,             clean_up_32_bpp_cursor);
+
+        RDP_PARAMS_LOG("%s",     yes_or_no,             large_pointer_support);
+
+        RDP_PARAMS_LOG("%s",     s_or_none,             load_balance_info);
 
         RDP_PARAMS_LOG("0x%08X", static_cast<unsigned>, verbose);
         RDP_PARAMS_LOG("0x%08X", static_cast<unsigned>, cache_verbose);

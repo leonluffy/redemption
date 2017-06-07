@@ -20,19 +20,15 @@
    Unit test of Verifier module
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestVerifier
+#define RED_TEST_MODULE TestVerifier
 #include "system/redemption_unit_tests.hpp"
-
 
 #define LOGNULL
 // #define LOGPRINT
 
 #include "capture/cryptofile.hpp"
 
-
-BOOST_AUTO_TEST_CASE(TestDerivationOfHmacKeyFromCryptoKey)
+RED_AUTO_TEST_CASE(TestDerivationOfHmacKeyFromCryptoKey)
 {
     unsigned char expected_master_key[] {
         0x61, 0x1f, 0xd4, 0xcd, 0xe5, 0x95, 0xb7, 0xfd,
@@ -49,19 +45,109 @@ BOOST_AUTO_TEST_CASE(TestDerivationOfHmacKeyFromCryptoKey)
     };
 
     CryptoContext cctx;
-    cctx.set_master_key(cstr_array_view(
-        "\x61\x1f\xd4\xcd\xe5\x95\xb7\xfd"
-        "\xa6\x50\x38\xfc\xd8\x86\x51\x4f"
-        "\x59\x7e\x8e\x90\x81\xf6\xf4\x48"
-        "\x9c\x77\x41\x51\x0f\x53\x0e\xe8"
-    ));
-    cctx.set_hmac_key(cstr_array_view(
-         "\x86\x41\x05\x58\xc4\x95\xcc\x4e"
-         "\x49\x21\x57\x87\x47\x74\x08\x8a"
-         "\x33\xb0\x2a\xb8\x65\xcc\x38\x41"
-         "\x20\xfe\xc2\xc9\xb8\x72\xc8\x2c"
-    ));
+    cctx.set_master_key(expected_master_key);
+    cctx.set_hmac_key(expected_hmac_key);
 
-    BOOST_CHECK(0 == memcmp(expected_master_key, cctx.get_master_key(), 32));
-    BOOST_CHECK(0 == memcmp(expected_hmac_key, cctx.get_hmac_key(), 32));
+    RED_CHECK(0 == memcmp(expected_master_key, cctx.get_master_key(), 32));
+    RED_CHECK(0 == memcmp(expected_hmac_key, cctx.get_hmac_key(), 32));
+}
+
+namespace {
+    struct Observer
+    {
+        bool visited = false;
+        std::string key;
+        void reset()
+        {
+            this->visited = false;
+            this->key.clear();
+        }
+    };
+    Observer g_trace_key_ob;
+
+    int trace_key_cb(uint8_t const * base, int len, uint8_t * /*buffer*/, unsigned /*oldscheme*/)
+    {
+        g_trace_key_ob.key.assign(const_byte_ptr(base), len);
+        g_trace_key_ob.visited = true;
+        return 0;
+    }
+}
+
+
+RED_AUTO_TEST_CASE(TestNormalizeDerivedKey)
+{
+    CryptoContext cctx;
+    cctx.set_get_trace_key_cb(trace_key_cb);
+    cctx.set_master_derivator(cstr_array_view("abcd.mwrm"));
+
+    uint8_t trace_key[CRYPTO_KEY_LENGTH];
+
+    cctx.old_encryption_scheme = true;
+
+    g_trace_key_ob.reset();
+    cctx.get_derived_key(trace_key, cstr_array_view("abcde.mwrm"));
+    RED_CHECK(g_trace_key_ob.visited);
+    RED_CHECK_EQ(g_trace_key_ob.key, "abcde.mwrm");
+
+    g_trace_key_ob.reset();
+    cctx.get_derived_key(trace_key, cstr_array_view("abcdef.log"));
+    RED_CHECK(g_trace_key_ob.visited);
+    RED_CHECK_EQ(g_trace_key_ob.key, "abcdef.mwrm");
+
+    g_trace_key_ob.reset();
+    cctx.get_derived_key(trace_key, cstr_array_view("abcdefghi"));
+    RED_CHECK(g_trace_key_ob.visited);
+    RED_CHECK_EQ(g_trace_key_ob.key, "abcdefghi");
+
+    g_trace_key_ob.reset();
+    cctx.get_derived_key(trace_key, cstr_array_view("abcdefghi.xxx"));
+    RED_CHECK(g_trace_key_ob.visited);
+    RED_CHECK_EQ(g_trace_key_ob.key, "abcdefghi.xxx");
+
+    cctx.old_encryption_scheme = false;
+
+    g_trace_key_ob.reset();
+    cctx.get_derived_key(trace_key, cstr_array_view("abcdefg.log"));
+    RED_CHECK(g_trace_key_ob.visited);
+    RED_CHECK_EQ(g_trace_key_ob.key, "abcd.mwrm");
+
+    g_trace_key_ob.reset();
+    cctx.get_derived_key(trace_key, cstr_array_view("abcdefgh.log"));
+    RED_CHECK(!g_trace_key_ob.visited);
+}
+
+RED_AUTO_TEST_CASE(TestSetMasterDerivator)
+{
+    CryptoContext cctx;
+    auto abc = cstr_array_view("abc");
+    auto abcd = cstr_array_view("abcd");
+    cctx.set_master_derivator(abc);
+    RED_CHECK_NO_THROW(cctx.set_master_derivator(abc));
+    RED_CHECK_EXCEPTION_ERROR_ID(cctx.set_master_derivator(abcd), ERR_WRM_INVALID_INIT_CRYPT);
+    RED_CHECK_NO_THROW(cctx.set_master_derivator(abc));
+}
+
+
+namespace
+{
+    bool visited_cb = false;
+}
+
+RED_AUTO_TEST_CASE(TestErrCb)
+{
+    CryptoContext cctx;
+    cctx.set_get_hmac_key_cb(
+        [](uint8_t*){ visited_cb = true; return -1; });
+    cctx.set_get_trace_key_cb(
+        [](uint8_t const*, int, uint8_t*, unsigned){ visited_cb = true; return -1; });
+    cctx.set_master_derivator(cstr_array_view("abc"));
+
+    visited_cb = false;
+    RED_CHECK_EXCEPTION_ERROR_ID(cctx.get_hmac_key(), ERR_WRM_INVALID_INIT_CRYPT);
+    RED_CHECK(visited_cb);
+
+    visited_cb = false;
+    uint8_t trace_key[CRYPTO_KEY_LENGTH];
+    RED_CHECK_EXCEPTION_ERROR_ID(cctx.get_derived_key(trace_key, {}), ERR_WRM_INVALID_INIT_CRYPT);
+    RED_CHECK(visited_cb);
 }

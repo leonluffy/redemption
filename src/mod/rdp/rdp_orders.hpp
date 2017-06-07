@@ -86,6 +86,7 @@ class rdp_orders
     RDPEllipseSC       ellipseSC;
 
 public:
+    uint8_t bpp = 0;
     BGRPalette global_palette;
 
     BmpCache * bmp_cache;
@@ -93,7 +94,7 @@ public:
 private:
     GlyphCache gly_cache;
 
-    const implicit_bool_flags<RDPVerbose> verbose;
+    const RDPVerbose verbose;
 
 public:
     size_t recv_bmp_cache_count;
@@ -104,20 +105,22 @@ private:
     bool        enable_persistent_disk_bitmap_cache;
     bool        persist_bitmap_cache_on_disk;
 
+    ReportError report_error;
+
 public:
     rdp_orders( const char * target_host, bool enable_persistent_disk_bitmap_cache
-              , bool persist_bitmap_cache_on_disk, RDPVerbose verbose)
+              , bool persist_bitmap_cache_on_disk, RDPVerbose verbose, ReportError report_error)
     : common(RDP::PATBLT, Rect(0, 0, 1, 1))
     , memblt(0, Rect(), 0, 0, 0, 0)
-    , mem3blt(0, Rect(), 0, 0, 0, 0, 0, RDPBrush(), 0)
-    , opaquerect(Rect(), 0)
+    , mem3blt(0, Rect(), 0, 0, 0, RDPColor{}, RDPColor{}, RDPBrush(), 0)
+    , opaquerect(Rect(), RDPColor{})
     , scrblt(Rect(), 0, 0, 0)
     , destblt(Rect(), 0)
-    , patblt(Rect(), 0, 0, 0, RDPBrush())
-    , lineto(0, 0, 0, 0, 0, 0, 0, RDPPen(0, 0, 0))
-    , glyph_index( 0, 0, 0, 0, 0, 0, Rect(0, 0, 1, 1), Rect(0, 0, 1, 1), RDPBrush(), 0, 0, 0
+    , patblt(Rect(), 0, RDPColor{}, RDPColor{}, RDPBrush())
+    , lineto(0, 0, 0, 0, 0, RDPColor{}, 0, RDPPen(0, 0, RDPColor{}))
+    , glyph_index( 0, 0, 0, 0, RDPColor{}, RDPColor{}, Rect(0, 0, 1, 1), Rect(0, 0, 1, 1), RDPBrush(), 0, 0, 0
                  , reinterpret_cast<const uint8_t *>(""))
-    , global_palette(nullptr)
+    , global_palette(BGRPalette::classic_332())
     , bmp_cache(nullptr)
     , verbose(verbose)
     , recv_bmp_cache_count(0)
@@ -125,6 +128,7 @@ public:
     , target_host(target_host)
     , enable_persistent_disk_bitmap_cache(enable_persistent_disk_bitmap_cache)
     , persist_bitmap_cache_on_disk(persist_bitmap_cache_on_disk)
+    , report_error(std::move(report_error))
     {
     }
 
@@ -132,96 +136,55 @@ public:
     {
         this->common      = RDPOrderCommon(RDP::PATBLT, Rect(0, 0, 1, 1));
         this->memblt      = RDPMemBlt(0, Rect(), 0, 0, 0, 0);
-        this->mem3blt     = RDPMem3Blt(0, Rect(), 0, 0, 0, 0, 0, RDPBrush(), 0);
-        this->opaquerect  = RDPOpaqueRect(Rect(), 0);
+        this->mem3blt     = RDPMem3Blt(0, Rect(), 0, 0, 0, RDPColor{}, RDPColor{}, RDPBrush(), 0);
+        this->opaquerect  = RDPOpaqueRect(Rect(), RDPColor{});
         this->scrblt      = RDPScrBlt(Rect(), 0, 0, 0);
         this->destblt     = RDPDestBlt(Rect(), 0);
         this->multidstblt     = RDPMultiDstBlt();
         this->multiopaquerect = RDPMultiOpaqueRect();
         this->multipatblt     = RDP::RDPMultiPatBlt();
         this->multiscrblt     = RDP::RDPMultiScrBlt();
-        this->patblt      = RDPPatBlt(Rect(), 0, 0, 0, RDPBrush());
-        this->lineto      = RDPLineTo(0, 0, 0, 0, 0, 0, 0, RDPPen(0, 0, 0));
-        this->glyph_index = RDPGlyphIndex( 0, 0, 0, 0, 0, 0, Rect(0, 0, 1, 1), Rect(0, 0, 1, 1)
+        this->patblt      = RDPPatBlt(Rect(), 0, RDPColor{}, RDPColor{}, RDPBrush());
+        this->lineto      = RDPLineTo(0, 0, 0, 0, 0, RDPColor{}, 0, RDPPen(0, 0, RDPColor{}));
+        this->glyph_index = RDPGlyphIndex( 0, 0, 0, 0, RDPColor{}, RDPColor{}, Rect(0, 0, 1, 1), Rect(0, 0, 1, 1)
                                          , RDPBrush(), 0, 0, 0, reinterpret_cast<const uint8_t *>(""));
         this->polyline        = RDPPolyline();
     }
 
     ~rdp_orders() {
         if (this->bmp_cache) {
-            this->save_persistent_disk_bitmap_cache();
+            try {
+                this->save_persistent_disk_bitmap_cache();
+            }
+            catch(Error const & err) {
+                LOG(LOG_ERR, "%s", err.errmsg());
+            }
             delete this->bmp_cache;
         }
     }
 
 private:
-    void save_persistent_disk_bitmap_cache() const {
-        if (!this->enable_persistent_disk_bitmap_cache || !this->persist_bitmap_cache_on_disk) {
-            return;
-        }
-
-        const char * persistent_path = PERSISTENT_PATH "/mod_rdp";
-
-        // Ensures that the directory exists.
-        if (::recursive_create_directory( persistent_path, S_IRWXU | S_IRWXG, -1) != 0) {
-            LOG( LOG_ERR
-               , "rdp_orders::save_persistent_disk_bitmap_cache: failed to create directory \"%s\"."
-               , persistent_path);
-            throw Error(ERR_BITMAP_CACHE_PERSISTENT, 0);
-        }
-
-        // Generates the name of file.
-        char filename[2048];
-        ::snprintf(filename, sizeof(filename) - 1, "%s/PDBC-%s-%d",
-            persistent_path, this->target_host.c_str(), this->bmp_cache->bpp);
-        filename[sizeof(filename) - 1] = '\0';
-
-        char filename_temporary[2048];
-        ::snprintf(filename_temporary, sizeof(filename_temporary) - 1, "%s/PDBC-%s-%d-XXXXXX.tmp",
-            persistent_path, this->target_host.c_str(), this->bmp_cache->bpp);
-        filename_temporary[sizeof(filename_temporary) - 1] = '\0';
-
-        int fd = ::mkostemps(filename_temporary, 4, O_CREAT | O_WRONLY);
-        if (fd == -1) {
-            LOG( LOG_ERR
-               , "rdp_orders::save_persistent_disk_bitmap_cache: "
-                 "failed to open (temporary) file for writing. filename=\"%s\""
-               , filename_temporary);
-            throw Error(ERR_PDBC_SAVE);
-        }
-
-        try
-        {
-            OutFileTransport oft(fd);
-
-            BmpCachePersister::save_all_to_disk(*this->bmp_cache, oft, to_verbose_flags(this->verbose));
-
-            ::close(fd);
-
-            if (::rename(filename_temporary, filename) == -1) {
-                LOG( LOG_WARNING
-                   , "rdp_orders::save_persistent_disk_bitmap_cache: failed to rename the (temporary) file. "
-                     "old_filename=\"%s\" new_filename=\"%s\""
-                   , filename_temporary, filename);
-                ::unlink(filename_temporary);
-            }
-        }
-        catch (...)
-        {
-            ::close(fd);
-            ::unlink(filename_temporary);
-        }
+    void save_persistent_disk_bitmap_cache() const
+    {
+      ::save_persistent_disk_bitmap_cache(
+          *this->bmp_cache,
+          PERSISTENT_PATH "/mod_rdp",
+          this->target_host.c_str(),
+          this->bmp_cache->bpp,
+          this->report_error,
+          convert_verbose_flags(this->verbose)
+      );
     }
 
 public:
-    void create_cache_bitmap(const uint8_t bpp,
+    void create_cache_bitmap(
         uint16_t small_entries, uint16_t small_size, bool small_persistent,
         uint16_t medium_entries, uint16_t medium_size, bool medium_persistent,
         uint16_t big_entries, uint16_t big_size, bool big_persistent,
         bool enable_waiting_list, BmpCache::Verbose verbose)
     {
         if (this->bmp_cache) {
-            if (this->bmp_cache->bpp == bpp) {
+            if (this->bmp_cache->bpp == this->bpp) {
                 return;
             }
 
@@ -230,7 +193,7 @@ public:
             this->bmp_cache = nullptr;
         }
 
-        this->bmp_cache = new BmpCache(BmpCache::Mod_rdp, bpp, 3, false,
+        this->bmp_cache = new BmpCache(BmpCache::Mod_rdp, this->bpp, 3, false,
                                        BmpCache::CacheOption(small_entries + (enable_waiting_list ? 1 : 0), small_size, small_persistent),
                                        BmpCache::CacheOption(medium_entries + (enable_waiting_list ? 1 : 0), medium_size, medium_persistent),
                                        BmpCache::CacheOption(big_entries + (enable_waiting_list ? 1 : 0), big_size, big_persistent),
@@ -250,25 +213,26 @@ public:
                 return;
             }
 
-            InFileTransport ift(fd);
+            InFileTransport ift(unique_fd{fd});
 
             try {
-                if (this->verbose & RDPVerbose::basic_trace) {
+                if (bool(this->verbose & RDPVerbose::basic_trace)) {
                     LOG(LOG_INFO, "rdp_orders::create_cache_bitmap: filename=\"%s\"", filename);
                 }
-                BmpCachePersister::load_all_from_disk(*this->bmp_cache, ift, filename, to_verbose_flags(this->verbose));
+                BmpCachePersister::load_all_from_disk(
+                    *this->bmp_cache, ift, filename,
+                    convert_verbose_flags(this->verbose)
+                );
             }
             catch (...) {
             }
-
-            ::close(fd);
         }
     }
 
 private:
     void process_framemarker( InStream & stream, const RDP::AltsecDrawingOrderHeader & header
                             , gdi::GraphicApi & gd) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders::process_framemarker");
         }
 
@@ -281,7 +245,7 @@ private:
 
     void process_windowing( InStream & stream, const RDP::AltsecDrawingOrderHeader & header
                           , gdi::GraphicApi & gd) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders::process_windowing");
         }
 
@@ -318,7 +282,7 @@ private:
 
     void process_window_information( InStream & stream, const RDP::AltsecDrawingOrderHeader &
                                    , uint32_t FieldsPresentFlags, gdi::GraphicApi & gd) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders::process_window_information");
         }
 
@@ -330,7 +294,9 @@ private:
             case RDP::RAIL::WINDOW_ORDER_ICON: {
                     RDP::RAIL::WindowIcon order;
                     order.receive(stream);
-                    order.log(LOG_INFO);
+                    if (bool(this->verbose & RDPVerbose::rail_order)) {
+                        order.log(LOG_INFO);
+                    }
                     gd.draw(order);
                 }
                 break;
@@ -338,7 +304,9 @@ private:
             case RDP::RAIL::WINDOW_ORDER_CACHEDICON: {
                     RDP::RAIL::CachedIcon order;
                     order.receive(stream);
-                    order.log(LOG_INFO);
+                    if (bool(this->verbose & RDPVerbose::rail_order)) {
+                        order.log(LOG_INFO);
+                    }
                     gd.draw(order);
                 }
                 break;
@@ -346,7 +314,9 @@ private:
             case RDP::RAIL::WINDOW_ORDER_STATE_DELETED: {
                     RDP::RAIL::DeletedWindow order;
                     order.receive(stream);
-                    order.log(LOG_INFO);
+                    if (bool(this->verbose & RDPVerbose::rail_order)) {
+                        order.log(LOG_INFO);
+                    }
                     gd.draw(order);
                 }
                 break;
@@ -355,7 +325,9 @@ private:
             case RDP::RAIL::WINDOW_ORDER_STATE_NEW: {
                     RDP::RAIL::NewOrExistingWindow order;
                     order.receive(stream);
-                    order.log(LOG_INFO);
+                    if (bool(this->verbose & RDPVerbose::rail_order)) {
+                        order.log(LOG_INFO);
+                    }
                     gd.draw(order);
                 }
                 break;
@@ -364,7 +336,7 @@ private:
 
     void process_notification_icon_information( InStream & stream, const RDP::AltsecDrawingOrderHeader &
                                               , uint32_t FieldsPresentFlags, gdi::GraphicApi & gd) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders::process_notification_icon_information");
         }
 
@@ -374,7 +346,9 @@ private:
             case RDP::RAIL::WINDOW_ORDER_STATE_DELETED: {
                     RDP::RAIL::DeletedNotificationIcons order;
                     order.receive(stream);
-                    order.log(LOG_INFO);
+                    if (bool(this->verbose & RDPVerbose::rail_order)) {
+                        order.log(LOG_INFO);
+                    }
                     gd.draw(order);
                 }
                 break;
@@ -383,7 +357,9 @@ private:
             case RDP::RAIL::WINDOW_ORDER_STATE_NEW: {
                     RDP::RAIL::NewOrExistingNotificationIcons order;
                     order.receive(stream);
-                    order.log(LOG_INFO);
+                    if (bool(this->verbose & RDPVerbose::rail_order)) {
+                        order.log(LOG_INFO);
+                    }
                     gd.draw(order);
                 }
                 break;
@@ -392,42 +368,46 @@ private:
 
     void process_desktop_information( InStream & stream, const RDP::AltsecDrawingOrderHeader &
                                     , uint32_t FieldsPresentFlags, gdi::GraphicApi & gd) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders::process_desktop_information");
         }
 
         if (FieldsPresentFlags & RDP::RAIL::WINDOW_ORDER_FIELD_DESKTOP_NONE) {
             RDP::RAIL::NonMonitoredDesktop order;
             order.receive(stream);
-            order.log(LOG_INFO);
+            if (bool(this->verbose & RDPVerbose::rail_order)) {
+                order.log(LOG_INFO);
+            }
             gd.draw(order);
         }
         else {
             RDP::RAIL::ActivelyMonitoredDesktop order;
             order.receive(stream);
-            order.log(LOG_INFO);
+            if (bool(this->verbose & RDPVerbose::rail_order)) {
+                order.log(LOG_INFO);
+            }
             gd.draw(order);
         }
     }
 
-    void process_bmpcache(InStream & stream, const RDPSecondaryOrderHeader & header, uint8_t bpp)
+    void process_bmpcache(InStream & stream, const RDPSecondaryOrderHeader & header)
     {
-        if (this->verbose & RDPVerbose::graphics) {
-            LOG(LOG_INFO, "rdp_orders_process_bmpcache bpp=%u", bpp);
+        if (bool(this->verbose & RDPVerbose::graphics)) {
+            LOG(LOG_INFO, "rdp_orders_process_bmpcache bpp=%u", this->bpp);
         }
-        RDPBmpCache bmp(this->verbose);
-        bmp.receive(stream, header, this->global_palette, bpp);
+        RDPBmpCache bmp(bool(this->verbose));
+        bmp.receive(stream, header, this->global_palette, this->bpp);
 
         this->recv_bmp_cache_count++;
 
         REDASSERT(bmp.bmp.is_valid());
 
         this->bmp_cache->put(bmp.id, bmp.idx, bmp.bmp, bmp.key1, bmp.key2);
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG( LOG_ERR
                , "rdp_orders_process_bmpcache bitmap id=%d idx=%d cx=%" PRIu16 " cy=%" PRIu16
                  " bmp_size=%zu original_bpp=%" PRIu8 " bpp=%" PRIu8
-               , bmp.id, bmp.idx, bmp.bmp.cx(), bmp.bmp.cy(), bmp.bmp.bmp_size(), bmp.bmp.bpp(), bpp);
+               , bmp.id, bmp.idx, bmp.bmp.cx(), bmp.bmp.cy(), bmp.bmp.bmp_size(), bmp.bmp.bpp(), this->bpp);
         }
     }
 
@@ -442,7 +422,7 @@ private:
     }
 
     void process_glyphcache(InStream & stream, const RDPSecondaryOrderHeader &/* header*/) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders_process_glyphcache");
         }
         const uint8_t cacheId = stream.in_uint8();
@@ -459,13 +439,13 @@ private:
 
             this->server_add_char(cacheId, cacheIndex, offset, baseline, width, height, data);
         }
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "rdp_orders_process_glyphcache done");
         }
     }
 
     void process_colormap(InStream & stream, const RDPSecondaryOrderHeader & header, gdi::GraphicApi & gd) {
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "process_colormap");
         }
         RDPColCache colormap;
@@ -473,17 +453,19 @@ private:
         RDPColCache cmd(colormap.cacheIndex, colormap.palette);
         gd.draw(cmd);
 
-        if (this->verbose & RDPVerbose::graphics) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "process_colormap done");
         }
     }
 
 public:
     /*****************************************************************************/
-    int process_orders(uint8_t bpp, InStream & stream, bool fast_path, gdi::GraphicApi & gd,
-                       uint16_t front_width, uint16_t front_height) {
-        if (this->verbose & RDPVerbose::graphics) {
-            LOG(LOG_INFO, "process_orders bpp=%u", bpp);
+    int process_orders(
+        InStream & stream, bool fast_path, gdi::GraphicApi & gd,
+        uint16_t front_width, uint16_t front_height
+    ) {
+        if (bool(this->verbose & RDPVerbose::graphics)) {
+            LOG(LOG_INFO, "process_orders bpp=%u", this->bpp);
         }
 
         using namespace RDP;
@@ -522,7 +504,7 @@ public:
                 case TS_CACHE_BITMAP_UNCOMPRESSED:
                 case TS_CACHE_BITMAP_COMPRESSED_REV2:
                 case TS_CACHE_BITMAP_UNCOMPRESSED_REV2:
-                    this->process_bmpcache(stream, header, bpp);
+                    this->process_bmpcache(stream, header);
                     break;
                 case TS_CACHE_COLOR_TABLE:
                     this->process_colormap(stream, header, gd);
@@ -544,16 +526,17 @@ public:
             }
             else if (class_ == STANDARD) {
                 RDPPrimaryOrderHeader header = this->common.receive(stream, drawing_order.control_flags);
-                const Rect & cmd_clip = ( (drawing_order.control_flags & BOUNDS)
-                                        ? this->common.clip
-                                        : Rect(0, 0, front_width, front_height)
-                                        );
+                const Rect cmd_clip =
+                    (drawing_order.control_flags & BOUNDS)
+                    ? this->common.clip
+                    : Rect(0, 0, front_width, front_height)
+                ;
                 //LOG(LOG_INFO, "/* order=%d ordername=%s */", this->common.order, ordernames[this->common.order]);
                 switch (this->common.order) {
                 case GLYPHINDEX:
                     this->glyph_index.receive(stream, header);
                     //this->glyph_index.log(LOG_INFO, cmd_clip);
-                    gd.draw(this->glyph_index, cmd_clip, this->gly_cache);
+                    gd.draw(this->glyph_index, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette), this->gly_cache);
                     break;
                 case DESTBLT:
                     this->destblt.receive(stream, header);
@@ -567,12 +550,12 @@ public:
                     break;
                 case MULTIOPAQUERECT:
                     this->multiopaquerect.receive(stream, header);
-                    gd.draw(this->multiopaquerect, cmd_clip);
+                    gd.draw(this->multiopaquerect, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->multiopaquerect.log(LOG_INFO, cmd_clip);
                     break;
                 case MULTIPATBLT:
                     this->multipatblt.receive(stream, header);
-                    gd.draw(this->multipatblt, cmd_clip);
+                    gd.draw(this->multipatblt, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->multipatblt.log(LOG_INFO, cmd_clip);
                     break;
                 case MULTISCRBLT:
@@ -582,7 +565,7 @@ public:
                     break;
                 case PATBLT:
                     this->patblt.receive(stream, header);
-                    gd.draw(this->patblt, cmd_clip);
+                    gd.draw(this->patblt, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->patblt.log(LOG_INFO, cmd_clip);
                     break;
                 case SCREENBLT:
@@ -592,12 +575,12 @@ public:
                     break;
                 case LINE:
                     this->lineto.receive(stream, header);
-                    gd.draw(this->lineto, cmd_clip);
+                    gd.draw(this->lineto, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->lineto.log(LOG_INFO, cmd_clip);
                     break;
                 case RECT:
                     this->opaquerect.receive(stream, header);
-                    gd.draw(this->opaquerect, cmd_clip);
+                    gd.draw(this->opaquerect, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->opaquerect.log(LOG_INFO, cmd_clip);
                     break;
                 case MEMBLT:
@@ -637,7 +620,7 @@ public:
                         // TODO CGR: check if bitmap has the right palette...
                         // TODO CGR: 8 bits palettes should probabily be transmitted to front, not stored in bitmaps
                         if (bitmap.is_valid()) {
-                            gd.draw(this->mem3blt, cmd_clip, bitmap);
+                            gd.draw(this->mem3blt, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette), bitmap);
                         }
                         else {
                             LOG(LOG_ERR, "rdp_orders::process_orders: MEM3BLT - Bitmap is not found in cache! cache_id=%u cache_index=%u",
@@ -648,12 +631,12 @@ public:
                     break;
                 case POLYLINE:
                     this->polyline.receive(stream, header);
-                    gd.draw(this->polyline, cmd_clip);
+                    gd.draw(this->polyline, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->polyline.log(LOG_INFO, cmd_clip);
                     break;
                 case ELLIPSESC:
                     this->ellipseSC.receive(stream, header);
-                    gd.draw(this->ellipseSC, cmd_clip);
+                    gd.draw(this->ellipseSC, cmd_clip, gdi::ColorCtx::from_bpp(this->bpp, this->global_palette));
                     //this->ellipseSC.log(LOG_INFO, cmd_clip);
                     break;
                 default:
@@ -670,7 +653,7 @@ public:
             }
             processed++;
         }
-        if (this->verbose & RDPVerbose::graphics){
+        if (bool(this->verbose & RDPVerbose::graphics)){
             LOG(LOG_INFO, "process_orders done");
         }
         return 0;

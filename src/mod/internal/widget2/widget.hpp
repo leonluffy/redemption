@@ -40,6 +40,8 @@ enum NotifyEventType {
     NOTIFY_COPY,
     NOTIFY_PASTE,
     NOTIFY_CUT,
+    NOTIFY_HSCROLL,
+    NOTIFY_VSCROLL,
 };
 
 class Widget2 : public RdpInput, public NotifyApi
@@ -74,23 +76,6 @@ public:
     int notify_value;
 
 public:
-    Widget2(gdi::GraphicApi & drawable,
-            const Rect& rect, Widget2 & parent, NotifyApi * notifier, int group_id = 0)
-    : parent(parent)
-    , drawable(drawable)
-    , notifier(notifier)
-    , rect(rect.x + ((&parent != this) ? parent.x() : 0),
-           rect.y + ((&parent != this) ? parent.y() : 0),
-           rect.cx,
-           rect.cy
-           )
-    , group_id(group_id)
-    , tab_flag(NORMAL_TAB)
-    , focus_flag(NORMAL_FOCUS)
-    , pointer_flag(Pointer::POINTER_NORMAL)
-    , has_focus(false)
-    , notify_value(0) {}
-
     Widget2(gdi::GraphicApi & drawable, Widget2 & parent, NotifyApi * notifier, int group_id = 0)
     : parent(parent)
     , drawable(drawable)
@@ -112,24 +97,13 @@ public:
         return false;
     }
 
-    virtual void draw(const Rect& clip) = 0;
-
-    void refresh(const Rect& clip)
-    {
-        if (!clip.isempty()){
-            this->drawable.begin_update();
-            this->draw(clip);
-            this->drawable.end_update();
-        }
-    }
-
     bool is_root() {
         // The root widget is defined as the parent of itself (screen widget only)
         return (&this->parent == this);
     }
 
     virtual void show_tooltip(Widget2 * widget, const char * text, int x, int y,
-                              Rect const & preferred_display_rect, int iter = 10) {
+                              Rect preferred_display_rect, int iter = 10) {
         if (iter > 0) {
             this->parent.show_tooltip(widget, text, x, y, preferred_display_rect, iter - 1);
         }
@@ -139,14 +113,6 @@ public:
     }
 
     Widget2 * last_widget_at_pos(int16_t x, int16_t y) {
-        // recursive
-        // Widget2 * w = this->widget_at_pos(x, y);
-        // if (w && (w != this)) {
-        //     return w->last_widget_at_pos(x, y);
-        // }
-        // return this;
-
-        // loop
         Widget2 * w = this;
         int count = 10;
         while (w->widget_at_pos(x, y)
@@ -181,9 +147,8 @@ public:
         (void)param2;
     }
 
-    // - part of screen should be redrawn
-    void rdp_input_invalidate(const Rect & r) override {
-        this->refresh(r);
+    void refresh(Rect clip) override {
+        this->rdp_input_invalidate(clip);
     }
 
     void send_notify(NotifyApi::notify_event_t event)
@@ -204,21 +169,31 @@ public:
         return nullptr;
     }
 
-    void set_xy(int16_t x, int16_t y)
+    virtual void set_xy(int16_t x, int16_t y)
     {
-        this->set_x(x);
-        this->set_y(y);
+        this->rect.x = x;
+        this->rect.y = y;
     }
 
-    void set_wh(int16_t w, int16_t h)
+    virtual void set_wh(uint16_t w, uint16_t h)
     {
-        this->set_cx(w);
-        this->set_cy(h);
+        this->rect.cx = w;
+        this->rect.cy = h;
     }
 
-    virtual void set_color(uint32_t bg_color, uint32_t fg_color) {
+    void set_wh(Dimension dim)
+    {
+        this->set_wh(dim.w, dim.h);
+    }
+
+    virtual void set_color(BGRColor bg_color, BGRColor fg_color) {
         (void)bg_color;
         (void)fg_color;
+    }
+
+    virtual void move_xy(int16_t x, int16_t y)
+    {
+        this->set_xy(this->rect.x + x, this->rect.y + y);
     }
 
     enum {
@@ -232,7 +207,7 @@ public:
         if (!this->has_focus){
             this->has_focus = true;
             this->send_notify(NOTIFY_FOCUS_BEGIN);
-            this->refresh(this->rect);
+            this->rdp_input_invalidate(this->rect);
         }
     }
 
@@ -241,7 +216,7 @@ public:
         if (this->has_focus){
             this->has_focus = false;
             this->send_notify(NOTIFY_FOCUS_END);
-            this->refresh(this->rect);
+            this->rdp_input_invalidate(this->rect);
         }
     }
 
@@ -255,18 +230,10 @@ public:
         return this->rect.x;
     }
 
-    virtual void set_x(int16_t x) {
-        this->rect.x = x;
-    }
-
     ///Return y position in it's screen
     int16_t y() const
     {
         return this->rect.y;
-    }
-
-    virtual void set_y(int16_t y) {
-        this->rect.y = y;
     }
 
     ///Return width
@@ -275,18 +242,10 @@ public:
         return this->rect.cx;
     }
 
-    virtual void set_cx(uint16_t cx) {
-        this->rect.cx = cx;
-    }
-
     ///Return height
     uint16_t cy() const
     {
         return this->rect.cy;
-    }
-
-    virtual void set_cy(uint16_t cy) {
-        this->rect.cy = cy;
     }
 
     ///Return x()+cx()
@@ -301,8 +260,11 @@ public:
         return this->rect.bottom();
     }
 
-    Rect const&  get_rect() const {
+    Rect get_rect() const {
         return this->rect;
     }
-};
 
+    virtual const Pointer* get_pointer() const {
+        return nullptr;
+    }
+};

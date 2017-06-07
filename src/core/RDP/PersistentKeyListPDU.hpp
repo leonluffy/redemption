@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "core/error.hpp"
 #include "utils/log.hpp"
 #include "utils/stream.hpp"
 #include <algorithm>
@@ -311,7 +312,7 @@ struct PersistentKeyListPDUData {
         }
     }
 
-    void emit(OutStream & stream) {
+    void emit(OutStream & stream) const {
         stream.out_uint16_le(this->numEntriesCache[0]);
         stream.out_uint16_le(this->numEntriesCache[1]);
         stream.out_uint16_le(this->numEntriesCache[2]);

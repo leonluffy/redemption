@@ -25,6 +25,7 @@
 #include "mod/internal/widget2/widget.hpp"
 #include "utils/sugar/cast.hpp"
 #include "gdi/graphic_api.hpp"
+#include "utils/log.hpp"
 
 class WidgetLabel : public Widget2
 {
@@ -35,9 +36,8 @@ public:
     int initial_x_text;
     int x_text;
     int y_text;
-    uint32_t bg_color;
-    uint32_t fg_color;
-    bool auto_resize_;
+    BGRColor bg_color;
+    BGRColor fg_color;
     bool tool;
 
     int w_border;
@@ -46,17 +46,16 @@ public:
     Font const & font;
 
 public:
-    WidgetLabel(gdi::GraphicApi & drawable, int16_t x, int16_t y, Widget2& parent,
-                NotifyApi* notifier, const char * text, bool auto_resize_,
-                int group_id, uint32_t fgcolor, uint32_t bgcolor, Font const & font,
+    WidgetLabel(gdi::GraphicApi & drawable, Widget2& parent,
+                NotifyApi* notifier, const char * text,
+                int group_id, BGRColor fgcolor, BGRColor bgcolor, Font const & font,
                 int xtext = 0, int ytext = 0)
-    : Widget2(drawable, Rect(x,y,1,1), parent, notifier, group_id)
+    : Widget2(drawable, parent, notifier, group_id)
     , initial_x_text(xtext)
     , x_text(xtext)
     , y_text(ytext)
     , bg_color(bgcolor)
     , fg_color(fgcolor)
-    , auto_resize_(auto_resize_)
     , tool(false)
     , w_border(x_text)
     , h_border(y_text)
@@ -80,11 +79,6 @@ public:
                                 ::UTF8StringAdjustedNbBytes(::byte_ptr_cast(text), remain_n));
             memcpy(this->buffer, text, max);
             this->buffer[max] = 0;
-            if (this->auto_resize_) {
-                Dimension dm = this->get_optimal_dim(this->buffer, this->font, this->x_text, this->y_text);
-                this->set_cx(dm.w);
-                this->set_cy(dm.h);
-            }
         }
     }
 
@@ -93,15 +87,25 @@ public:
         return this->buffer;
     }
 
-    void draw(const Rect& clip) override {
-        this->draw(clip, this->get_rect(), this->drawable, this->buffer,
-            this->fg_color, this->bg_color, this->font, this->x_text, this->y_text);
+    void rdp_input_invalidate(Rect clip) override {
+        Rect rect_intersect = clip.intersect(this->get_rect());
+
+        if (!rect_intersect.isempty()) {
+            this->drawable.begin_update();
+
+            this->draw(
+                rect_intersect, this->get_rect(), this->drawable, this->buffer,
+                encode_color24()(this->fg_color), encode_color24()(this->bg_color), gdi::ColorCtx::depth24(),
+                this->font, this->x_text, this->y_text);
+
+            this->drawable.end_update();
+        }
     }
 
-    static void draw(Rect const& clip, Rect const& rect, gdi::GraphicApi& drawable,
-                     char const* text, uint32_t fgcolor, uint32_t bgcolor,
-                     Font const& font, int xtext, int ytext) {
-        drawable.draw(RDPOpaqueRect(rect, bgcolor), clip);
+    static void draw(Rect const clip, Rect const rect, gdi::GraphicApi& drawable,
+                     char const* text, RDPColor fgcolor, RDPColor bgcolor, gdi::ColorCtx color_ctx,
+                     Font const & font, int xtext, int ytext) {
+        drawable.draw(RDPOpaqueRect(rect, bgcolor), clip, color_ctx);
         gdi::server_draw_text(drawable,
                               font,
                               xtext + rect.x,
@@ -109,17 +113,17 @@ public:
                               text,
                               fgcolor,
                               bgcolor,
+                              color_ctx,
                               rect.intersect(clip)
                               );
     }
 
     Dimension get_optimal_dim() override {
-        gdi::TextMetrics tm(this->font, this->buffer);
+        gdi::TextMetrics tm(this->font, (this->buffer[0] ? this->buffer : "Édp"));
         return Dimension(tm.width + this->x_text * 2, tm.height + this->y_text * 2);
-
     }
 
-    static Dimension get_optimal_dim(char const* text, Font const& font, int xtext, int ytext) {
+    static Dimension get_optimal_dim(Font const & font, char const* text, int xtext, int ytext) {
         char buffer[buffer_size];
 
         buffer[0] = 0;
@@ -132,7 +136,7 @@ public:
             buffer[max] = 0;
         }
 
-        gdi::TextMetrics tm(font, buffer);
+        gdi::TextMetrics tm(font, (buffer[0] ? buffer : "Édp"));
         return Dimension(tm.width + xtext * 2, tm.height + ytext * 2);
     }
 
@@ -150,7 +154,7 @@ public:
         return res;
     }
 
-    void set_color(uint32_t bg_color, uint32_t fg_color) override {
+    void set_color(BGRColor bg_color, BGRColor fg_color) override {
         this->bg_color = bg_color;
         this->fg_color = fg_color;
     }
@@ -168,9 +172,7 @@ public:
     }
 
     void auto_resize() {
-        gdi::TextMetrics tm(this->font, this->buffer);
-        this->set_cx(this->x_text * 2 + tm.width);
-        this->set_cy(this->y_text * 2 + tm.height);
+        Dimension dim = this->get_optimal_dim();
+        this->set_wh(dim);
     }
 };
-

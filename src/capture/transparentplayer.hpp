@@ -26,10 +26,12 @@
 #include "core/front_api.hpp"
 #include "core/channel_list.hpp"
 #include "utils/difftimeval.hpp"
+#include "utils/sugar/numerics/safe_conversions.hpp"
 
 class TransparentPlayer {
 private:
     Transport * t;
+
     FrontAPI  * consumer;
 
     bool meta_ok;
@@ -52,9 +54,7 @@ public:
             static_assert(sizeof(array) >= static_cast<std::size_t>(TRANSPARENT_CHUNK_HEADER_SIZE), "");
             InStream header(array, TRANSPARENT_CHUNK_HEADER_SIZE);
 
-            uint8_t * end = array;
-            this->t->recv(&end, header.get_capacity());
-
+            this->t->recv_boom(array, header.get_capacity());
             uint8_t  chunk_type = header.in_uint8();
             uint16_t data_size  = header.in_uint16_le();
 
@@ -63,9 +63,8 @@ public:
 
             //LOG(LOG_INFO, "chunk_type=%u data_size=%u", chunk_type, data_size);
 
-            end = array;
-            this->t->recv(&end, data_size);
-            InStream payload(array, end - array);
+            this->t->recv_boom(array, data_size);
+            InStream payload(array, data_size);
 
             switch (chunk_type) {
                 case CHUNK_TYPE_META:
@@ -125,18 +124,21 @@ public:
             }
 
             if (real_time && (chunk_type != CHUNK_TYPE_META)) {
-                timeval  now     = tvtime();
-                uint64_t elapsed = difftimeval(now, this->replay_now);
+                timeval  now                      = tvtime();
+                std::chrono::microseconds elapsed = difftimeval(now, this->replay_now);
 
                 this->replay_now = now;
 
-                uint64_t record_elapsed = difftimeval(this->record_now, last_record_now);
+                std::chrono::microseconds record_elapsed = difftimeval(this->record_now, last_record_now);
 
                 if (elapsed <= record_elapsed) {
-                    struct timespec wtime     = {
-                          static_cast<time_t>((record_elapsed - elapsed) / 1000000LL)
-                        , static_cast<time_t>(((record_elapsed - elapsed) % 1000000LL) * 1000)
-                        };
+                    auto const elapsed_time = record_elapsed - elapsed;
+                    auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(elapsed_time);
+                    auto const milli = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time - seconds);
+                    struct timespec wtime = {
+                        safe_cast<time_t>(seconds.count()),
+                        safe_cast<time_t>(milli.count())
+                    };
                     struct timespec wtime_rem = { 0, 0 };
 
                     while ((nanosleep(&wtime, nullptr) == -1) && (errno == EINTR)) {

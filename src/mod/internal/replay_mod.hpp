@@ -16,7 +16,7 @@
    Product name: redemption, a FLOSS RDP proxy
    Copyright (C) Wallix 2010-2013
    Author(s): Christophe Grosjean, Javier Caverni, Raphael Zhou, Jonathan Poelen,
-              Meng Tan
+              Meng Tan, Clément Moroldo
    Based on xrdp Copyright (C) Jay Sorg 2004-2010
 
    Use (implemented) basic RDP orders to draw some known test pattern
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "capture/FileToGraphic.hpp"
+#include "capture/file_to_graphic.hpp"
 #include "transport/in_meta_sequence_transport.hpp"
-#include "internal_mod.hpp"
+#include "mod/internal/internal_mod.hpp"
 
 
 class ReplayMod : public InternalMod
@@ -35,16 +35,6 @@ class ReplayMod : public InternalMod
     std::string & auth_error_message;
 
     CryptoContext           cctx;
-    InMetaSequenceTransport in_trans;
-    FileToGraphic           reader;
-
-    bool end_of_data;
-    bool wait_for_escape;
-
-public:
-    using Verbose = FileToGraphic::Verbose;
-
-private:
     struct TemporaryCtxPath
     {
         char extension[128];
@@ -77,47 +67,18 @@ private:
 
             std::snprintf(this->prefix,  sizeof(this->prefix), "%s%s", path, basename);
         }
-    };
+    } movie_path;
+    InMetaSequenceTransport in_trans;
+    FileToGraphic           reader;
 
-    ReplayMod( FrontAPI & front
-             , TemporaryCtxPath const & path
-             , uint16_t width
-             , uint16_t height
-             , std::string & auth_error_message
-             , Font const & font
-             , bool wait_for_escape
-             , Verbose debug_capture)
-    : InternalMod(front, width, height, font, Theme{})
-    , auth_error_message(auth_error_message)
-    , in_trans(&this->cctx, path.prefix, path.extension, 0)
-    , reader(this->in_trans, /*begin_capture*/{0, 0}, /*end_capture*/{0, 0}, true, debug_capture)
-    , end_of_data(false)
-    , wait_for_escape(wait_for_escape)
-    {
-        switch (this->front.server_resize( this->reader.info_width
-                                         , this->reader.info_height
-                                         , this->reader.info_bpp)) {
-        case FrontAPI::ResizeResult::no_need:
-            // no resizing needed
-            break;
-        case FrontAPI::ResizeResult::done:
-            // resizing done
-            this->front_width  = this->reader.info_width;
-            this->front_height = this->reader.info_height;
+    bool end_of_data;
+    bool wait_for_escape;
 
-            this->screen.set_cx(this->reader.info_width);
-            this->screen.set_cy(this->reader.info_height);
+    time_t balise_time_frame;
 
-            break;
-        case FrontAPI::ResizeResult::fail:
-            // resizing failed
-            // thow an Error ?
-            LOG(LOG_WARNING, "Older RDP client can't resize to server asked resolution, disconnecting");
-            throw Error(ERR_VNC_OLDER_RDP_CLIENT_CANT_RESIZE);
-        }
+public:
+    using Verbose = FileToGraphic::Verbose;
 
-        this->reader.add_consumer(&this->front, nullptr, nullptr, nullptr, nullptr);
-    }
 
 public:
     ReplayMod( FrontAPI & front
@@ -129,11 +90,90 @@ public:
              , Font const & font
              , bool wait_for_escape
              , Verbose debug_capture)
-    : ReplayMod(
-        front, TemporaryCtxPath(replay_path, movie),
-        width, height, auth_error_message,
-        font, wait_for_escape, debug_capture
-    ){}
+    : InternalMod(front, width, height, font, Theme{}, false)
+    , auth_error_message(auth_error_message)
+    , movie_path(replay_path, movie)
+    , in_trans(this->cctx, movie_path.prefix, movie_path.extension, InCryptoTransport::EncryptionMode::NotEncrypted)
+    , reader(this->in_trans, /*begin_capture*/{0, 0}, /*end_capture*/{0, 0}, true, debug_capture)
+    , end_of_data(false)
+    , wait_for_escape(wait_for_escape)
+    , balise_time_frame(0)
+    {
+        switch (this->front.server_resize( this->reader.info_width
+                                         , this->reader.info_height
+                                         , this->reader.info_bpp)) {
+        case FrontAPI::ResizeResult::no_need:
+            // no resizing needed
+            break;
+        case FrontAPI::ResizeResult::instant_done:
+        case FrontAPI::ResizeResult::done:
+            // resizing done
+            this->front_width  = this->reader.info_width;
+            this->front_height = this->reader.info_height;
+
+            this->screen.set_wh(this->reader.info_width, this->reader.info_height);
+
+            break;
+        case FrontAPI::ResizeResult::fail:
+            // resizing failed
+            // thow an Error ?
+            LOG(LOG_WARNING, "Older RDP client can't resize to server asked resolution, disconnecting");
+            throw Error(ERR_VNC_OLDER_RDP_CLIENT_CANT_RESIZE);
+        }
+
+        this->reader.add_consumer(&this->front, nullptr, nullptr, nullptr, nullptr);
+        this->set_sync();
+//         time_t begin_file_read = this->in_trans.get_meta_line().start_time - this->balise_time_frame;
+//         this->in_trans.set_begin_time(begin_file_read);
+    }
+
+    ReplayMod( FrontAPI & front
+             , const char * replay_path
+             , const char * movie
+             , uint16_t width
+             , uint16_t height
+             , std::string & auth_error_message
+             , Font const & font
+             , bool wait_for_escape
+             , timeval & begin_read
+             , timeval & end_read
+             , time_t balise_time_frame
+             , Verbose debug_capture)
+    : InternalMod(front, width, height, font, Theme{}, false)
+    , auth_error_message(auth_error_message)
+    , movie_path(replay_path, movie)
+    , in_trans(this->cctx, movie_path.prefix, movie_path.extension, InCryptoTransport::EncryptionMode::NotEncrypted)
+    , reader(this->in_trans, begin_read, end_read, true, debug_capture)
+    , end_of_data(false)
+    , wait_for_escape(wait_for_escape)
+    , balise_time_frame(balise_time_frame)
+    {
+        switch (this->front.server_resize( this->reader.info_width
+                                         , this->reader.info_height
+                                         , this->reader.info_bpp)) {
+        case FrontAPI::ResizeResult::no_need:
+            // no resizing needed
+            break;
+        case FrontAPI::ResizeResult::instant_done:
+        case FrontAPI::ResizeResult::done:
+            // resizing done;
+            this->front_width  = this->reader.info_width;
+            this->front_height = this->reader.info_height;
+
+            this->screen.set_wh(this->reader.info_width, this->reader.info_height);
+
+            break;
+        case FrontAPI::ResizeResult::fail:
+            // resizing failed
+            // thow an Error ?
+            LOG(LOG_WARNING, "Older RDP client can't resize to server asked resolution, disconnecting");
+            throw Error(ERR_VNC_OLDER_RDP_CLIENT_CANT_RESIZE);
+        }
+
+        this->reader.add_consumer(&this->front, nullptr, nullptr, nullptr, nullptr);
+        time_t begin_file_read = begin_read.tv_sec+this->in_trans.get_meta_line().start_time - this->balise_time_frame;
+        this->in_trans.set_begin_time(begin_file_read);
+    }
 
     void add_consumer(
         gdi::GraphicApi * graphic_ptr,
@@ -155,23 +195,37 @@ public:
         this->reader.play(false);
     }
 
-    bool play_qt() {
-        return this->reader.play_qt();
+    FileToGraphic * get_reader() {
+        return &(this->reader);
     }
 
-    bool get_break_privplay_qt() {
-        return this->reader.break_privplay_qt;
+    bool play_client() {
+        return this->reader.play_client();
+    }
+
+    void set_sync() {
+        this->reader.set_sync();
+    }
+
+    WrmVersion get_wrm_version() {
+        return this->in_trans.get_wrm_version();
+    }
+
+    bool get_break_privplay_client() {
+        return this->reader.break_privplay_client;
     }
 
     ~ReplayMod() override {
         this->screen.clear();
     }
 
-    void rdp_input_invalidate(const Rect & /*rect*/) override {
+    void instant_play_client(std::chrono::microseconds endin_frame) {
+            this->reader.instant_play_client(endin_frame);
     }
 
-    void rdp_input_mouse(int /*device_flags*/, int /*x*/, int /*y*/, Keymap2 * /*keymap*/) override {
-    }
+    void rdp_input_invalidate(Rect /*rect*/) override {}
+
+    void rdp_input_mouse(int /*device_flags*/, int /*x*/, int /*y*/, Keymap2 * /*keymap*/) override {}
 
     void rdp_input_scancode(long /*param1*/, long /*param2*/,
                             long /*param3*/, long /*param4*/, Keymap2 * keymap) override {
@@ -186,6 +240,54 @@ public:
                                int16_t /*param1*/, int16_t /*param2*/) override {
     }
 
+    void set_pause(timeval & time) {
+        this->reader.set_pause_client(time);
+    }
+
+    void set_wait_after_load_client(timeval & time) {
+        this->reader.set_wait_after_load_client(time);
+    }
+
+    time_t get_real_time_movie_begin() {
+        return this->in_trans.get_meta_line().start_time;
+    }
+
+    time_t get_movie_time_length() {
+        time_t start = this->in_trans.get_meta_line().start_time;
+
+        std::string movie_path_str(this->movie_path.prefix);
+        movie_path_str += std::string(".mwrm");
+
+        std::ifstream file(movie_path_str.c_str());
+        std::string line;
+        std::string last_line;
+        if (file.good()) {
+            while(!file.eof()) {
+                last_line = line;
+                getline(file,line);
+            }
+        }
+
+        size_t pos = last_line.find(".wrm ");
+        last_line = last_line.substr(pos+5, last_line.length());
+        while (pos != last_line.length()) {
+            pos = last_line.find(" ");
+            last_line = last_line.substr(pos+1, last_line.length());
+        }
+
+        char end_chars[10] = {0};
+        for (size_t i = 0; i < last_line.length();i++) {
+            end_chars[i] = last_line.c_str()[i];
+        }
+        char * end_chars_end = end_chars;
+        time_t end = strtoll(end_chars, &end_chars_end, 10);
+        LOG(LOG_INFO, "start = %d end=%d", int(start), int(end));
+
+        return (end - start);
+    }
+
+    void refresh(Rect /*rect*/) override {}
+
     // event from back end (draw event from remote or internal server)
     // returns module continuation status, 0 if module want to continue
     // non 0 if it wants to stop (to run another module)
@@ -197,15 +299,29 @@ public:
         if (!this->end_of_data) {
             try
             {
+
                 int i;
-                for (i = 0; (i < 500) && this->reader.next_order(); i++) {
-                    this->reader.interpret_order();
-                    //sleep(1);
+                for (i = 0; i < 500; i++) {
+
+                    struct timeval now                = tvtime();
+                    std::chrono::microseconds elapsed = difftimeval(now, this->reader.start_synctime_now) ;
+                    if (elapsed >= this->reader.movie_elapsed_client) {
+                        if (this->reader.next_order()) {
+                            this->reader.interpret_order();
+    //                         sleep(1);
+                            } else {
+                                TimeSystem timeobj;
+                                this->disconnect(timeobj.get_time().tv_sec);
+                                this->event.signal = BACK_EVENT_STOP;
+                                this->event.set(1);
+                                this->end_of_data = true;
+//                                 throw Error(ERR_SESSION_UNKNOWN_BACKEND);
+                            }
+                        }
                 }
                 if (i == 500) {
                     this->event.set(1);
-                }
-                else {
+                } else {
                     this->front.sync();
 
                     if (!this->wait_for_escape) {
@@ -231,4 +347,3 @@ public:
 
     bool is_up_and_running() override { return true; }
 };
-

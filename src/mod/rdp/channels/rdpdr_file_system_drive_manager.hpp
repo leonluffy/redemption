@@ -35,15 +35,18 @@
 #include "utils/virtual_channel_data_sender.hpp"
 #include "utils/winpr/pattern.hpp"
 
+#include <sys/types.h>
 #include <dirent.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/inotify.h>
 #include <sys/statvfs.h>
 
 #include <vector>
 #include <string>
 #include <algorithm>
+
+template<typename T> T Flag(bool condition, T value)
+{
+    return (condition) ? value : T(0);
+}
 
 #define EPOCH_DIFF 11644473600LL
 
@@ -128,7 +131,7 @@ public:
             out_stream,
             device_io_request,
             "ManagedFileSystemObject::ProcessServerDriveControlRequest",
-            0x00000000, // STATUS_SUCCESS
+            erref::NTSTATUS::STATUS_SUCCESS,
             verbose);
 
         if (bool(verbose & RDPVerbose::fsdrvmgr)) {
@@ -170,7 +173,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryVolumeInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 const fscc::FileFsVolumeInformation file_fs_volume_information(
@@ -200,7 +203,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryVolumeInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 const fscc::FileFsSizeInformation file_fs_size_information(
@@ -232,7 +235,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryVolumeInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 const fscc::FileFsAttributeInformation file_fs_attribute_information(
@@ -264,7 +267,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryVolumeInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 const fscc::FileFsFullSizeInformation file_fs_full_size_information(
@@ -295,7 +298,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryVolumeInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 const fscc::FileFsDeviceInformation file_fs_device_information(
@@ -323,7 +326,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryVolumeInformationRequest",
-                    0xC0000001, // STATUS_UNSUCCESSFUL
+                    erref::NTSTATUS::STATUS_UNSUCCESSFUL,
                     verbose);
             break;
         }
@@ -359,7 +362,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 out_stream.out_uint32_le(fscc::FileBasicInformation::size());   // Length(4)
@@ -369,8 +372,9 @@ public:
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_atime),                           // LastAccessTime(8)
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_mtime),                           // LastWriteTime(8)
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_ctime),                           // ChangeTime(8)
-                        (this->IsDirectory() ? fscc::FILE_ATTRIBUTE_DIRECTORY : 0) |    // FileAttributes(4)
-                            ((sb.st_mode & S_IWUSR) ? 0 : fscc::FILE_ATTRIBUTE_READONLY)
+                        // FileAttributes(4)
+                        Flag(this->IsDirectory(), fscc::FILE_ATTRIBUTE_DIRECTORY)
+                        | Flag(!(sb.st_mode & S_IWUSR),fscc::FILE_ATTRIBUTE_READONLY)
                     );
 
                 if (bool(verbose & RDPVerbose::fsdrvmgr)) {
@@ -388,7 +392,7 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 out_stream.out_uint32_le(fscc::FileStandardInformation::size());    // Length(4)
@@ -418,15 +422,16 @@ public:
                     out_stream,
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveQueryInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     verbose);
 
                 out_stream.out_uint32_le(fscc::FileAttributeTagInformation::size());    // Length(4)
 
                 fscc::FileAttributeTagInformation file_attribute_tag_information(
-                        fscc::FILE_ATTRIBUTE_DIRECTORY |                                    // FileAttributes
-                            ((sb.st_mode & S_IWUSR) ? 0 : fscc::FILE_ATTRIBUTE_READONLY),
-                        0                                                                   // ReparseTag
+                        // FileAttributes
+                         fscc::FILE_ATTRIBUTE_DIRECTORY
+                        | Flag(!(sb.st_mode & S_IWUSR), fscc::FILE_ATTRIBUTE_READONLY),
+                    0                                                                   // ReparseTag
                     );
 
                 if (bool(verbose & RDPVerbose::fsdrvmgr)) {
@@ -469,7 +474,7 @@ public:
             this->SendClientDriveIoResponse(
                 device_io_request,
                 "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
-                0xC000000D, // STATUS_INVALID_PARAMETER
+                erref::NTSTATUS::STATUS_INVALID_PARAMETER,
                 to_server_sender,
                 out_asynchronous_task,
                 verbose);
@@ -517,7 +522,7 @@ public:
                 this->SendClientDriveSetInformationResponse(
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     server_drive_set_information_request.Length(),
                     to_server_sender,
                     out_asynchronous_task,
@@ -542,7 +547,7 @@ public:
                 this->SendClientDriveSetInformationResponse(
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     server_drive_set_information_request.Length(),
                     to_server_sender,
                     out_asynchronous_task,
@@ -562,7 +567,7 @@ public:
                 this->SendClientDriveSetInformationResponse(
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     server_drive_set_information_request.Length(),
                     to_server_sender,
                     out_asynchronous_task,
@@ -597,8 +602,8 @@ public:
                             device_io_request,
                             "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
                             (this->IsDirectory() ?
-                             0xC0000033 :   // STATUS_OBJECT_NAME_INVALID
-                             0xC0000035     // STATUS_OBJECT_NAME_COLLISION
+                             erref::NTSTATUS::STATUS_OBJECT_NAME_INVALID :
+                             erref::NTSTATUS::STATUS_OBJECT_NAME_COLLISION
                             ),
                             to_server_sender,
                             out_asynchronous_task,
@@ -613,7 +618,7 @@ public:
                 this->SendClientDriveSetInformationResponse(
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     server_drive_set_information_request.Length(),
                     to_server_sender,
                     out_asynchronous_task,
@@ -638,7 +643,7 @@ public:
                 this->SendClientDriveSetInformationResponse(
                     device_io_request,
                     "ManagedFileSystemObject::ProcessServerDriveSetInformationRequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     server_drive_set_information_request.Length(),
                     to_server_sender,
                     out_asynchronous_task,
@@ -704,7 +709,7 @@ protected:
             OutStream & out_stream,
             rdpdr::DeviceIORequest const & device_io_request,
             const char * message,
-            uint32_t IoStatus,
+            erref::NTSTATUS IoStatus,
             RDPVerbose verbose) {
         const rdpdr::SharedHeader shared_header(
                 rdpdr::Component::RDPDR_CTYP_CORE,
@@ -727,7 +732,7 @@ protected:
     static inline void SendClientDriveIoResponse(
             rdpdr::DeviceIORequest const & device_io_request,
             const char * message,
-            uint32_t IoStatus,
+            erref::NTSTATUS IoStatus,
             VirtualChannelDataSender & to_server_sender,
             std::unique_ptr<AsynchronousTask> & out_asynchronous_task,
             RDPVerbose verbose) {
@@ -747,7 +752,7 @@ protected:
     static void SendClientDriveSetInformationResponse(
             rdpdr::DeviceIORequest const & device_io_request,
             const char * message,
-            uint32_t IoStatus,
+            erref::NTSTATUS IoStatus,
             uint32_t Length,
             VirtualChannelDataSender & to_server_sender,
             std::unique_ptr<AsynchronousTask> & out_asynchronous_task,
@@ -773,7 +778,7 @@ public:
     static void SendClientDriveLockControlResponse(
             rdpdr::DeviceIORequest const & device_io_request,
             const char * message,
-            uint32_t IoStatus,
+            erref::NTSTATUS IoStatus,
             VirtualChannelDataSender & to_server_sender,
             std::unique_ptr<AsynchronousTask> & out_asynchronous_task,
             RDPVerbose verbose) {
@@ -801,7 +806,7 @@ public:
         SendClientDriveIoResponse(
             device_io_request,
             message,
-            0xC0000001, // STATUS_UNSUCCESSFUL
+            erref::NTSTATUS::STATUS_UNSUCCESSFUL,
             to_server_sender,
             out_asynchronous_task,
             verbose);
@@ -856,39 +861,46 @@ public:
             LOG(LOG_INFO,
                 "ManagedDirectory::ProcessServerCreateDriveRequest: "
                     "<%p> full_path=\"%s\" drive_access_mode=%s(%d)",
-                static_cast<void*>(this), this->full_path.c_str(), get_open_flag_name(drive_access_mode),
+                static_cast<void*>(this), this->full_path, get_open_flag_name(drive_access_mode),
                 drive_access_mode);
         }
 
         const uint32_t DesiredAccess     = device_create_request.DesiredAccess();
         const uint32_t CreateDisposition = device_create_request.CreateDisposition();
-
-        const int last_error = [] (const char * path,
-                                   uint32_t DesiredAccess,
-                                   uint32_t CreateDisposition,
-                                   int drive_access_mode,
-                                   DIR *& out_dir) -> int {
-            if (((drive_access_mode != O_RDWR) && (drive_access_mode != O_RDONLY) &&
-                 smb2::read_access_is_required(DesiredAccess, /*strict_check = */false)) ||
-                ((drive_access_mode != O_RDWR) && (drive_access_mode != O_WRONLY) &&
-                 smb2::write_access_is_required(DesiredAccess, /*strict_check = */false))) {
-                out_dir = nullptr;
-                return EACCES;
+        
+        const erref::NTSTATUS IoStatus = [&] () {
+            if (((drive_access_mode != O_RDWR) 
+                && (drive_access_mode != O_RDONLY) 
+                && smb2::read_access_is_required(DesiredAccess, /*strict_check = */false)) 
+            ||  ((drive_access_mode != O_RDWR) 
+                && (drive_access_mode != O_WRONLY) 
+                && smb2::write_access_is_required(DesiredAccess, /*strict_check = */false))) {
+                return erref::NTSTATUS::STATUS_ACCESS_DENIED;
             }
 
-            if ((::access(path, F_OK) != 0) &&
-                (CreateDisposition == smb2::FILE_CREATE)) {
+            if ((::access(full_path.c_str(), F_OK) != 0) 
+            && (CreateDisposition == smb2::FILE_CREATE)) {
                 if ((drive_access_mode != O_RDWR) && (drive_access_mode != O_WRONLY)) {
-                    out_dir = nullptr;
-                    return EACCES;
+                    return erref::NTSTATUS::STATUS_ACCESS_DENIED;
                 }
 
-                ::mkdir(path, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP);
+                ::mkdir(full_path.c_str(), S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP);
             }
 
-            out_dir = ::opendir(path);
-            return ((out_dir != nullptr) ? 0 : errno);
-        } (full_path.c_str(), DesiredAccess, CreateDisposition, drive_access_mode, this->dir);
+            this->dir = ::opendir(full_path.c_str());
+            if (this->dir == nullptr){
+                switch (errno) {
+                case EACCES:
+                    return erref::NTSTATUS::STATUS_ACCESS_DENIED;
+                case ENOENT:
+                    return erref::NTSTATUS::STATUS_NO_SUCH_FILE;
+                default:
+                    return erref::NTSTATUS::STATUS_UNSUCCESSFUL;
+                break;
+                }
+            }
+            return erref::NTSTATUS::STATUS_SUCCESS;
+        } ();
 
         if (bool(verbose & RDPVerbose::fsdrvmgr)) {
             LOG(LOG_INFO,
@@ -896,22 +908,8 @@ public:
                 static_cast<void*>(this),
                 static_cast<void*>(this->dir),
                 (this->dir ? ::dirfd(this->dir) : -1),
-                (this->dir ? 0 : last_error));
+                (this->dir ? 0 : errno));
         }
-
-        const uint32_t IoStatus = [] (const DIR * const dir, int last_error) -> uint32_t {
-            if (dir) { return 0x00000000 /* STATUS_SUCCESS */; }
-
-            switch (last_error) {
-                case ENOENT:
-                    return 0xC000000F;  // STATUS_NO_SUCH_FILE
-
-                case EACCES:
-                    return 0xC0000022;  // STATUS_ACCESS_DENIED
-            }
-
-            return 0xC0000001;  // STATUS_UNSUCCESSFUL
-        } (this->dir, last_error);
 
         StaticOutStream<65536> out_stream;
 
@@ -976,7 +974,7 @@ public:
             out_stream,
             device_io_request,
             "ManagedDirectory::ProcessServerCloseDriveRequest",
-            0x00000000, /* STATUS_SUCCESS */
+            erref::NTSTATUS::STATUS_SUCCESS,
             verbose);
 
         // Device Close Response (DR_CLOSE_RSP)
@@ -1010,7 +1008,7 @@ public:
             out_stream,
             device_io_request,
             "ManagedDirectory::ProcessServerDriveReadRequest",
-            0x00000000, // STATUS_SUCCESS
+            erref::NTSTATUS::STATUS_SUCCESS,
             verbose);
 
         out_stream.out_uint32_le(0);    // Length(4)
@@ -1045,32 +1043,25 @@ public:
             LOG(LOG_INFO,
                 "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest: "
                     "full_path=\"%s\" pattern=\"%s\"",
-                this->full_path.c_str(), this->pattern.c_str());
+                this->full_path, this->pattern);
         }
 
-        long     name_max = pathconf(this->full_path.c_str(), _PC_NAME_MAX);
-        size_t   len      = offsetof(struct dirent, d_name) + name_max + 1;
-        auto     uptr     = std::make_unique<char[]>(len);
-        dirent * entry    = reinterpret_cast<dirent *>(uptr.get());
-        dirent * result   = nullptr;
-
-        do {
-            if (::readdir_r(this->dir, entry, &result) || !result) { break; }
-
-            if (::FilePatternMatchA(result->d_name, this->pattern.c_str())) {
+        dirent * entry = nullptr;
+        while ((entry = ::readdir(this->dir))) {
+            // TODO this function is incompatible with utf8
+            if (::FilePatternMatchA(entry->d_name, this->pattern.c_str())) {
                 break;
             }
         }
-        while (true);
 
         StaticOutStream<65536> out_stream;
 
-        if (!result) {
+        if (!entry) {
             this->MakeClientDriveIoResponse(
                 out_stream,
                 device_io_request,
                 "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest",
-                0x80000006, // STATUS_NO_MORE_FILES
+                erref::NTSTATUS::STATUS_NO_MORE_FILES,
                 verbose);
 
             out_stream.out_uint32_le(0);    // Length(4)
@@ -1078,15 +1069,15 @@ public:
         }
         else {
             std::string file_full_path = this->full_path;
-            if ((file_full_path.back() != '/') && (result->d_name[0] != '/')) {
+            if ((file_full_path.back() != '/') && (entry->d_name[0] != '/')) {
                 file_full_path += '/';
             }
-            file_full_path += result->d_name;
+            file_full_path += entry->d_name;
             if (bool(verbose & RDPVerbose::fsdrvmgr)) {
                 LOG(LOG_INFO,
                     "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest: "
                         "<%p> full_path=\"%s\"",
-                    static_cast<void*>(this), file_full_path.c_str());
+                    static_cast<void*>(this), file_full_path);
             }
 
             struct stat64 sb;
@@ -1100,7 +1091,7 @@ public:
                         out_stream,
                         device_io_request,
                         "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest",
-                        0x00000000, // STATUS_SUCCESS
+                        erref::NTSTATUS::STATUS_SUCCESS,
                         verbose);
 
                     const fscc::FileFullDirectoryInformation file_full_directory_information(
@@ -1109,9 +1100,9 @@ public:
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_mtime),
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_ctime),
                         sb.st_size, sb.st_blocks * 512 /* Block size */,
-                        (S_ISDIR(sb.st_mode) ? fscc::FILE_ATTRIBUTE_DIRECTORY : 0) |
-                            ((sb.st_mode & S_IWUSR) ? 0 : fscc::FILE_ATTRIBUTE_READONLY),
-                        result->d_name
+                        Flag(S_ISDIR(sb.st_mode),fscc::FILE_ATTRIBUTE_DIRECTORY)
+                        | Flag(!(sb.st_mode & S_IWUSR),fscc::FILE_ATTRIBUTE_READONLY),
+                        entry->d_name
                         );
                     if (bool(verbose & RDPVerbose::fsdrvmgr)) {
                         LOG(LOG_INFO,
@@ -1131,7 +1122,7 @@ public:
                         out_stream,
                         device_io_request,
                         "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest",
-                        0x00000000, // STATUS_SUCCESS
+                        erref::NTSTATUS::STATUS_SUCCESS,
                         verbose);
 
                     const fscc::FileBothDirectoryInformation file_both_directory_information(
@@ -1140,9 +1131,9 @@ public:
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_mtime),
                         FILE_TIME_SYSTEM_TO_RDP(sb.st_ctime),
                         sb.st_size, sb.st_blocks * 512 /* Block size */,
-                        (S_ISDIR(sb.st_mode) ? fscc::FILE_ATTRIBUTE_DIRECTORY : 0) |
-                            ((sb.st_mode & S_IWUSR) ? 0 : fscc::FILE_ATTRIBUTE_READONLY),
-                        result->d_name
+                        Flag(S_ISDIR(sb.st_mode),fscc::FILE_ATTRIBUTE_DIRECTORY)
+                        | Flag(!(sb.st_mode & S_IWUSR), fscc::FILE_ATTRIBUTE_READONLY),
+                        entry->d_name
                         );
                     if (bool(verbose & RDPVerbose::fsdrvmgr)) {
                         LOG(LOG_INFO,
@@ -1162,10 +1153,10 @@ public:
                         out_stream,
                         device_io_request,
                         "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest",
-                        0x00000000, // STATUS_SUCCESS
+                        erref::NTSTATUS::STATUS_SUCCESS,
                         verbose);
 
-                    const fscc::FileNamesInformation file_name_information(result->d_name);
+                    const fscc::FileNamesInformation file_name_information(entry->d_name);
                     if (bool(verbose & RDPVerbose::fsdrvmgr)) {
                         LOG(LOG_INFO,
                             "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest");
@@ -1194,7 +1185,7 @@ public:
                         out_stream,
                         device_io_request,
                         "ManagedDirectory::ProcessServerDriveQueryDirectoryRequest",
-                        0xC0000001, // STATUS_UNSUCCESSFUL
+                        erref::NTSTATUS::STATUS_UNSUCCESSFUL,
                         verbose);
                 }
                 break;
@@ -1210,8 +1201,6 @@ public:
 };  // ManagedDirectory
 
 class ManagedFile : public ManagedFileSystemObject {
-    std::unique_ptr<InFileSeekableTransport> in_file_transport; // For read operations only.
-
     bool is_session_probe_image = false;
 
 public:
@@ -1225,7 +1214,11 @@ public:
 
         // File descriptor will be closed when in_file_transport is destroyed.
 
-        REDASSERT((this->fd <= -1) || in_file_transport);
+        REDASSERT(this->fd <= -1);
+
+        if (this->fd <= -1) {
+          ::close(this->fd);
+        }
 
         if (this->delete_pending) {
             ::unlink(this->full_path.c_str());
@@ -1260,21 +1253,20 @@ public:
             LOG(LOG_INFO,
                 "ManagedFile::ProcessServerCreateDriveRequest: "
                     "<%p> full_path=\"%s\" drive_access_mode=%s(%d)",
-                static_cast<void*>(this), this->full_path.c_str(),
+                static_cast<void*>(this), this->full_path,
                 get_open_flag_name(drive_access_mode), drive_access_mode);
         }
 
         const uint32_t DesiredAccess     = device_create_request.DesiredAccess();
         const uint32_t CreateDisposition = device_create_request.CreateDisposition();
 
-        const int last_error = [] (const char * path,
-                                   uint32_t DesiredAccess,
-                                   uint32_t CreateDisposition,
-                                   int drive_access_mode,
-                                   void * log_this,
-                                   RDPVerbose verbose,
-                                   int & out_fd) -> int {
-            out_fd = -1;
+        const int last_error = [this] (
+            uint32_t DesiredAccess,
+            uint32_t CreateDisposition,
+            int drive_access_mode,
+            RDPVerbose verbose
+        ) -> int {
+            this->fd = -1;
 
             if (((drive_access_mode != O_RDWR) && (drive_access_mode != O_RDONLY) &&
                  smb2::read_access_is_required(DesiredAccess, /*strict_check = */false)) ||
@@ -1322,17 +1314,12 @@ public:
             if (bool(verbose & RDPVerbose::fsdrvmgr)) {
                 LOG(LOG_INFO,
                     "ManagedFile::ProcessServerCreateDriveRequest: <%p> open_flags=0x%X",
-                    log_this, open_flags);
+                    static_cast<void*>(this), open_flags);
             }
 
-            out_fd = ::open(path, open_flags, S_IRUSR | S_IWUSR | S_IRGRP);
-            return ((out_fd > -1) ? 0 : errno);
-        } (this->full_path.c_str(), DesiredAccess, CreateDisposition, drive_access_mode,
-           this, verbose, this->fd);
-
-        if (this->fd > -1) {
-            this->in_file_transport = std::make_unique<InFileSeekableTransport>(this->fd);
-        }
+            this->fd = ::open(this->full_path.c_str(), open_flags, S_IRUSR | S_IWUSR | S_IRGRP);
+            return (fd != -1 ? 0 : errno);
+        } (DesiredAccess, CreateDisposition, drive_access_mode, verbose);
 
         if (bool(verbose & RDPVerbose::fsdrvmgr)) {
             LOG(LOG_INFO,
@@ -1340,18 +1327,18 @@ public:
                 static_cast<void*>(this), this->fd, ((this->fd == -1) ? last_error : 0));
         }
 
-        const uint32_t IoStatus = [] (int fd, int last_error) -> uint32_t {
-            if (fd > -1) { return 0x00000000 /* STATUS_SUCCESS */; }
+        const erref::NTSTATUS IoStatus = [] (int fd, int last_error) -> erref::NTSTATUS {
+            if (fd > -1) { return erref::NTSTATUS::STATUS_SUCCESS; }
 
             switch (last_error) {
                 case ENOENT:
-                    return 0xC000000F;  // STATUS_NO_SUCH_FILE
+                    return erref::NTSTATUS::STATUS_NO_SUCH_FILE;
 
                 case EACCES:
-                    return 0xC0000022;  // STATUS_ACCESS_DENIED
+                    return erref::NTSTATUS::STATUS_ACCESS_DENIED;
             }
 
-            return 0xC0000001;  // STATUS_UNSUCCESSFUL
+            return erref::NTSTATUS::STATUS_UNSUCCESSFUL;
         } (this->fd, last_error);
 
         StaticOutStream<65536> out_stream;
@@ -1411,7 +1398,7 @@ public:
             out_stream,
             device_io_request,
             "ManagedFile::ProcessServerCloseDriveRequest",
-            0x00000000, // STATUS_SUCCESS
+            erref::NTSTATUS::STATUS_SUCCESS,
             verbose);
 
         // Device Close Response (DR_CLOSE_RSP)
@@ -1450,7 +1437,7 @@ public:
                   out_stream
                 , device_io_request
                 , "ManagedFile::ProcessServerDriveReadRequest"
-                , 0xC0000001    // STATUS_UNSUCCESSFUL
+                , erref::NTSTATUS::STATUS_UNSUCCESSFUL
                 , verbose);
 
             out_stream.out_uint32_le(0);    // Length(4)
@@ -1469,7 +1456,6 @@ public:
             sb.st_size - Offset, Length);
 
         out_asynchronous_task = std::make_unique<RdpdrDriveReadTask>(
-            this->in_file_transport.get(),
             this->fd, device_io_request.DeviceId(),
             device_io_request.CompletionId(),
             static_cast<uint32_t>(remaining_number_of_bytes_to_read),
@@ -1495,7 +1481,7 @@ public:
             out_stream,
             device_io_request,
             "ManagedFile::ProcessServerDriveControlRequest",
-            0x00000000, // STATUS_SUCCESS
+            erref::NTSTATUS::STATUS_SUCCESS,
             verbose);
 
         if (bool(verbose & RDPVerbose::fsdrvmgr)) {
@@ -1576,7 +1562,7 @@ public:
                 out_stream,
                 device_io_request,
                 "ManagedFile::ProcessServerDriveQueryInformationRequest",
-                0x00000000, // STATUS_SUCCESS
+                erref::NTSTATUS::STATUS_SUCCESS,
                 verbose);
 
             out_stream.out_uint32_le(Length);   // Length(4)
@@ -1608,7 +1594,7 @@ public:
             out_stream,
             device_io_request,
             "ManagedFile::ProcessServerDriveQueryDirectoryRequest",
-            0x80000006, // STATUS_NO_MORE_FILES
+            erref::NTSTATUS::STATUS_NO_MORE_FILES,
             verbose);
 
         out_stream.out_uint32_le(0);    // Length(4)
@@ -1843,7 +1829,7 @@ private:
             LOG(LOG_INFO,
                 "FileSystemDriveManager::ProcessServerCreateDriveRequest: "
                     "full_path=\"%s\" drive_access_mode=%s(%d)",
-                full_path.c_str(),
+                full_path,
                 ManagedFileSystemObject::get_open_flag_name(drive_access_mode),
                 drive_access_mode);
         }
@@ -2177,7 +2163,7 @@ public:
                 ManagedFileSystemObject::SendClientDriveLockControlResponse(
                     device_io_request,
                     "FileSystemDriveManager::ProcessDeviceIORequest",
-                    0x00000000, // STATUS_SUCCESS
+                    erref::NTSTATUS::STATUS_SUCCESS,
                     to_server_sender,
                     out_asynchronous_task,
                     verbose);
@@ -2189,7 +2175,7 @@ public:
                     "FileSystemDriveManager::ProcessDeviceIORequest: "
                         "Undecoded Device I/O Request - "
                         "MajorFunction=%s(0x%X)",
-                    rdpdr::DeviceIORequest::get_MajorFunction_name(
+                    rdpdr::get_MajorFunction_name(
                         device_io_request.MajorFunction()),
                     device_io_request.MajorFunction());
                 REDASSERT(false);

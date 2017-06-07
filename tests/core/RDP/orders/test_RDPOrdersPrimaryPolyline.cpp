@@ -21,9 +21,7 @@
     Using lib boost functions for testing
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestOrderPolyline
+#define RED_TEST_MODULE TestOrderPolyline
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
@@ -31,9 +29,9 @@
 
 #include "core/RDP/orders/RDPOrdersPrimaryPolyline.hpp"
 
-#include "test_orders.hpp"
+#include "./test_orders.hpp"
 
-BOOST_AUTO_TEST_CASE(TestPolyline)
+RED_AUTO_TEST_CASE(TestPolyline)
 {
     using namespace RDP;
 
@@ -69,13 +67,13 @@ BOOST_AUTO_TEST_CASE(TestPolyline)
 
         InStream deltaPoints_in(deltaPoints.get_data(), deltaPoints.get_offset());
 
-        RDPPolyline polyline(158, 230, 0x0D, 0, 0x000000, 7, deltaPoints_in);
+        RDPPolyline polyline(158, 230, 0x0D, 0, encode_color24()(BGRColor{0x000000}), 7, deltaPoints_in);
 
 
         polyline.emit(out_stream, newcommon, state_common, state_polyline);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(POLYLINE), newcommon.order);
-        BOOST_CHECK_EQUAL(Rect(0, 0, 0, 0), newcommon.clip);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(POLYLINE), newcommon.order);
+        RED_CHECK_EQUAL(Rect(0, 0, 0, 0), newcommon.clip);
 
         uint8_t datas[] = {
             CHANGE | STANDARD,
@@ -94,13 +92,13 @@ BOOST_AUTO_TEST_CASE(TestPolyline)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(0x09), header.control);
-        BOOST_CHECK_EQUAL(static_cast<uint32_t>(0x67), header.fields);
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(POLYLINE), common_cmd.order);
-        BOOST_CHECK_EQUAL(Rect(0, 0, 0, 0), common_cmd.clip);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(0x09), header.control);
+        RED_CHECK_EQUAL(static_cast<uint32_t>(0x67), header.fields);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(POLYLINE), common_cmd.order);
+        RED_CHECK_EQUAL(Rect(0, 0, 0, 0), common_cmd.clip);
 
         RDPPolyline cmd = state_polyline;
         cmd.receive(in_stream, header);
@@ -132,7 +130,7 @@ BOOST_AUTO_TEST_CASE(TestPolyline)
 
         check<RDPPolyline>(common_cmd, cmd,
             RDPOrderCommon(POLYLINE, Rect(0, 0, 0, 0)),
-            RDPPolyline(158, 230, 0x0D, 0, 0x000000, 7, deltaPoints_in),
+            RDPPolyline(158, 230, 0x0D, 0, encode_color24()(BGRColor{0x000000}), 7, deltaPoints_in),
             "Polyline 2");
     }
 }

@@ -30,9 +30,9 @@
 #include <stdio.h> // for stderr
 #include <arpa/inet.h> // for ntohl
 
+#include "utils/log.hpp"
 #include "utils/parse.hpp"
 #include "sashimi/serialize.hpp"
-#include <syslog.h>
 
 //#include "string.hpp"
 #include "sashimi/libssh/libssh.h"
@@ -76,7 +76,7 @@ struct ssh_buffer_struct {
     , allocated(0)
     , pos(0)
     {
-//        syslog(LOG_INFO, "new buffer struct");
+        LOG(LOG_INFO, "ssh_buffer_struct::ssh_buffer_struct()");
     }
 
 #define DEBUG_BUFFER
@@ -85,19 +85,19 @@ struct ssh_buffer_struct {
       int doabort=0;
 
       if((this->data == nullptr) && (this->allocated != 0)){
-        syslog(LOG_INFO, "data is nullptr!!! allocated=%d", this->allocated);
+        LOG(LOG_INFO, "data is nullptr!!! allocated=%d", this->allocated);
         doabort=1;
       }
       if(this->used > this->allocated){
-        syslog(LOG_INFO, "Buffer error : allocated %u, used %u\n",this->allocated, this->used);
+        LOG(LOG_INFO, "Buffer error : allocated %u, used %u\n",this->allocated, this->used);
         doabort=1;
       }
       if(this->pos > this->used){
-        syslog(LOG_INFO, "Buffer error : position %u, used %u\n",this->pos, this->used);
+        LOG(LOG_INFO, "Buffer error : position %u, used %u\n",this->pos, this->used);
         doabort=1;
       }
       if(this->pos > this->allocated){
-          syslog(LOG_INFO, "Buffer error : position %u, allocated %u\n",this->pos, this->allocated);
+          LOG(LOG_INFO, "Buffer error : position %u, allocated %u\n",this->pos, this->allocated);
           doabort=1;
       }
       if(doabort){
@@ -140,7 +140,7 @@ struct ssh_buffer_struct {
 
      void make_headroom_for(size_t len)
      {
-//        syslog(LOG_INFO, "headroom for %d allocated=%d used=%d pos=%d", len, this->allocated, this->used, this->pos);
+//        LOG(LOG_INFO, "headroom for %d allocated=%d used=%d pos=%d", len, this->allocated, this->used, this->pos);
         if (this->pos >= len) { return; }
         if ((this->pos == this->used)
         && (this->allocated > 16384)
@@ -158,7 +158,7 @@ struct ssh_buffer_struct {
 
         size_t needed = power2up(16000 | (this->used + len - this->pos + newpos)) ;
 
-//        syslog(LOG_INFO, "allocating %d allocated=%d used=%d pos=%d newpos=%d", needed, this->allocated, this->used, this->pos, newpos);
+//        LOG(LOG_INFO, "allocating %d allocated=%d used=%d pos=%d newpos=%d", needed, this->allocated, this->used, this->pos, newpos);
 
         uint8_t *newb = new uint8_t[needed];
         if (this->used - this->pos > 0) {
@@ -174,7 +174,7 @@ struct ssh_buffer_struct {
 
      void make_tailroom_for(size_t len)
      {
-//        syslog(LOG_INFO, "tailroom [%p] for %d allocated=%d used=%d pos=%d", this, static_cast<unsigned>(len), this->allocated, this->used, this->pos);
+//        LOG(LOG_INFO, "tailroom [%p] for %d allocated=%d used=%d pos=%d", this, static_cast<unsigned>(len), this->allocated, this->used, this->pos);
         if ((this->pos == this->used) && (this->allocated > 4096)){
             this->pos = this->used = 4096;
         }
@@ -188,7 +188,7 @@ struct ssh_buffer_struct {
         size_t newpos = (this->pos<4096)?4096:this->pos;
         size_t needed = power2up(16000 | (this->used + len - this->pos + newpos)) ;
 
-//        syslog(LOG_INFO, "allocating %d allocated=%d used=%d pos=%d newpos=%d", needed, this->allocated, this->used, this->pos, newpos);
+//        LOG(LOG_INFO, "allocating %d allocated=%d used=%d pos=%d newpos=%d", needed, this->allocated, this->used, this->pos, newpos);
 
         uint8_t *newb = new uint8_t[needed];
         if (this->used - this->pos > 0) {
@@ -200,7 +200,7 @@ struct ssh_buffer_struct {
         this->data = newb;
         this->allocated = needed;
 
-//        syslog(LOG_INFO, "done %d allocated=%d used=%d pos=%d", needed, this->allocated, this->used, this->pos);
+//        LOG(LOG_INFO, "done %d allocated=%d used=%d pos=%d", needed, this->allocated, this->used, this->pos);
 
         this->buffer_verify();
     }
@@ -389,8 +389,8 @@ struct ssh_buffer_struct {
     }
 
     void out_sshstring(const SSHString & string) {
-        this->out_uint32_be(string.size);
-        this->out_blob(reinterpret_cast<const uint8_t*>(string.data.get()), string.size);
+        this->out_uint32_be(string.size());
+        this->out_blob(reinterpret_cast<const uint8_t*>(&string[0]), string.size());
     }
 
     void out_blob(const char * blob, uint32_t len) {
@@ -415,13 +415,18 @@ struct ssh_buffer_struct {
         this->out_blob(reinterpret_cast<const uint8_t*>(blob), len);
     }
 
-
-    char * in_strdup_cstr() {
+    SSHString in_strdup_cstr() {
         uint32_t hostlen = this->in_uint32_be();
-        char * newstr = new char[hostlen+1];
-        this->buffer_get_data(newstr, hostlen);
-        newstr[hostlen] = 0;
-        return newstr;
+//        char * newstr = new char[hostlen+1];
+//        memcpy(newstr, this->data+this->pos, hostlen);
+        SSHString str(reinterpret_cast<char *>(&this->data[this->pos]), hostlen);
+        this->pos+=hostlen;
+//        return str;
+//    }
+
+//        this->buffer_get_data(newstr, hostlen);
+//        newstr[hostlen] = 0;
+        return str;
     }
 
      // for output should be out_ready() (len of data ready to send) instead
@@ -489,7 +494,7 @@ static inline void hexdump(const char * data, size_t size, unsigned line_length)
 
         if (line != buffer){
             line[0] = 0;
-            syslog(LOG_INFO, "%s", buffer);
+            LOG(LOG_INFO, "%s", buffer);
             buffer[0]=0;
         }
     }

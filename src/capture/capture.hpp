@@ -16,443 +16,481 @@
    Product name: redemption, a FLOSS RDP proxy
    Copyright (C) Wallix 2013
    Author(s): Christophe Grosjean, Javier Caverni, Xavier Dunat,
-              Martin Potier, Jonatan Poelen, Raphael Zhou, Meng Tan
+              Martin Potier, Jonatan Poelen, Raphael Zhou, Meng Tan,
+              Clément Moroldo
 */
 
 #pragma once
 
-#include "capture/utils/graphic_capture_impl.hpp"
-#include "capture/utils/wrm_capture_impl.hpp"
-#include "capture/utils/kbd_capture_impl.hpp"
-#include "capture/utils/image_capture_impl.hpp"
-#include "capture/utils/capture_apis_impl.hpp"
-#include "utils/sugar/array_view.hpp"
+#include "utils/sugar/noncopyable.hpp"
+#include "gdi/graphic_api.hpp"
+#include "gdi/capture_api.hpp"
+#include "gdi/kbd_input_api.hpp"
+#include "gdi/capture_probe_api.hpp"
+#include "capture/notify_next_video.hpp"
 
-#include "capture/utils/capture_impl.hpp"
+#include "capture/wrm_params.hpp"
+#include "capture/png_params.hpp"
+#include "capture/flv_params.hpp"
+#include "capture/pattern_checker_params.hpp"
+#include "capture/ocr_params.hpp"
+#include "capture/sequenced_video_params.hpp"
+#include "capture/full_video_params.hpp"
+#include "capture/meta_params.hpp"
+#include "capture/kbdlog_params.hpp"
+
+#include "capture/wrm_chunk_type.hpp"
+#include "capture/save_state_chunk.hpp"
+#include "capture/file_to_graphic.hpp"
+#include "core/wait_obj.hpp"
+#include "utils/sugar/numerics/safe_conversions.hpp"
+
+#include <functional> // std::reference_wrapper
+#include <vector>
+#include <memory>
+
+
+inline void send_wrm_chunk(Transport & t, WrmChunkType chunktype, uint16_t data_size, uint16_t count)
+{
+    StaticOutStream<8> header;
+    header.out_uint16_le(safe_cast<uint16_t>(chunktype));
+    header.out_uint32_le(8 + data_size);
+    header.out_uint16_le(count);
+    t.send(header.get_data(), header.get_offset());
+}
+
+inline void send_meta_chunk(
+    Transport & t
+  , uint8_t wrm_format_version
+
+  , uint16_t info_width
+  , uint16_t info_height
+  , uint16_t info_bpp
+
+  , uint16_t info_cache_0_entries
+  , uint16_t info_cache_0_size
+  , uint16_t info_cache_1_entries
+  , uint16_t info_cache_1_size
+  , uint16_t info_cache_2_entries
+  , uint16_t info_cache_2_size
+
+  , uint16_t info_number_of_cache
+  , bool     info_use_waiting_list
+
+  , bool     info_cache_0_persistent
+  , bool     info_cache_1_persistent
+  , bool     info_cache_2_persistent
+
+  , uint16_t info_cache_3_entries
+  , uint16_t info_cache_3_size
+  , bool     info_cache_3_persistent
+  , uint16_t info_cache_4_entries
+  , uint16_t info_cache_4_size
+  , bool     info_cache_4_persistent
+  , uint8_t  index_algorithm
+) {
+    StaticOutStream<36> payload;
+    payload.out_uint16_le(wrm_format_version);
+    payload.out_uint16_le(info_width);
+    payload.out_uint16_le(info_height);
+    payload.out_uint16_le(info_bpp);
+    payload.out_uint16_le(info_cache_0_entries);
+    payload.out_uint16_le(info_cache_0_size);
+    payload.out_uint16_le(info_cache_1_entries);
+    payload.out_uint16_le(info_cache_1_size);
+    payload.out_uint16_le(info_cache_2_entries);
+    payload.out_uint16_le(info_cache_2_size);
+
+    if (wrm_format_version > 3) {
+        payload.out_uint8(info_number_of_cache);
+        payload.out_uint8(info_use_waiting_list);
+
+        payload.out_uint8(info_cache_0_persistent);
+        payload.out_uint8(info_cache_1_persistent);
+        payload.out_uint8(info_cache_2_persistent);
+
+        payload.out_uint16_le(info_cache_3_entries);
+        payload.out_uint16_le(info_cache_3_size);
+        payload.out_uint8(info_cache_3_persistent);
+        payload.out_uint16_le(info_cache_4_entries);
+        payload.out_uint16_le(info_cache_4_size);
+        payload.out_uint8(info_cache_4_persistent);
+
+        payload.out_uint8(index_algorithm);
+    }
+
+    send_wrm_chunk(t, WrmChunkType::META_FILE, payload.get_offset(), 1);
+    t.send(payload.get_data(), payload.get_offset());
+}
+
+
+struct NotifyTitleChanged : private noncopyable
+{
+    virtual void notify_title_changed(const timeval & now, array_view_const_char title) = 0;
+    virtual ~NotifyTitleChanged() = default;
+};
+
+class SessionMeta;
+class WrmCaptureImpl;
+class PngCapture;
+class PngCaptureRT;
+class SyslogKbd;
+class SessionLogKbd;
+class PatternKbd;
+class MetaCaptureImpl;
+class TitleCaptureImpl;
+class PatternsChecker;
+class UpdateProgressData;
+class RDPDrawable;
+class SequencedVideoCaptureImpl;
+class FullVideoCaptureImpl;
+
+struct MouseTrace
+{
+    timeval last_now;
+    int     last_x;
+    int     last_y;
+};
 
 class Capture final
-: public gdi::GraphicBase<Capture>
+: public gdi::GraphicApi
 , public gdi::CaptureApi
 , public gdi::KbdInputApi
 , public gdi::CaptureProbeApi
 , public gdi::ExternalCaptureApi
-, public gdi::UpdateConfigCaptureApi
 {
-    using Graphic = GraphicCaptureImpl;
-
-    using Static = ImageCaptureImpl;
-
-    using Native = WrmCaptureImpl;
-
-    using Kbd = KbdCaptureImpl;
-
-    using Video = VideoCaptureImpl;
-
-    using Meta = MetaCaptureImpl;
-
-    using Title = TitleCaptureImpl;
-
     const bool is_replay_mod;
 
-    struct VideoImageCapture
-    {
-        OutFilenameSequenceTransport trans;
-        ImageCapture ic;
+    using string_view = array_view_const_char;
 
-        VideoImageCapture(
-            const timeval & now, Drawable & drawable,
-            const char * path, const char * basename, int groupid)
-        : trans(
-            FilenameGenerator::PATH_FILE_COUNT_EXTENSION,
-            path, basename, ".png", groupid, nullptr)
-        , ic(now, drawable, this->trans, std::chrono::seconds{})
+public:
+    void draw(RDP::FrameMarker    const & cmd) override { this->draw_impl( cmd); }
+    void draw(RDPDestBlt          const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDPMultiDstBlt      const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDPPatBlt           const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDP::RDPMultiPatBlt const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPOpaqueRect       const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPMultiOpaqueRect  const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPScrBlt           const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDP::RDPMultiScrBlt const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDPLineTo           const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPPolygonSC        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPPolygonCB        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPPolyline         const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPEllipseSC        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPEllipseCB        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPBitmapData       const & cmd, Bitmap const & bmp) override { this->draw_impl(cmd, bmp); }
+    void draw(RDPMemBlt           const & cmd, Rect clip, Bitmap const & bmp) override { this->draw_impl(cmd, clip, bmp);}
+    void draw(RDPMem3Blt          const & cmd, Rect clip, gdi::ColorCtx color_ctx, Bitmap const & bmp) override { this->draw_impl(cmd, clip, color_ctx, bmp); }
+    void draw(RDPGlyphIndex       const & cmd, Rect clip, gdi::ColorCtx color_ctx, GlyphCache const & gly_cache) override { this->draw_impl(cmd, clip, color_ctx, gly_cache); }
+
+    void draw(const RDP::RAIL::NewOrExistingWindow            & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::WindowIcon                     & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::CachedIcon                     & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::DeletedWindow                  & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::NewOrExistingNotificationIcons & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::DeletedNotificationIcons       & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::ActivelyMonitoredDesktop       & cmd) override { this->draw_impl(cmd); }
+    void draw(const RDP::RAIL::NonMonitoredDesktop            & cmd) override { this->draw_impl(cmd); }
+
+    void draw(RDPColCache   const & cmd) override { this->draw_impl(cmd); }
+    void draw(RDPBrushCache const & cmd) override { this->draw_impl(cmd); }
+
+private:
+    // Title changed
+    //@{
+    struct TitleChangedFunctions final : NotifyTitleChanged
+    {
+        Capture & capture;
+
+        TitleChangedFunctions(Capture & capture) : capture(capture) {}
+
+        void notify_title_changed(timeval const & now, string_view title) override;
+    } notifier_title_changed{*this};
+    //@}
+
+    // Next video
+    //@{
+    struct NotifyMetaIfNextVideo final : NotifyNextVideo
+    {
+        SessionMeta * session_meta = nullptr;
+
+        void notify_next_video(const timeval& now, NotifyNextVideo::reason reason) override;
+    } notifier_next_video;
+    struct NullNotifyNextVideo final : NotifyNextVideo
+    {
+        void notify_next_video(const timeval&, NotifyNextVideo::reason) override {}
+    } null_notifier_next_video;
+    //@}
+
+public:
+
+    std::unique_ptr<RDPDrawable> gd_drawable;
+
+private:
+    class Graphic final : public gdi::GraphicApi
+    {
+    public:
+        void draw(RDP::FrameMarker    const & cmd) override { this->draw_impl(cmd); }
+        void draw(RDPDestBlt          const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+        void draw(RDPMultiDstBlt      const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+        void draw(RDPPatBlt           const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDP::RDPMultiPatBlt const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPOpaqueRect       const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPMultiOpaqueRect  const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPScrBlt           const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+        void draw(RDP::RDPMultiScrBlt const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+        void draw(RDPLineTo           const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPPolygonSC        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPPolygonCB        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPPolyline         const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPEllipseSC        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPEllipseCB        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+        void draw(RDPBitmapData       const & cmd, Bitmap const & bmp) override { this->draw_impl(cmd, bmp); }
+        void draw(RDPMemBlt           const & cmd, Rect clip, Bitmap const & bmp) override { this->draw_impl(cmd, clip, bmp);}
+        void draw(RDPMem3Blt          const & cmd, Rect clip, gdi::ColorCtx color_ctx, Bitmap const & bmp) override { this->draw_impl(cmd, clip, color_ctx, bmp); }
+        void draw(RDPGlyphIndex       const & cmd, Rect clip, gdi::ColorCtx color_ctx, GlyphCache const & gly_cache) override { this->draw_impl(cmd, clip, color_ctx, gly_cache); }
+
+        void draw(const RDP::RAIL::NewOrExistingWindow            & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::WindowIcon                     & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::CachedIcon                     & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::DeletedWindow                  & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::NewOrExistingNotificationIcons & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::DeletedNotificationIcons       & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::ActivelyMonitoredDesktop       & cmd) override { this->draw_impl(cmd); }
+        void draw(const RDP::RAIL::NonMonitoredDesktop            & cmd) override { this->draw_impl(cmd); }
+
+        void draw(RDPColCache   const & cmd) override { this->draw_impl(cmd); }
+        void draw(RDPBrushCache const & cmd) override { this->draw_impl(cmd); }
+
+        void set_pointer(Pointer    const & pointer) override {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.set_pointer(pointer);
+            }
+        }
+
+        void set_palette(BGRPalette const & palette) override {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.set_palette(palette);
+            }
+        }
+
+        void sync() override {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.sync();
+            }
+        }
+
+        void set_row(std::size_t rownum, const uint8_t * data) override {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.set_row(rownum, data);
+            }
+        }
+
+        void begin_update() override {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.begin_update();
+            }
+        }
+
+        void end_update() override {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.end_update();
+            }
+        }
+
+    private:
+        template<class... Ts>
+        void draw_impl(Ts const & ... args) {
+            for (gdi::GraphicApi & gd : this->gds){
+                gd.draw(args...);
+            }
+        }
+
+        void draw_impl(RDP::FrameMarker const & cmd) {
+            for (gdi::GraphicApi & gd : this->gds) {
+                gd.draw(cmd);
+            }
+
+            if (cmd.action == RDP::FrameMarker::FrameEnd) {
+                for (gdi::CaptureApi & cap : this->caps) {
+                    cap.frame_marker_event(this->mouse.last_now, this->mouse.last_x, this->mouse.last_y, false);
+                }
+            }
+        }
+
+    public:
+        MouseTrace const & mouse;
+        const std::vector<std::reference_wrapper<gdi::GraphicApi>> & gds;
+        const std::vector<std::reference_wrapper<gdi::CaptureApi>> & caps;
+
+        Graphic(MouseTrace const & mouse,
+                const std::vector<std::reference_wrapper<gdi::GraphicApi>> & gds,
+                const std::vector<std::reference_wrapper<gdi::CaptureApi>> & caps)
+        : mouse(mouse)
+        , gds(gds)
+        , caps(caps)
         {}
     };
 
-// TODO
-public:
-    const bool capture_wrm;
-    const bool capture_png;
-    const bool capture_ocr;
-    const bool capture_flv;
-    const bool capture_flv_full; // capturewab only
-    const bool capture_meta; // capturewab only
+    std::unique_ptr<Graphic> graphic_api;
 
-private:
-    std::unique_ptr<Graphic> gd;
-    std::unique_ptr<Native> pnc;
-    std::unique_ptr<Static> psc;
-    std::unique_ptr<Kbd> pkc;
-    std::unique_ptr<Video> pvc;
-    std::unique_ptr<Video> pvc_full;
-    std::unique_ptr<Meta> pmc;
-    std::unique_ptr<Title> ptc;
-    std::unique_ptr<VideoImageCapture> pivc;
+    std::unique_ptr<WrmCaptureImpl> wrm_capture_obj;
+    std::unique_ptr<PngCapture> png_capture_obj;
+    std::unique_ptr<PngCaptureRT> png_capture_real_time_obj;
 
-    CaptureApisImpl::Capture capture_api;
-    CaptureApisImpl::KbdInput kbd_input_api;
-    CaptureApisImpl::CaptureProbe capture_probe_api;
-    CaptureApisImpl::ExternalCapture external_capture_api;
-    CaptureApisImpl::UpdateConfigCapture update_config_capture_api;
-    Graphic::GraphicApi * graphic_api = nullptr;
+    std::unique_ptr<SyslogKbd> syslog_kbd_capture_obj;
+    std::unique_ptr<SessionLogKbd> session_log_kbd_capture_obj;
+    std::unique_ptr<PatternKbd> pattern_kbd_capture_obj;
 
-    const int delta_time;
+    std::unique_ptr<SequencedVideoCaptureImpl> sequenced_video_capture_obj;
+    std::unique_ptr<FullVideoCaptureImpl> full_video_capture_obj;
+    std::unique_ptr<MetaCaptureImpl> meta_capture_obj;
+    std::unique_ptr<TitleCaptureImpl> title_capture_obj;
+    std::unique_ptr<PatternsChecker> patterns_checker;
 
-    ApisRegister get_apis_register() {
-        return {
-            this->graphic_api ? &this->graphic_api->gds : nullptr,
-            this->graphic_api ? &this->graphic_api->snapshoters : nullptr,
-            this->capture_api.caps,
-            this->kbd_input_api.kbds,
-            this->capture_probe_api.probes,
-            this->external_capture_api.objs,
-            this->update_config_capture_api.objs,
-        };
-    }
+    UpdateProgressData * update_progress_data;
+
+    MouseTrace mouse_info;
+    wait_obj capture_event;
+
+    std::vector<std::reference_wrapper<gdi::GraphicApi>> gds;
+    // Objects willing to be warned of FrameMarker Events
+    std::vector<std::reference_wrapper<gdi::CaptureApi>> caps;
+    std::vector<std::reference_wrapper<gdi::KbdInputApi>> kbds;
+    std::vector<std::reference_wrapper<gdi::CaptureProbeApi>> probes;
+    std::vector<std::reference_wrapper<gdi::ExternalCaptureApi>> objs;
+
+    bool capture_drawable = false;
+
 
 public:
     Capture(
+        bool capture_wrm, const WrmParams wrm_params,
+        bool capture_png, const PngParams png_params,
+        bool capture_pattern_checker, const PatternCheckerParams /* pattern_checker_params */,
+        bool capture_ocr, const OcrParams ocr_params,
+        bool capture_flv, const SequencedVideoParams /*sequenced_video_params*/,
+        bool capture_flv_full, const FullVideoParams /*full_video_params*/,
+        bool capture_meta, const MetaParams /*meta_params*/,
+        bool capture_kbd, const KbdLogParams /*kbd_log_params*/,
+        const char * basename,
         const timeval & now,
         int width,
         int height,
-        int order_bpp,
-        int capture_bpp,
-        bool clear_png,
+        const char * record_tmp_path,
+        const char * record_path,
+        const int groupid,
+        const FlvParams flv_params,
         bool no_timestamp,
-        auth_api * authentifier,
-        const Inifile & ini,
-        CryptoContext & cctx,
-        Random & rnd,
-        bool full_video,
-        bool force_capture_png_if_enable = false,
-        const int delta_time = 1000)
-    : is_replay_mod(!authentifier)
-    , capture_wrm(bool(ini.get<cfg::video::capture_flags>() & CaptureFlags::wrm))
-    , capture_png(bool(ini.get<cfg::video::capture_flags>() & CaptureFlags::png)
-                  && (!authentifier || ini.get<cfg::video::png_limit>() > 0))
-    , capture_ocr(bool(ini.get<cfg::video::capture_flags>() & CaptureFlags::ocr)
-                 || ::contains_ocr_pattern(ini.get<cfg::context::pattern_kill>().c_str())
-                 || ::contains_ocr_pattern(ini.get<cfg::context::pattern_notify>().c_str()))
-    , capture_flv(bool(ini.get<cfg::video::capture_flags>() & CaptureFlags::flv))
-    // capture wab only
-    , capture_flv_full(full_video)
-    // capture wab only
-    , capture_meta(this->capture_ocr)
-    , capture_api(now, width / 2, height / 2)
-    , delta_time(delta_time)
-    {
-        REDASSERT(authentifier ? order_bpp == capture_bpp : true);
+        ReportMessageApi * report_message,
+        UpdateProgressData * update_progress_data,
+        const char * pattern_kill,
+        const char * pattern_notify,
+        int debug_capture,
+        bool flv_capture_chunk,
+        bool meta_enable_session_log,
+        const std::chrono::duration<long int> flv_break_interval,
+        bool syslog_keyboard_log,
+        bool rt_display,
+        bool disable_keyboard_log,
+        bool session_log_enabled,
+        bool keyboard_fully_masked,
+        bool meta_keyboard_log
+    );
 
-        bool const enable_kbd
-          = authentifier
-          ? !bool(ini.get<cfg::video::disable_keyboard_log>() & KeyboardLogFlags::syslog)
-          || ini.get<cfg::session_log::enable_session_log>()
-          || ::contains_kbd_pattern(ini.get<cfg::context::pattern_kill>().c_str())
-          || ::contains_kbd_pattern(ini.get<cfg::context::pattern_notify>().c_str())
-          : false
-        ;
-
-        if (ini.get<cfg::debug::capture>()) {
-            LOG(LOG_INFO, "Enable capture:  wrm=%d  png=%d  kbd=%d  flv=%d  flv_full=%d  ocr=%d  meta=%d",
-                this->capture_wrm ? 1 : 0,
-                this->capture_png ? 1 : 0,
-                enable_kbd ? 1 : 0,
-                this->capture_flv ? 1 : 0,
-                this->capture_flv_full ? 1 : 0,
-                this->capture_ocr ? (ini.get<cfg::ocr::version>() == OcrVersion::v2 ? 2 : 1) : 0,
-                this->capture_meta
-            );
-        }
-
-        const int groupid = ini.get<cfg::video::capture_groupid>(); // www-data
-        const bool capture_drawable = this->capture_wrm || this->capture_flv
-                                   || this->capture_ocr || this->capture_png
-                                   || this->capture_flv_full;
-        const char * record_tmp_path = ini.get<cfg::video::record_tmp_path>().c_str();
-        const char * record_path = authentifier ? ini.get<cfg::video::record_path>().c_str() : record_tmp_path;
-        const char * hash_path = ini.get<cfg::video::hash_path>().c_str();
-
-        if (this->capture_png || (authentifier && (this->capture_flv || this->capture_ocr))) {
-            if (recursive_create_directory(record_tmp_path, S_IRUSR|S_IWUSR|S_IXUSR|S_IRGRP|S_IXGRP, -1) != 0) {
-                LOG(LOG_INFO, "Failed to create directory: \"%s\"", record_tmp_path);
-            }
-        }
-
-        char path[1024];
-        char basename[1024];
-        char extension[128];
-        strcpy(path, WRM_PATH "/");     // default value, actual one should come from movie_path
-        strcpy(basename, ini.get<cfg::globals::movie_path>().c_str());
-        strcpy(extension, "");          // extension is currently ignored
-
-        if (!canonical_path(
-            ini.get<cfg::globals::movie_path>().c_str()
-          , path, sizeof(path)
-          , basename, sizeof(basename)
-          , extension, sizeof(extension))
-        ) {
-            LOG(LOG_ERR, "Buffer Overflowed: Path too long");
-            throw Error(ERR_RECORDER_FAILED_TO_FOUND_PATH);
-        }
-
-        LOG(LOG_INFO, "canonical_path : %s%s%s\n", path, basename, extension);
-
-        if (authentifier) {
-            cctx.set_master_key(ini.get<cfg::crypto::key0>());
-            cctx.set_hmac_key(ini.get<cfg::crypto::key1>());
-        }
-
-        if (capture_drawable) {
-            this->gd.reset(new Graphic(width, height, order_bpp, this->capture_api.mouse_trace()));
-            this->graphic_api = &this->gd->get_graphic_api();
-            this->capture_api.set_drawable(&this->gd->impl());
-
-            if (this->capture_png) {
-                if (clear_png || force_capture_png_if_enable) {
-                    this->psc.reset(new Static(
-                        now, clear_png, authentifier, this->gd->impl(),
-                        record_tmp_path, basename, groupid, ini
-                    ));
-                }
-                if (!clear_png) {
-                    this->pivc.reset(new VideoImageCapture(
-                        now, this->gd->impl(),
-                        record_tmp_path, basename, groupid
-                    ));
-                }
-
-            }
-
-            if (this->capture_wrm) {
-                if (authentifier) {
-                    if (recursive_create_directory(record_path, S_IRWXU | S_IRGRP | S_IXGRP, groupid) != 0) {
-                        LOG(LOG_ERR, "Failed to create directory: \"%s\"", record_path);
-                    }
-
-                    if (recursive_create_directory(hash_path, S_IRWXU | S_IRGRP | S_IXGRP, groupid) != 0) {
-                        LOG(LOG_ERR, "Failed to create directory: \"%s\"", hash_path);
-                    }
-                }
-                this->pnc.reset(new Native(
-                    now, capture_bpp, ini.get<cfg::globals::trace_type>(),
-                    cctx, rnd, record_path, hash_path, basename,
-                    groupid, authentifier, this->gd->rdp_drawable(), ini, this->delta_time
-                ));
-            }
-
-            if (this->capture_ocr) {
-                this->pmc.reset(new Meta(
-                    now, record_tmp_path, basename,
-                    authentifier && ini.get<cfg::session_log::enable_session_log>()
-                ));
-            }
-
-            if (this->capture_flv) {
-                this->pvc.reset(new Video(
-                    now, record_path, basename, groupid, authentifier,
-                    no_timestamp, this->gd->impl(),
-                    video_params_from_ini(this->gd->impl().width(), this->gd->impl().height(), ini),
-                    std::chrono::seconds(ini.get<cfg::video::flv_break_interval>()),
-                    ini.get<cfg::globals::capture_chunk>()
-                    ? Video::SynchronizerNext{
-                        this->pmc ? &this->pmc->get_session_meta() : nullptr,
-                        this->pivc ? &this->pivc->ic : nullptr}
-                    : Video::SynchronizerNext{nullptr, nullptr}
-                ));
-            }
-
-            if (this->capture_flv_full) {
-                this->pvc_full.reset(new Video(
-                    now, record_path, basename, groupid, authentifier,
-                    no_timestamp, this->gd->impl(),
-                    video_params_from_ini(this->gd->impl().width(), this->gd->impl().height(), ini),
-                    std::chrono::seconds(0),
-                    Video::SynchronizerNext{nullptr, nullptr}
-                ));
-            }
-
-            if (this->capture_ocr) {
-                this->ptc.reset(new Title(
-                    now, authentifier, this->gd->impl(),
-                    this->pmc ? &this->pmc->get_session_meta() : nullptr,
-                    this->pvc.get(),
-                    ini
-                ));
-            }
-        }
-
-        // TODO this->pkc = Kbd::construct(now, authentifier, ini); ?
-        if (enable_kbd) {
-            this->pkc.reset(new Kbd(now, authentifier, ini));
-        }
-        ApisRegister apis_register = this->get_apis_register();
-
-        if (this->gd ) { this->gd ->attach_apis(apis_register, ini); }
-        if (this->pnc) { this->pnc->attach_apis(apis_register, ini); }
-        if (this->psc) { this->psc->attach_apis(apis_register, ini); }
-        if (this->pkc) { this->pkc->attach_apis(apis_register, ini); }
-        if (this->pvc) { this->pvc->attach_apis(apis_register, ini); }
-        if (this->pvc_full) { this->pvc_full->attach_apis(apis_register, ini); }
-        if (this->pmc) { this->pmc->attach_apis(apis_register, ini); }
-        if (this->ptc) { this->ptc->attach_apis(apis_register, ini); }
-
-        if (this->gd) { this->gd->start(); }
-    }
-
-    ~Capture() {
-        if (this->is_replay_mod) {
-            this->psc.reset();
-            this->pnc.reset();
-            if (this->pvc) {
-                try {
-                    this->pvc->encoding_video_frame();
-                }
-                catch (Error const &) {
-                    this->pvc->request_full_cleaning();
-                    if (this->pmc) {
-                        this->pmc->request_full_cleaning();
-                    }
-                }
-                this->pvc.reset();
-            }
-            if (this->pvc_full) {
-                try {
-                    this->pvc_full->encoding_video_frame();
-                }
-                catch (Error const &) {
-                    this->pvc_full->request_full_cleaning();
-                }
-                this->pvc_full.reset();
-            }
-        }
-        else {
-            this->ptc.reset();
-            this->pkc.reset();
-            this->pvc.reset();
-            this->psc.reset();
-
-            if (this->pnc) {
-                timeval now = tvtime();
-                this->pnc->send_timestamp_chunk(now, false);
-                this->pnc.reset();
-            }
-        }
-    }
+    ~Capture();
 
     wait_obj & get_capture_event() {
-        return this->capture_api.get_capture_event();
+        return this->capture_event;
     }
 
-    void update_config(Inifile const & ini) override {
-        this->update_config_capture_api.update_config(ini);
-    }
+    public:
+    void update_config(bool enable_rt_display);
 
-    void set_row(size_t rownum, const uint8_t * data) override {
-        if (this->gd) {
-            this->gd->rdp_drawable().set_row(rownum, data);
-        }
-    }
+    void set_row(size_t rownum, const uint8_t * data) override;
 
     void sync() override
     {
-        if (this->graphic_api) {
+        if (this->capture_drawable) {
             this->graphic_api->sync();
         }
     }
 
-    bool kbd_input(const timeval& now, uint32_t uchar) override {
-        return this->kbd_input_api.kbd_input(now, uchar);
+    bool kbd_input(timeval const & now, uint32_t uchar) override {
+        bool ret = true;
+        for (gdi::KbdInputApi & kbd : this->kbds) {
+            ret &= kbd.kbd_input(now, uchar);
+        }
+        return ret;
     }
 
     void enable_kbd_input_mask(bool enable) override {
-        this->kbd_input_api.enable_kbd_input_mask(enable);
-    }
-
-    gdi::GraphicApi * get_graphic_api() const {
-        return this->graphic_api;
-    }
-
-    void add_graphic(gdi::GraphicApi & gd) {
-        if (this->graphic_api) {
-            this->get_apis_register().graphic_list->push_back(gd);
-            // TODO
-            this->gd->start();
+        for (gdi::KbdInputApi & kbd : this->kbds) {
+            kbd.enable_kbd_input_mask(enable);
         }
     }
 
-    void set_order_bpp(uint8_t order_bpp) {
-        if (this->graphic_api) {
-            this->gd->update_order_bpp(order_bpp);
+    gdi::GraphicApi * get_graphic_api() const {
+        return this->graphic_api.get();
+    }
+
+    void add_graphic(gdi::GraphicApi & gd) {
+        if (this->capture_drawable) {
+            this->gds.push_back(gd);
         }
     }
 
 protected:
     std::chrono::microseconds do_snapshot(
-        const timeval& now,
+        timeval const & now,
         int cursor_x, int cursor_y,
         bool ignore_frame_in_timeval
-    ) override {
-        return this->capture_api.snapshot(now, cursor_x, cursor_y, ignore_frame_in_timeval);
-    }
+    ) override;
 
-    void do_pause_capture(timeval const & now) override {
-        this->capture_api.pause_capture(now);
-    }
-
-    void do_resume_capture(timeval const & now) override {
-        this->capture_api.resume_capture(now);
-    }
-
-    friend gdi::GraphicCoreAccess;
     template<class... Ts>
     void draw_impl(const Ts & ... args) {
-        if (this->graphic_api) {
+        if (this->capture_drawable) {
             this->graphic_api->draw(args...);
         }
     }
 
 public:
     void set_pointer(const Pointer & cursor) override {
-        if (this->graphic_api) {
+        if (this->capture_drawable) {
             this->graphic_api->set_pointer(cursor);
         }
     }
 
     void set_palette(const BGRPalette & palette) override {
-        if (this->graphic_api) {
+        if (this->capture_drawable) {
             this->graphic_api->set_palette(palette);
         }
     }
 
-    void set_pointer_display() {
-        if (this->gd) {
-            this->gd->rdp_drawable().show_mouse_cursor(false);
+    void set_pointer_display();
+
+    void external_breakpoint() override {
+        for (gdi::ExternalCaptureApi & obj : this->objs) {
+            obj.external_breakpoint();
         }
     }
 
-    void external_breakpoint() override {
-        this->external_capture_api.external_breakpoint();
-    }
-
-    void external_time(const timeval& now) override {
-        this->external_capture_api.external_time(now);
+    void external_time(timeval const & now) override {
+        for (gdi::ExternalCaptureApi & obj : this->objs) {
+            obj.external_time(now);
+        }
     }
 
     void session_update(const timeval & now, array_view_const_char message) override {
-        this->capture_probe_api.session_update(now, message);
+        for (gdi::CaptureProbeApi & cap_prob : this->probes) {
+            cap_prob.session_update(now, message);
+        }
     }
 
     void possible_active_window_change() override {
-        this->capture_probe_api.possible_active_window_change();
-    }
-
-    // TODO move to ctor
-    void zoom(unsigned percent) {
-        if (this->psc) {
-            this->psc->zoom(percent);
-        }
-        if (this->pivc) {
-            this->pivc->ic.zoom(percent);
+        for (gdi::CaptureProbeApi & cap_prob : this->probes) {
+            cap_prob.possible_active_window_change();
         }
     }
 };

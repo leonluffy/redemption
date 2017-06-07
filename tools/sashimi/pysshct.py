@@ -3,7 +3,7 @@
 import ctypes
 import ctypes.util
 
-from ctypes import CFUNCTYPE, c_ulong, c_ulonglong, c_void_p, c_int, c_char_p, c_uint16, py_object, c_uint, c_uint32, c_uint64, c_float, POINTER, Structure
+from ctypes import CFUNCTYPE, c_ulong, c_ulonglong, c_int, c_char_p, c_uint16, py_object, c_uint, c_uint32, c_uint64, c_float, POINTER, Structure
 
 ######### Define structs and callback types ############
 
@@ -15,8 +15,7 @@ from ctypes import CFUNCTYPE, c_ulong, c_ulonglong, c_void_p, c_int, c_char_p, c
 
 
 #the event_callback used with poll events
-event_cb = CFUNCTYPE(c_int, 
-    c_int, c_int, py_object)
+event_cb = CFUNCTYPE(c_int, c_int, c_int, py_object)
 
 
 CB_EVENT_FUNCS = {
@@ -380,7 +379,7 @@ try:
     lib.ssh_gssapi_set_creds_client.restype = None
 
     lib.ssh_new_client_session.argtypes = [POINTER(ssh_client_callbacks_struct), c_void_p, c_char_p, c_char_p, c_char_p, c_char_p, c_char_p, c_void_p]
-    lib.ssh_new_client_session.restypes = c_void_p
+    lib.ssh_new_client_session.restype = c_void_p
 
     lib.ssh_sessionchannel_open_client.argtypes = [c_void_p, c_void_p]
     lib.ssh_sessionchannel_open_client.restype = c_int
@@ -392,7 +391,7 @@ try:
     lib.ssh_userauth_agent_client.restype = c_int
 
     lib.ssh_userauth_gssapi_client.argtypes = [c_void_p, c_void_p]
-    lib.ssh_userauth_gssapi_client.restypes = c_int
+    lib.ssh_userauth_gssapi_client.restype = c_int
 
     lib.ssh_userauth_kbdint_client.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p]
     lib.ssh_userauth_kbdint_client.restype = c_int
@@ -489,8 +488,8 @@ try:
     
     lib.ssh_start_new_server_session.argtypes = [
         POINTER(ssh_server_callbacks_struct), 
-        c_void_p, c_int, c_char_p, c_int]
-    lib.ssh_start_new_server_session.restypes = c_void_p
+        c_uint64, c_int, c_char_p, c_int]
+    lib.ssh_start_new_server_session.restype = c_void_p
     
     lib.ssh_userauth_kbdint_getanswer_server.argtypes = [
         c_void_p, c_uint, c_void_p]
@@ -506,12 +505,12 @@ try:
     
     lib.ssh_userauth_kbdint_settmpprompts_server.argtypes = [
         c_void_p, c_char_p, c_char_p, c_uint, c_void_p, c_uint]
-    lib.ssh_userauth_kbdint_settmpprompts_server.restypes = c_int
+    lib.ssh_userauth_kbdint_settmpprompts_server.restype = c_int
 
     # Methods not classified
     # ============================
     lib.ssh_new_channel.argtypes = [c_void_p, POINTER(ssh_channel_callbacks_struct)]
-    lib.ssh_new_channel.restypes = c_void_p
+    lib.ssh_new_channel.restype = c_void_p
 
     lib.ssh_set_blocking.argtypes = [c_void_p, c_int]
     lib.ssh_set_blocking.restype = None
@@ -520,7 +519,7 @@ try:
     lib.ssh_event_dopoll.restype = c_int
 
     lib.ssh_new_poll_ctx.argtypes = []
-    lib.ssh_new_poll_ctx.restypes = c_void_p
+    lib.ssh_new_poll_ctx.restype = c_void_p
 
     lib.ssh_free.argtypes = [c_void_p]
     lib.ssh_free.restype = None
@@ -544,10 +543,10 @@ try:
     lib.ssh_key_free.argtypes = [c_void_p]
     lib.ssh_key_free.restype = None
 
-except AttributeError, e:
+except AttributeError as e:
     lib = None
     raise ImportError('ssh shared library error (%s)' % e)
-except Exception, e:
+except Exception as e:
     lib = None
     import traceback
     raise ImportError('ssh shared library not found.\n'
@@ -689,10 +688,12 @@ def buildCallbacks(api_cb_struct, cb_methods, userdata):
     callbacks.userdata = userdata
 
     for field, ftype in api_cb_struct._fields_[2:]:
+        print("buildcallbacks", field, ftype)
         setattr(callbacks, field,
             ftype(cb_methods[field])
             if cb_methods[field] is not None
             else ctypes.cast(None, ftype))
+    print("building callbacks done")
     return callbacks
 
 

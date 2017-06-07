@@ -18,9 +18,7 @@
  *   Author(s): Christophe Grosjean, Meng Tan
  */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestLineLayout
+#define RED_TEST_MODULE TestLineLayout
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
@@ -31,13 +29,13 @@
 #include "mod/internal/widget2/stacklayout.hpp"
 #include "mod/internal/widget2/label.hpp"
 #include "mod/internal/widget2/flat_button.hpp"
-#include "fake_draw.hpp"
+#include "test_only/mod/fake_draw.hpp"
 
 #undef OUTPUT_FILE_PATH
 #define OUTPUT_FILE_PATH "/tmp/"
 
 
-BOOST_AUTO_TEST_CASE(TestLineLayoutwithColumns)
+RED_AUTO_TEST_CASE(TestLineLayoutwithColumns)
 {
 
     TestDraw drawable(800, 600);

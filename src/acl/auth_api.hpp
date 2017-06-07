@@ -14,45 +14,47 @@
      675 Mass Ave, Cambridge, MA 02139, USA.
 
     Product name: redemption, a FLOSS RDP proxy
-    Copyright (C) Wallix 2013
+    Copyright (C) Wallix 2017
     Author(s): Christophe Grosjean, Raphael Zhou
 */
 
-
 #pragma once
 
-class auth_api {
-public:
-    virtual ~auth_api() = default;
+#include "utils/sugar/noncopyable.hpp"
 
+struct AuthApi : noncopyable
+{
     virtual void set_auth_channel_target(const char * target) = 0;
 
     virtual void set_auth_error_message(const char * error_message) = 0;
 
-    virtual void report(const char * reason, const char * message) = 0;
+    virtual void disconnect_target() = 0;
 
-    virtual void log4(bool duplicate_with_pid, const char * type,
-        const char * extra = nullptr) const = 0;
+    virtual void start_mod() = 0;
+    virtual void stop_mod() = 0;
 
-    virtual void disconnect_target() {}
+    virtual ~AuthApi() = default;
 };
 
 
-class NullAuthentifier : public auth_api {
-    void set_auth_channel_target(const char * target) override { (void)target; }
+struct NullAuthentifier : AuthApi
+{
+    void set_auth_channel_target(const char * target) override
+    {
+        (void)target;
+    }
 
-    void set_auth_error_message(const char * error_message) override { (void)error_message; }
+    void set_auth_error_message(const char * error_message) override
+    {
+        (void)error_message;
+    }
 
-    void report(const char * reason, const char * message) override { (void)reason; (void)message; }
+    void disconnect_target() override
+    {}
 
-    void log4(bool duplicate_with_pid, const char * type,
-        const char * extra = nullptr) const override { (void)duplicate_with_pid; (void)type; (void)extra; }
+    void start_mod() override
+    {}
+
+    void stop_mod() override
+    {}
 };
-
-
-inline NullAuthentifier * get_null_authentifier() {
-    static NullAuthentifier auth;
-
-    return &auth;
-}
-

@@ -73,7 +73,8 @@ struct ControlCaps : public Capability {
     {
     }
 
-    void emit(OutStream & stream)override {
+    void emit(OutStream & stream) const
+    {
         stream.out_uint16_le(this->capabilityType);
         stream.out_uint16_le(this->len);
         stream.out_uint16_le(this->controlFlags);
@@ -82,7 +83,8 @@ struct ControlCaps : public Capability {
         stream.out_uint16_le(this->detachInterest);
     }
 
-    void recv(InStream & stream, uint16_t len)override {
+    void recv(InStream & stream, uint16_t len)
+    {
         this->len = len;
         this->controlFlags = stream.in_uint16_le();
         this->remoteDetachFlag = stream.in_uint16_le();
@@ -90,7 +92,8 @@ struct ControlCaps : public Capability {
         this->detachInterest = stream.in_uint16_le();
     }
 
-    void log(const char * msg)override {
+    void log(const char * msg) const
+    {
         LOG(LOG_INFO, "%s ControlCaps caps (%u bytes)", msg, this->len);
         LOG(LOG_INFO, "ControlCaps caps::controlFlags %u", this->controlFlags);
         LOG(LOG_INFO, "ControlCaps caps::remoteDetachFlag %u", this->remoteDetachFlag);
@@ -98,4 +101,3 @@ struct ControlCaps : public Capability {
         LOG(LOG_INFO, "ControlCaps caps::detachInterest %u", this->detachInterest);
     }
 };
-

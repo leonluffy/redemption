@@ -19,22 +19,20 @@
  *
  */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestCopyPaste
+#define RED_TEST_MODULE TestCopyPaste
 #include "system/redemption_unit_tests.hpp"
 
 #include <string>
 
 #define LOGNULL
 
-#include "widget2/fake_draw.hpp"
+#include "test_only/mod/fake_draw.hpp"
 #include "core/font.hpp"
 #include "mod/internal/copy_paste.hpp"
 #include "mod/internal/widget2/edit.hpp"
 #include "mod/internal/widget2/screen.hpp"
-#include "../../front/fake_front.hpp"
-#include "check_sig.hpp"
+#include "test_only/front/fake_front.hpp"
+#include "test_only/check_sig.hpp"
 
 
 struct CopyPasteFront : FakeFront
@@ -56,7 +54,7 @@ struct CopyPasteFront : FakeFront
     void send_to_channel(
         const CHANNELS::ChannelDef& channel, uint8_t const * data, size_t length, size_t, int
     ) override {
-        BOOST_REQUIRE(!strcmp(channel.name, channel_names::cliprdr));
+        RED_REQUIRE(!strcmp(channel.name, channel_names::cliprdr));
 
         InStream stream(data, length);
         RDPECLIP::RecvPredictor rp(stream);
@@ -117,12 +115,12 @@ public:
     {}
 
     void notify(Widget2 * sender, notify_event_t event) override {
-        BOOST_REQUIRE(sender);
+        RED_REQUIRE(sender);
         copy_paste_process_event(this->copy_paste, *reinterpret_cast<WidgetEdit*>(sender), event);
     }
 };
 
-BOOST_AUTO_TEST_CASE(TestPaste)
+RED_AUTO_TEST_CASE(TestPaste)
 {
     ClientInfo info;
     info.keylayout = 0x040C;
@@ -143,42 +141,52 @@ BOOST_AUTO_TEST_CASE(TestPaste)
 
     Font font(FIXTURES_PATH "/dejavu-sans-10.fv1");
 
-    WidgetScreen parent(mod.gd, info.width, info.height, font, nullptr, Theme{});
-    WidgetEdit edit(mod.gd, 0, 0, 120, parent, &notifier, "", 0, PINK, ORANGE, RED, font);
+    WidgetScreen parent(mod.gd, font, nullptr, Theme{});
+    parent.set_wh(info.width, info.height);
 
-    BOOST_REQUIRE(copy_paste.ready(front));
+    WidgetEdit edit(mod.gd, parent, &notifier, "", 0, PINK, ORANGE, RED, font);
+    Dimension dim = edit.get_optimal_dim();
+    edit.set_wh(120, dim.h);
+    edit.set_xy(0, 0);
 
-    auto edit_paste = [&](const char * s, const char * sig, int linenum){
-        keymap.push_kevent(Keymap2::KEVENT_PASTE);
-        copy_paste.paste(edit);
-        edit.rdp_input_invalidate(edit.get_rect());
-        //front.dump_png("/tmp/test_copy_paste_");
-        BOOST_CHECK_EQUAL(s, edit.get_text());
-        char message[1024];
-        if (!check_sig(mod.gd.impl(), message, sig)){
-            sprintf(message+strlen(message), "(%d)", linenum);
-            BOOST_CHECK_MESSAGE(false, message);
-        }
-    };
+    RED_REQUIRE(copy_paste.ready(front));
+
+    #define edit_paste(s, sig) {                                   \
+        keymap.push_kevent(Keymap2::KEVENT_PASTE);                 \
+        copy_paste.paste(edit);                                    \
+        RED_CHECK_EQUAL(s, edit.get_text());                     \
+                                                                   \
+        edit.rdp_input_invalidate(edit.get_rect());                \
+                                                                   \
+        /*char filename[1024];*/                                   \
+        /*sprintf(filename, "test_copy_paste_%d.png", __LINE__);*/ \
+        /*mod.save_to_png(filename);*/                             \
+                                                                   \
+        RED_CHECK_SIG(mod.gd.impl(), sig);                             \
+    }
     edit_paste("",
-        "\x00\xc3\x7a\x5d\xfc\x63\x81\x79\x9b\x75\x8c\x58\x92\xc9\x2e\xec\x9d\xbe\x43\x5c",
-        __LINE__);
+        "\x00\xc3\x7a\x5d\xfc\x63\x81\x79\x9b\x75\x8c\x58\x92\xc9\x2e\xec\x9d\xbe\x43\x5c");
     edit_paste("",
-        "\x00\xc3\x7a\x5d\xfc\x63\x81\x79\x9b\x75\x8c\x58\x92\xc9\x2e\xec\x9d\xbe\x43\x5c",
-        __LINE__);
+        "\x00\xc3\x7a\x5d\xfc\x63\x81\x79\x9b\x75\x8c\x58\x92\xc9\x2e\xec\x9d\xbe\x43\x5c");
     front.copy("plop");
     edit_paste("plop",
-        "\x23\x7f\x9c\xa5\xbb\x4a\xdb\x79\x97\x8e\x53\xb7\x14\x56\xa7\x26\x6d\xaa\xec\x2d",
-        __LINE__);
+        "\x23\x7f\x9c\xa5\xbb\x4a\xdb\x79\x97\x8e\x53\xb7\x14\x56\xa7\x26\x6d\xaa\xec\x2d");
     edit.decrement_edit_pos();
     edit_paste("ploplopp",
-        "\x76\x0d\xa0\x57\x73\xc1\x96\xc5\x4c\xb2\x67\x00\xe9\x51\x54\xa2\x27\x73\x45\xd2",
-        __LINE__);
+        "\x76\x0d\xa0\x57\x73\xc1\x96\xc5\x4c\xb2\x67\x00\xe9\x51\x54\xa2\x27\x73\x45\xd2");
     front.copy("xxx");
     edit_paste("ploplopxxxp",
-        "\x4f\xf1\xdf\x1c\x52\xe1\x44\x31\x0e\xd5\x7e\x0b\x5f\x5a\x0a\x43\x31\x0e\x6e\xf6",
-        __LINE__);
+        "\x4f\xf1\xdf\x1c\x52\xe1\x44\x31\x0e\xd5\x7e\x0b\x5f\x5a\x0a\x43\x31\x0e\x6e\xf6");
     edit_paste("ploplopxxxxxxp",
-        "\x97\x5d\xb1\x21\xb1\xce\x9d\x66\x27\xbb\x85\xf1\xc5\xb4\xef\x4d\x70\x71\xbb\xab",
-        __LINE__);
+        "\x97\x5d\xb1\x21\xb1\xce\x9d\x66\x27\xbb\x85\xf1\xc5\xb4\xef\x4d\x70\x71\xbb\xab");
+    edit.set_text("");
+    front.copy("abc\tde");
+    edit_paste("abc de",
+        "\x58\xa5\x4c\x53\xfe\xc6\xeb\x3b\xc8\x51\xd1\x68\x4d\x8c\xd2\x15\x78\x11\xec\xd5");
+    front.copy("fg\nhi");
+    edit_paste("abc defg",
+        "\x6b\xba\x7b\x34\x7a\xf5\xb5\x99\xc4\x8a\x0a\x58\x72\xe8\x62\x25\x6e\xfa\x5e\x6a");
+    front.copy("jk\tl\nmn");
+    edit_paste("abc defgjk l",
+        "\x96\x2b\xe7\xed\x23\xb6\x11\xcf\x6d\xf8\x23\xf3\x63\x29\xd7\x84\xae\xe9\x20\xda");
 }

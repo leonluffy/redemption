@@ -23,73 +23,72 @@
 
 #include "core/error.hpp"
 #include "transport/transport.hpp"
+#include "utils/sugar/unique_fd.hpp"
 
-class InFileTransport : public Transport
+#include <cerrno>
+
+
+struct InFileTransport : Transport
 {
-protected:
-    int fd;
-
-public:
-    explicit InFileTransport(int fd)
-    : fd(fd)
+    explicit InFileTransport(unique_fd fd)
+    : file(std::move(fd))
     {}
 
-    ~InFileTransport()
+    bool disconnect() override
     {
-        this->disconnect();
+        return this->file.close();
     }
 
-    bool disconnect() override {
-        if (-1 != this->fd) {
-            const int ret = ::close(this->fd);
-            this->fd = -1;
-            return !ret;
+    void seek(int64_t offset, int whence) override
+    {
+        if (lseek64(this->file.fd(), offset, whence) == static_cast<off_t>(-1)) {
+            throw Error(ERR_TRANSPORT_SEEK_FAILED, errno);
         }
-        return !0;
+    }
+
+    int get_fd() const override
+    {
+        return this->file.fd();
+    }
+
+    void open(unique_fd fd)
+    {
+        this->file = std::move(fd);
+    }
+
+    bool is_open() const
+    {
+        return this->file.is_open();
+    }
+
+    // alias on disconnect
+    void close()
+    {
+        this->file.close();
     }
 
 private:
-    void do_recv(uint8_t ** pbuffer, size_t len) override {
-        // TODO the do_recv API is annoying (need some intermediate pointer to get result), fix it => read all or raise exeception?
-        ssize_t res = -1;
+    Read do_atomic_read(uint8_t * buffer, size_t len) override
+    {
         size_t remaining_len = len;
         while (remaining_len) {
-            res = ::read(this->fd, *pbuffer + (len - remaining_len), remaining_len);
+            ssize_t const res = ::read(this->file.fd(), buffer + (len - remaining_len), remaining_len);
             if (res <= 0){
-                if ((res == 0)
-                ||  ((errno != EINTR) && (remaining_len != len))){
-                    break;
+                if (res == 0 && remaining_len == len){
+                    return Read::Eof;
                 }
-                if (errno == EINTR){
+                if (res != 0 && errno == EINTR){
                     continue;
                 }
-                this->status = false;
                 throw Error(ERR_TRANSPORT_READ_FAILED, res);
             }
             remaining_len -= res;
         }
-        res = len - remaining_len;
-        *pbuffer += res;
-        this->last_quantum_received += res;
         if (remaining_len != 0){
             throw Error(ERR_TRANSPORT_NO_MORE_DATA, errno);
         }
+        return Read::Ok;
     }
+
+    unique_fd file;
 };
-
-
-
-struct InFileSeekableTransport : public InFileTransport
-{
-    public:
-    explicit InFileSeekableTransport(int fd) noexcept
-    : InFileTransport(fd)
-    {}
-
-    void seek(int64_t offset, int whence) override {
-        if (static_cast<off64_t>(-1) == lseek64(this->fd, offset, whence)){
-            throw Error(ERR_TRANSPORT_SEEK_FAILED, errno);
-        }
-    }
-};
-

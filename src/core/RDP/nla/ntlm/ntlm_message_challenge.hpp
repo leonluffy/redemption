@@ -179,9 +179,11 @@
 //      irrespective of what character set was negotiated (section 2.2.2.1).
 
 
-struct NTLMChallengeMessage {
+class NTLMChallengeMessage
+{
     NTLMMessage message;
 
+public:
     NtlmField TargetName;          /* 8 Bytes */
     NtlmNegotiateFlags negoFlags;  /* 4 Bytes */
     uint8_t serverChallenge[8];    /* 8 Bytes */
@@ -189,11 +191,13 @@ struct NTLMChallengeMessage {
     /* 8 Bytes reserved */
     NtlmField TargetInfo;          /* 8 Bytes */
     NtlmVersion version;           /* 8 Bytes */
+private:
     uint32_t PayloadOffset;
 
+public:
     NtlmAvPairList AvPairList;
 
-
+public:
     NTLMChallengeMessage()
         : message(NtlmChallenge)
         , serverChallenge()
@@ -201,7 +205,7 @@ struct NTLMChallengeMessage {
     {
     }
 
-    void emit(OutStream & stream) {
+    void emit(OutStream & stream) /* TODO const*/ {
         this->TargetInfo.buffer.reset();
         this->AvPairList.emit(this->TargetInfo.buffer.ostream);
         this->TargetInfo.buffer.mark_end();

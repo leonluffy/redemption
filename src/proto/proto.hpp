@@ -21,6 +21,7 @@
 #pragma once
 
 #include "utils/sugar/numerics/safe_conversions.hpp"
+#include "utils/sugar/buffer_t.hpp"
 
 #include <iosfwd>
 
@@ -215,7 +216,7 @@ namespace meta
 }
 
 #include "utils/sugar/array_view.hpp"
-#include "utils/sugar/bytes_t.hpp"
+#include "utils/sugar/byte.hpp"
 
 
 #define PROTO_VAR(t, v)           \
@@ -513,7 +514,7 @@ namespace proto
 
         struct bytes
         {
-            using type = const_bytes_array;
+            using type = const_buffer_t;
             using sizeof_ = dyn_size;
             using buffer_category = tags::view_buffer;
 
@@ -522,7 +523,7 @@ namespace proto
             constexpr bytes(bytes &&) = default;
             constexpr bytes(bytes const &) = default;
 
-            constexpr bytes(const_bytes_array b) noexcept
+            constexpr bytes(const_buffer_t b) noexcept
             : av(b)
             {}
 
@@ -1197,8 +1198,9 @@ namespace proto
             }
         };
 
-        template<class Ints, class... Ts>
-        std::ostream & operator <<(std::ostream & os, compose_impl<Ints, Ts...> const &)
+        template<class Ch, class Tr, class Ints, class... Ts>
+        std::basic_ostream<Ch, Tr> & operator <<(
+            std::basic_ostream<Ch, Tr> & os, compose_impl<Ints, Ts...> const &)
         { return os << "compose"; }
     }
 

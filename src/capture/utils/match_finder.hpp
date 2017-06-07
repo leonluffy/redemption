@@ -22,9 +22,12 @@
 
 #pragma once
 
-#include "acl/auth_api.hpp"
+#include "core/report_message_api.hpp"
 #include "regex/regex.hpp"
 #include "utils/log.hpp"
+#include "utils/sugar/array_view.hpp"
+#include "utils/sugar/splitter.hpp"
+#include "utils/pattutils.hpp"
 
 #include <memory>
 #include <cstring>
@@ -39,6 +42,12 @@ public:
     struct NamedRegex {
         re::Regex   regex;
         std::string name;
+        bool is_exact_search;
+
+        bool search(const char * str)
+        {
+            return this->is_exact_search ? this->regex.exact_search(str) : this->regex.search(str);
+        }
     };
 
     class NamedRegexArray {
@@ -63,6 +72,18 @@ public:
             this->len = newlen;
         }
 
+        NamedRegex const & operator[](std::size_t i) const
+        {
+            assert(i < this->len);
+            return this->regexes[i];
+        }
+
+        NamedRegex & operator[](std::size_t i)
+        {
+            assert(i < this->len);
+            return this->regexes[i];
+        }
+
         NamedRegex * begin() const
         { return this->regexes.get(); }
 
@@ -77,76 +98,49 @@ public:
     };
 
     enum ConfigureRegexes {
-          OCR         = 0
-        , KBD_INPUT   = 1
+        OCR         = 0
+      , KBD_INPUT   = 1
     };
 
+    /**
+     * \param filters_list  filters separated by '\\x01' character
+     * \see \a get_pattern_value
+     * With \c conf_regex = KBD_INPUT, exact-content and exact-regex are respectively equivalent to content and regex
+     */
     static void configure_regexes(ConfigureRegexes conf_regex, const char * filters_list,
                                   NamedRegexArray & regexes_filter_ref, int verbose,
                                   bool is_capturing = false)
     {
-        char * tmp_filters = new(std::nothrow) char[strlen(filters_list) + 1];
-        if (!tmp_filters) {
-            return ; // insufficient memory
+        if (!filters_list || !*filters_list) {
+            return ;
         }
 
-        std::unique_ptr<char[]> auto_free(tmp_filters);
+        std::string tmp_filters = filters_list;
 
-        strcpy(tmp_filters, filters_list);
+        using Cat = PatternValue::Cat;
+        struct Pattern { Cat cat; char const * filter; };
 
-        char     * separator;
-        char     * filters[64];
-        unsigned   filter_number = 0;
+        Pattern  filters[64];
+        unsigned filter_number = 0;
 
-        if (verbose) {
-            LOG(LOG_INFO, "filters=\"%s\"", tmp_filters);
-        }
-
-        while (*tmp_filters) {
-            if ((*tmp_filters == '\x01') || (*tmp_filters == '\t') || (*tmp_filters == ' ')) {
-                tmp_filters++;
-                continue;
-            }
-
-            separator = strchr(tmp_filters, '\x01');
-            if (separator) {
-                *separator = 0;
-            }
+        for (auto rng : get_line(tmp_filters, string_pattern_separator)) {
+            array_view_char av{rng.begin(), rng.end()};
+            av.data()[av.size()] = '\0';
 
             if (verbose) {
-                LOG(LOG_INFO, "filter=\"%s\"", tmp_filters);
+                LOG(LOG_INFO, "filter=\"%s\"", av.data());
             }
 
-            if (((conf_regex == ConfigureRegexes::OCR) && ((*tmp_filters != '$') ||
-                                                           (strcasestr(tmp_filters, "$ocr:") == tmp_filters) ||
-                                                           (strcasestr(tmp_filters, "$kbd-ocr:") == tmp_filters) ||
-                                                           (strcasestr(tmp_filters, "$ocr-kbd:") == tmp_filters))) ||
-                ((conf_regex == ConfigureRegexes::KBD_INPUT) && ((strcasestr(tmp_filters, "$kbd:") == tmp_filters) ||
-                                                                 (strcasestr(tmp_filters, "$kbd-ocr:") == tmp_filters) ||
-                                                                 (strcasestr(tmp_filters, "$ocr-kbd:") == tmp_filters)))) {
-                if (((conf_regex == ConfigureRegexes::OCR) && (*tmp_filters == '$')) ||
-                    (conf_regex == ConfigureRegexes::KBD_INPUT)) {
-                    if (*(tmp_filters + 4) == ':') {
-                        tmp_filters += 5;   // strlen("$ocr:") or strlen("$kdb:")
-                    }
-                    else {
-                        REDASSERT(*(tmp_filters + 8) == ':');
-                        tmp_filters += 9;   // strlen("$kbd-ocr:") or strlen("$ocr-kbd:")
-                    }
-                }
-
-                filters[filter_number] = tmp_filters;
-                filter_number++;
+            PatternValue const pattern_value = get_pattern_value(av);
+            if (not pattern_value.pattern.empty() && (
+                (pattern_value.is_ocr && conf_regex == ConfigureRegexes::OCR)
+             || (pattern_value.is_kbd && conf_regex == ConfigureRegexes::KBD_INPUT)
+            )) {
+                filters[filter_number++] = {pattern_value.cat, pattern_value.pattern.data()};
                 if (filter_number >= (sizeof(filters) / sizeof(filters[0]))) {
                     break;
                 }
             }
-
-            if (!separator) {
-                break;
-            }
-
-            tmp_filters = separator + 1;
         }
 
         if (verbose) {
@@ -158,22 +152,55 @@ public:
             regexes_filter_ref.resize(filter_number);
             NamedRegex * pregex = regexes_filter_ref.begin();
             for (unsigned i = 0; i < filter_number; i++) {
+                auto & filter = filters[i];
                 if (verbose) {
-                    LOG(LOG_INFO, "Regex=\"%s\"", filters[i]);
+                    LOG(LOG_INFO, "Regex=\"%s\"", filter.filter);
                 }
-                pregex->name = filters[i];
+
+                pregex->name = filter.filter;
+                pregex->is_exact_search
+                  = (conf_regex == ConfigureRegexes::OCR
+                  && (filter.cat == Cat::is_exact_reg || filter.cat == Cat::is_exact_str));
+
+                char const * c_str_filter = filter.filter;
+                std::string reg_pattern;
+                if (filter.cat == Cat::is_str || filter.cat == Cat::is_exact_str) {
+                    while (*c_str_filter) {
+                        switch (*c_str_filter) {
+                            case '{':
+                            case '}':
+                            case '[':
+                            case ']':
+                            case '(':
+                            case ')':
+                            case '|':
+                            case '\\':
+                            case '^':
+                            case '$':
+                            case '.':
+                            case '?':
+                            case '+':
+                            case '*':
+                                reg_pattern += '\\';
+                        }
+                        reg_pattern += *c_str_filter;
+                        ++c_str_filter;
+                    }
+                    c_str_filter = reg_pattern.c_str();
+                }
+
                 if (is_capturing) {
                     capturing_regex = '(';
-                    capturing_regex += filters[i];
+                    capturing_regex += c_str_filter;
                     capturing_regex += ')';
                     pregex->regex.reset(capturing_regex.c_str());
                 }
                 else {
-                    pregex->regex.reset(filters[i]);
+                    pregex->regex.reset(c_str_filter);
                 }
                 if (pregex->regex.message_error()) {
                     // TODO notification that the regex is too complex for us
-                    LOG(LOG_ERR, "Regex: %s err %s at position %zu" , filters[i],
+                    LOG(LOG_ERR, "Regex: %s err %s at position %zu" , c_str_filter,
                         pregex->regex.message_error(), pregex->regex.position_error());
                 }
                 else {
@@ -184,21 +211,21 @@ public:
         }
     }
 
-    static void report(auth_api & authentifier, bool is_pattern_kill,
+    static void report(ReportMessageApi & report_message, bool is_pattern_kill,
         ConfigureRegexes conf_regex, const char * pattern, const char * data) {
         char message[4096];
 
         snprintf(message, sizeof(message), "$%s:%s|%s",
             ((conf_regex == ConfigureRegexes::OCR) ? "ocr" : "kbd" ), pattern, data);
 
-        std::string extra = "pattern='";
-        extra += message;
-        extra += "'";
-        authentifier.log4(false,
+        std::string extra = "pattern=\"";
+        append_escaped_delimiters(extra, message);
+        extra += "\"";
+        report_message.log4(false,
             (is_pattern_kill ? "KILL_PATTERN_DETECTED" : "NOTIFY_PATTERN_DETECTED"),
             extra.c_str());
 
-        authentifier.report(
+        report_message.report(
             (is_pattern_kill ? "FINDPATTERN_KILL" : "FINDPATTERN_NOTIFY"),
             message);
     }

@@ -57,7 +57,7 @@ private:
         Bitmap bmp;
         #endif
         uint_fast32_t stamp;
-        uint8_t sha1[20];
+        uint8_t sha1[SslSha1::DIGEST_LENGTH];
         bool is_valid;
 
         cache_lite_element()
@@ -65,7 +65,7 @@ private:
         , sha1()
         , is_valid(false) {}
 
-        explicit cache_lite_element(const uint8_t (& sha1_)[20])
+        explicit cache_lite_element(const uint8_t (& sha1_)[SslSha1::DIGEST_LENGTH])
         : stamp(0)
         , is_valid(true) {
             memcpy(this->sha1, sha1_, sizeof(this->sha1));
@@ -93,7 +93,7 @@ private:
             uint8_t  sig_8[8];
             uint32_t sig_32[2];
         } sig;
-        uint8_t sha1[20];
+        uint8_t sha1[SslSha1::DIGEST_LENGTH];
         bool cached;
 
         cache_element()
@@ -453,7 +453,7 @@ public:
         this->storage.reserve(this->size_elements);
         this->lite_storage.reserve(this->size_lite_elements);
 
-        if (this->verbose & Verbose::life) {
+        if (bool(this->verbose & Verbose::life)) {
             LOG( LOG_INFO
                 , "BmpCache: %s bpp=%" PRIu8 " number_of_cache=%" PRIu8 " use_waiting_list=%s "
                     "cache_0(%zu, %" PRIu16 ", %s) cache_1(%zu, %" PRIu16 ", %s) cache_2(%zu, %" PRIu16 ", %s) "
@@ -510,13 +510,13 @@ public:
     }
 
     ~BmpCache() {
-        if (this->verbose & Verbose::life) {
+        if (bool(this->verbose & Verbose::life)) {
             this->log();
         }
     }
 
     void reset() {
-        if (this->verbose & Verbose::life) {
+        if (bool(this->verbose & Verbose::life)) {
             this->log();
         }
         this->stamp = 0;
@@ -544,20 +544,19 @@ public:
         e.cached = true;
 
         if (r.persistent()) {
-            REDASSERT(key1 && key2);
             e.sig.sig_32[0] = key1;
             e.sig.sig_32[1] = key2;
         }
-        REDASSERT(r.persistent() || (!key1 && !key2));
+
         r.add(e);
     }
 
-    const Bitmap & get(uint8_t id, uint16_t idx) {
+    const Bitmap & get(uint8_t id, uint16_t idx) const {
         if ((id & IN_WAIT_LIST) || (id == MAXIMUM_NUMBER_OF_CACHES)) {
             REDASSERT((this->owner != Mod_rdp) && this->waiting_list_bitmap.is_valid());
             return this->waiting_list_bitmap;
         }
-        Cache<cache_element> & r = this->caches[id];
+        Cache<cache_element> const & r = this->caches[id];
         if (idx == RDPBmpCache::BITMAPCACHE_WAITING_LIST_INDEX) {
             REDASSERT(this->owner != Front);
             // Last bitmap cache entry is used by waiting list.
@@ -682,7 +681,7 @@ public:
 
         const uint32_t cache_index_32 = cache.get_cache_index(e_compare);
         if (cache_index_32 != cache_range<cache_element>::invalid_cache_index) {
-            if (this->verbose & Verbose::persistent) {
+            if (bool(this->verbose & Verbose::persistent)) {
                 if (persistent) {
                     LOG( LOG_INFO
                         , "BmpCache: %s use bitmap %02X%02X%02X%02X%02X%02X%02X%02X stored in persistent disk bitmap cache"
@@ -697,7 +696,7 @@ public:
             //    LOG(LOG_INFO, "cache_id    = %u;", id_real);
             //    LOG(LOG_INFO, "cache_index = %u;", cache_index_32);
             //    LOG(LOG_INFO,
-            //        "BOOST_CHECK_EQUAL(((FOUND_IN_CACHE << 24) | (cache_id << 16) | cache_index), "
+            //        "RED_CHECK_EQUAL(((FOUND_IN_CACHE << 24) | (cache_id << 16) | cache_index), "
             //            "bmp_cache.cache_bitmap(*bmp_%d));",
             //        this->finding_counter - 1);
             //    LOG(LOG_INFO, "delete bmp_%d;", this->finding_counter - 1);
@@ -720,7 +719,7 @@ public:
                 id_real     =  MAXIMUM_NUMBER_OF_CACHES;
                 id          |= IN_WAIT_LIST;
 
-                if (this->verbose & Verbose::persistent) {
+                if (bool(this->verbose & Verbose::persistent)) {
                     LOG( LOG_INFO, "BmpCache: %s Put bitmap %02X%02X%02X%02X%02X%02X%02X%02X into wait list."
                         , ((this->owner == Front) ? "Front" : ((this->owner == Mod_rdp) ? "Mod_rdp" : "Recorder"))
                         , le_compare.sha1[0], le_compare.sha1[1], le_compare.sha1[2], le_compare.sha1[3]
@@ -731,7 +730,7 @@ public:
                 this->waiting_list.remove(le_compare);
                 this->waiting_list[cache_index_32].reset();
 
-                if (this->verbose & Verbose::persistent) {
+                if (bool(this->verbose & Verbose::persistent)) {
                     LOG( LOG_INFO
                         , "BmpCache: %s Put bitmap %02X%02X%02X%02X%02X%02X%02X%02X into persistent cache, cache_index=%u"
                         , ((this->owner == Front) ? "Front" : ((this->owner == Mod_rdp) ? "Mod_rdp" : "Recorder"))
@@ -785,7 +784,7 @@ public:
         //    LOG(LOG_INFO, "cache_id    = %u;", id);
         //    LOG(LOG_INFO, "cache_index = %u;", oldest_cidx);
         //    LOG(LOG_INFO,
-        //        "BOOST_CHECK_EQUAL(((ADDED_TO_CACHE << 24) | (cache_id << 16) | cache_index), "
+        //        "RED_CHECK_EQUAL(((ADDED_TO_CACHE << 24) | (cache_id << 16) | cache_index), "
         //            "bmp_cache.cache_bitmap(bmp_%d));",
         //        this->finding_counter - 1);
         //    LOG(LOG_INFO, "}");

@@ -20,7 +20,8 @@ try:
         APPROVAL_PENDING, APPROVAL_NONE
     from wabengine.common.const import APPREQ_REQUIRED, APPREQ_OPTIONAL
     from wabengine.common.const import CRED_TYPE, CRED_TYPE_PASSWORD, CRED_TYPE_SSH_KEY
-    from wabengine.common.const import CRED_DATA_PASSWORD, CRED_DATA_PRIVATE_KEY
+    from wabengine.common.const import CRED_DATA_PASSWORD, CRED_DATA_PRIVATE_KEY, \
+        CRED_DATA_PUBLIC_KEY
     from wabengine.common.const import PASSWORD_VAULT, PASSWORD_INTERACTIVE, \
         PUBKEY_VAULT, PUBKEY_AGENT_FORWARDING, KERBEROS_FORWARDING, \
         PASSWORD_MAPPING, SUPPORTED_AUTHENTICATION_METHODS
@@ -137,12 +138,11 @@ class Engine(object):
 
     def get_username(self):
         try:
-            if self.wabuser.is_ldap:
-                return "%s@%s" % (self.wabuser.cn, self.wabuser.ldap_map.ldapDomain)
-            else:
-                return self.wabuser.cn
+            if not self.wabuser:
+                self.wabuser = self.wabengine.who_am_i()
+            return self.wabuser.cn
         except Exception, e:
-            return ""
+            return self.wabuser.cn if self.wabuser else ""
 
     def check_license(self):
         res = self.wabengine.is_session_management_license()
@@ -261,6 +261,17 @@ class Engine(object):
             import traceback
             Logger().info("Engine is_x509_connected failed: (((%s)))" % traceback.format_exc(e))
         return False
+
+    def is_x509_validated(self):
+        try:
+            result = False
+            if self.auth_x509 is not None:
+                result = self.auth_x509.is_validated()
+        except Exception, e:
+            import traceback
+            Logger().info("Engine is_x509_validated failed: (((%s)))" %
+                          traceback.format_exc(e))
+        return result
 
     def x509_authenticate(self):
         try:
@@ -563,9 +574,11 @@ class Engine(object):
         self.checktarget_infos_cache = None
 
     def get_proxy_user_rights(self, protocols, target_device, **kwargs):
+        Logger().debug("** CALL Get_proxy_right ** proto=%s, target_device=%s" % (protocols, target_device))
         urights = self.wabengine.get_proxy_user_rights(protocols,
                                 target_device,
                                 **kwargs)
+        Logger().debug("** END Get_proxy_right **")
         if urights and (type(urights[0]) == str):
             import json
             urights = map(json.loads, urights)
@@ -573,9 +586,11 @@ class Engine(object):
 
     def valid_device_name(self, protocols, target_device):
         try:
-            # Logger().info("** CALL VALIDATOR DEVICE NAME Get_proxy_right **")
+            # Logger().debug("** CALL VALIDATOR DEVICE NAME Get_proxy_right target=%s **"
+            #                % target_device)
             prights = self.get_proxy_user_rights(
-                protocols, target_device, check_timeframes=False)
+                protocols, target_device)
+            # Logger().debug("** END VALIDATOR DEVICE NAME Get_proxy_right **")
         except Exception, e:
             # import traceback
             # Logger().info("valid_device_name failed: (((%s)))" % (traceback.format_exc(e)))
@@ -773,14 +788,13 @@ class Engine(object):
         if filtered_subnet:
             self.displaytargets = filtered_subnet
 
-    def get_proxy_rights(self, protocols, target_device=None, check_timeframes=False,
-                         target_context=None):
+    def get_proxy_rights(self, protocols, target_device=None, target_context=None):
         if self.proxy_rights is None:
             try:
-                Logger().debug("** CALL Get_proxy_right ** proto=%s, target_device=%s, checktimeframe=%s" % (protocols, target_device, check_timeframes))
+                # Logger().debug("** CALL Get_proxy_right ** proto=%s, target_device=%s, checktimeframe=%s" % (protocols, target_device))
                 self.proxy_rights = self.get_proxy_user_rights(
-                    protocols, target_device, check_timeframes=check_timeframes)
-                Logger().debug("** END Get_proxy_right **")
+                    protocols, target_device)
+                # Logger().debug("** END Get_proxy_right **")
             except Exception, e:
                 # import traceback
                 # Logger().info("traceback = %s" % traceback.format_exc(e))
@@ -796,6 +810,8 @@ class Engine(object):
     def _find_target_right(self, target_login, target_device, target_service,
                           target_group):
         try:
+            Logger().debug("Find target %s@%s:%s:%s" %
+                           (target_login, target_device, target_service, target_group))
             results = self.targetsdom.get((target_login, target_device), [])
             if not results:
                 # domain might not be provided
@@ -857,7 +873,7 @@ class Engine(object):
         invalid_str = u"Invalid target %s\r\n"
         if self.get_language() == "fr":
             invalid_str = u"Cible %s invalide\r\n"
-        target_str = u"%s@%s:%s" % (target_login, target_device, target_service)
+        target_str = u"%s@%s:%s (%s)" % (target_login, target_device, target_service, target_group)
         msg = invalid_str % target_str
         return (None, msg.encode('utf8'))
 
@@ -866,7 +882,6 @@ class Engine(object):
         # Logger().info(">>==GET_SELECTED_TARGET %s@%s:%s:%s" % (target_device, target_login, target_service, target_group))
         right = None
         self.get_proxy_rights([u'RDP', u'VNC'], target_device,
-                              check_timeframes=False,
                               target_context=target_context)
         return self._find_target_right(target_login, target_device, target_service,
                                       target_group)
@@ -970,7 +985,8 @@ class Engine(object):
         try:
             target_credentials = self.target_credentials.get(target_uid, {})
             privkeys = [ (cred.data.get(CRED_DATA_PRIVATE_KEY),
-                          cred.data.get("passphrase", None)) \
+                          cred.data.get("passphrase", None),
+                          cred.data.get(CRED_DATA_PUBLIC_KEY)) \
                          for cred in target_credentials.get(CRED_TYPE_SSH_KEY, []) ]
             Logger().info("Engine get_target_privkeys done")
             return privkeys
@@ -1039,7 +1055,7 @@ class Engine(object):
 
     def start_session_ssh(self, target, target_user, hname, host, client_addr,
                           pid, subproto, kill_handler, effective_login=None,
-                          warning_count=None):
+                          warning_count=None, session_log_path=None):
         """ Start session for new wabengine """
         self.hname = hname
         self.target_user = effective_login or target_user
@@ -1055,7 +1071,8 @@ class Engine(object):
                 self.get_pidhandler(pid),
                 subproto,
                 effective_login=tounicode(effective_login),
-                target_host=tounicode(self.host))
+                target_host=tounicode(self.host),
+                session_log_path=tounicode(session_log_path))
         except LicenseException:
             Logger().info("Engine start_session failed: License exception")
             self.session_id = None
@@ -1093,7 +1110,7 @@ class Engine(object):
 
         return self.session_id
 
-    def update_session(self, physical_target, **kwargs):
+    def update_session_target(self, physical_target, **kwargs):
         """Update current session with target name.
 
         :param target physical_target: selected target
@@ -1108,6 +1125,19 @@ class Engine(object):
             if self.session_id:
                 self.wabengine.update_session(self.session_id,
                                               hosttarget=hosttarget,
+                                              **kwargs)
+        except Exception, e:
+            import traceback
+            Logger().info("Engine update_session_target failed: (((%s)))" % (traceback.format_exc(e)))
+
+    def update_session(self, **kwargs):
+        """Update current session parameters to base.
+
+        :return: None
+        """
+        try:
+            if self.session_id:
+                self.wabengine.update_session(self.session_id,
                                               **kwargs)
         except Exception, e:
             import traceback
@@ -1363,10 +1393,7 @@ class Engine(object):
             return {}
 
         conn_policy_data = self.get_target_conn_options(target)
-        if conn_policy_data:
-            server_pubkey_options = conn_policy_data.get('server_pubkey')
-            if not server_pubkey_options:
-                server_pubkey_options = {}
+        server_pubkey_options = conn_policy_data.get('server_pubkey', {})
         return server_pubkey_options
 
     def get_target_auth_methods(self, selected_target=None):
@@ -1414,13 +1441,19 @@ class Engine(object):
 
         account_login = self.get_account_login(target)
         account_name = target['account_name']
+        domain_name = target['domain_cn']
+        if domain_name == AM_IL_DOMAIN:
+            domain_name = ""
         service_port = target['service_port']
         service_name = target['service_cn']
+        auth_name = target['auth_cn']
         conn_opts = target['connection_policy_data']
         return LoginInfo(account_login=account_login,
                          account_name=account_name,
+                         domain_name=domain_name,
                          target_name=target_name,
                          service_name=service_name,
+                         auth_name=auth_name,
                          device_host=device_host,
                          service_port=service_port,
                          conn_opts=conn_opts)
@@ -1454,6 +1487,8 @@ class TargetContext(object):
         self.strict_transparent = False
     def showname(self):
         return self.show or self.dnsname or self.host
+    def is_empty(self):
+        return not (self.host or self.login or self.service or self.group)
 
 class DisplayInfo(object):
     def __init__(self, target_login, target_name, service_name,
@@ -1490,12 +1525,20 @@ class PhysicalTarget(object):
         self.device_id = device_id
 
 class LoginInfo(object):
-    def __init__(self, account_login, account_name, target_name, service_name,
-                 device_host, service_port, conn_opts):
+    def __init__(self, account_login, account_name, domain_name, target_name,
+                 service_name, auth_name, device_host, service_port, conn_opts):
         self.account_login = account_login
         self.account_name = account_name
+        self.domain_name = domain_name
         self.target_name = target_name
         self.service_name = service_name
+        self.auth_name = auth_name
         self.device_host = device_host
         self.service_port = service_port
         self.conn_opts = conn_opts
+
+    def get_target_str(self):
+        return "%s%s@%s:%s:%s" % (self.account_name,
+                                  "@%s" % self.domain_name if self.domain_name
+                                  else '',
+                                  self.target_name, self.service_name, self.auth_name)

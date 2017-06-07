@@ -18,9 +18,7 @@
     Author(s): Christophe Grosjean, Raphael Zhou
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestBmpCachePersister
+#define RED_TEST_MODULE TestBmpCachePersister
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
@@ -28,9 +26,9 @@
 
 #include "core/RDP/caches/bmpcachepersister.hpp"
 #include "core/RDP/PersistentKeyListPDU.hpp"
-#include "transport/test_transport.hpp"
+#include "test_only/transport/test_transport.hpp"
 
-BOOST_AUTO_TEST_CASE(TestBmpCachePersister)
+RED_AUTO_TEST_CASE(TestBmpCachePersister)
 {
     uint8_t  bpp              = 8;
     bool     use_waiting_list = false;
@@ -120,7 +118,7 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister)
 /* 0020 */ 0x62, 0xf7, 0xf9, 0x00, 0x17, 0x00, 0x1f, 0x41, 0x09, 0x00, 0x1a, 0x60, 0x1e, 0xf7, 0x00, 0x20,  // b......A...`...
 /* 0030 */ 0x41, 0x0d, 0x00, 0x19, 0xf3, 0x03, 0x08, 0xf7,                          // A.......
     };
-    BGRPalette   palette(raw_palette_0);
+    BGRPalette   palette = make_bgr_palette_from_bgrx_array(raw_palette_0);
     {Bitmap bmp(8, 8, &palette, 64, 64, raw_bitmap_0, sizeof(raw_bitmap_0), true);
     result = bmp_cache.cache_bitmap(bmp);
     }
@@ -204,7 +202,7 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister)
 /* 0080 */ 0x01, 0x40, 0x00, 0x04, 0x0d, 0x43, 0x81, 0x01, 0x03, 0x1a, 0x14, 0x50, 0xa5, 0x0b, 0x57, 0xab,  // .@...C.....P..W.
 /* 0090 */ 0xd5, 0x22, 0x00, 0x82, 0xc3, 0xc7, 0x8f, 0xc7, 0xe3, 0xc1, 0x98, 0x31, 0xf0, 0x00, 0x08,     // .".........1...
     };
-    palette.set_data(raw_palette_1);
+    palette = make_bgr_palette_from_bgrx_array(raw_palette_1);
     {Bitmap bmp(8, 8, &palette, 64, 64, raw_bitmap_1, sizeof(raw_bitmap_1), true);
     result = bmp_cache.cache_bitmap(bmp);
     }
@@ -282,7 +280,7 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister)
 /* 0020 */ 0xfa, 0x00, 0x10, 0x00, 0x1f, 0x41, 0xc1, 0x00, 0x12, 0x43, 0x8b, 0xd0, 0x02, 0x00, 0x07, 0xf3,  // .....A...C......
 /* 0030 */ 0x40, 0x08, 0xf7,                                         // @..
     };
-    palette.set_data(raw_palette_2);
+    palette = make_bgr_palette_from_bgrx_array(raw_palette_2);
     {Bitmap bmp(8, 8, &palette, 64, 64, raw_bitmap_2, sizeof(raw_bitmap_2), true);
     result = bmp_cache.cache_bitmap(bmp);
     }
@@ -291,12 +289,12 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister)
     //LogTransport t;
 
     #include "fixtures/persistent_disk_bitmap_cache.hpp"
-    CheckTransport t(outdata, sizeof(outdata)-1, verbose);
+    CheckTransport t(outdata, sizeof(outdata)-1);
 
     BmpCachePersister::save_all_to_disk(bmp_cache, t, to_verbose_flags(verbose));
 }
 
-BOOST_AUTO_TEST_CASE(TestBmpCachePersister1)
+RED_AUTO_TEST_CASE(TestBmpCachePersister1)
 {
     uint8_t  bpp              = 8;
     bool     use_waiting_list = false;
@@ -312,7 +310,7 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister1)
                       );
 
     #include "fixtures/persistent_disk_bitmap_cache.hpp"
-    GeneratorTransport t(outdata, sizeof(outdata));
+    GeneratorTransport t(outdata, sizeof(outdata)-1);
 
     BmpCachePersister bmp_cache_persister(bmp_cache, t, "fixtures/persistent_disk_bitmap_cache.hpp", to_verbose_flags(verbose));
 
@@ -327,17 +325,17 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister1)
     uint16_t first_entry_index = 0;
     bmp_cache_persister.process_key_list(cache_id, persistent_list, number_of_entries, first_entry_index);
 
-    BOOST_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
-    BOOST_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
+    RED_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
+    RED_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
 
-    BOOST_CHECK(!bmp_cache.get_cache(cache_id)[2]);
+    RED_CHECK(!bmp_cache.get_cache(cache_id)[2]);
 
-    BOOST_CHECK((bmp_cache.get_cache(cache_id)[3].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[3].sig.sig_32[1] == 0x0A888EF6));
+    RED_CHECK((bmp_cache.get_cache(cache_id)[3].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[3].sig.sig_32[1] == 0x0A888EF6));
 
-    BOOST_CHECK(!bmp_cache.get_cache(cache_id)[4]);
+    RED_CHECK(!bmp_cache.get_cache(cache_id)[4]);
 }
 
-BOOST_AUTO_TEST_CASE(TestBmpCachePersister2)
+RED_AUTO_TEST_CASE(TestBmpCachePersister2)
 {
     uint8_t  bpp              = 8;
     bool     use_waiting_list = false;
@@ -353,14 +351,14 @@ BOOST_AUTO_TEST_CASE(TestBmpCachePersister2)
                       );
 
     #include "fixtures/persistent_disk_bitmap_cache.hpp"
-    GeneratorTransport t(outdata, sizeof(outdata));
+    GeneratorTransport t(outdata, sizeof(outdata)-1);
 
     BmpCachePersister::load_all_from_disk(bmp_cache, t, "fixtures/persistent_disk_bitmap_cache.hpp", to_verbose_flags(verbose));
 
     uint8_t cache_id = 2;
-    BOOST_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
-    BOOST_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
-    BOOST_CHECK((bmp_cache.get_cache(cache_id)[2].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[2].sig.sig_32[1] == 0x0A888EF6));
+    RED_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
+    RED_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
+    RED_CHECK((bmp_cache.get_cache(cache_id)[2].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[2].sig.sig_32[1] == 0x0A888EF6));
 
-    BOOST_CHECK(!bmp_cache.get_cache(cache_id)[3]);
+    RED_CHECK(!bmp_cache.get_cache(cache_id)[3]);
 }

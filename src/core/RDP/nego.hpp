@@ -318,7 +318,7 @@ struct RdpNego
                                    this->hostname, this->target_host,
                                    this->krb, this->restricted_admin_mode,
                                    this->rand, this->timeobj,
-                                   this->verbose & Verbose::credssp);
+                                   bool(this->verbose & Verbose::credssp));
 
                 int res = 0;
                 bool fallback = false;
@@ -345,6 +345,11 @@ struct RdpNego
                     this->state = NEGO_STATE_FINAL;
                     return;
                 }
+            }
+            else if (x224.rdp_neg_type == X224::RDP_NEG_RSP
+            && x224.rdp_neg_code == X224::PROTOCOL_RDP){
+                this->state = NEGO_STATE_FINAL;
+                return;
             }
             this->trans.disconnect();
             if (!this->trans.connect()){
@@ -377,6 +382,11 @@ struct RdpNego
                         certif_path
                     );
                 this->state = NEGO_STATE_FINAL;
+            }
+            else if (x224.rdp_neg_type == X224::RDP_NEG_RSP
+            && x224.rdp_neg_code == X224::PROTOCOL_RDP){
+                this->state = NEGO_STATE_FINAL;
+                return;
             }
             else if (x224.rdp_neg_type == X224::RDP_NEG_FAILURE
             && (x224.rdp_neg_code == X224::SSL_NOT_ALLOWED_BY_SERVER
@@ -459,7 +469,7 @@ struct RdpNego
         char cookie[256];
         snprintf(cookie, 256, "Cookie: mstshash=%s\x0D\x0A", this->username);
         char * cookie_or_token = this->lb_info?this->lb_info:cookie;
-        if (this->verbose & Verbose::negotiation) {
+        if (bool(this->verbose & Verbose::negotiation)) {
             LOG(LOG_INFO, "Send %s:", this->lb_info?"load_balance_info":"cookie");
             hexdump_c(cookie_or_token, strlen(cookie_or_token));
         }

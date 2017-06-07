@@ -106,13 +106,19 @@
 "#_advanced\n"
 "video_quality = option('low', 'medium', 'high', default='high')\n\n"
 
+"#_advanced\n"
+"large_pointer_support = boolean(default=True)\n\n"
+
 "[session_log]\n\n"
 
 "enable_session_log = boolean(default=True)\n\n"
 
 "# Log redirection in a file\n"
 "#_advanced\n"
-"session_log_redirection = boolean(default=False)\n\n"
+"session_log_redirection = boolean(default=True)\n\n"
+
+"#_advanced\n"
+"log_path = string(default='')\n\n"
 
 "#   0: keyboard input are not masked\n"
 "#   1: only passwords are masked\n"
@@ -213,6 +219,8 @@
 
 "show_target_user_in_f12_message = boolean(default=False)\n\n"
 
+"enable_new_pointer_update = boolean(default=False)\n\n"
+
 "[mod_rdp]\n\n"
 
 "# Specifies the highest compression package support available on the front side\n"
@@ -299,10 +307,19 @@
 "alternate_shell = string(default='')\n\n"
 
 "#_hidden\n"
-"shell_working_directory = string(default='')\n\n"
+"shell_arguments = string(default='')\n\n"
 
 "#_hidden\n"
+"shell_working_directory = string(default='')\n\n"
+
+"#_advanced\n"
 "use_client_provided_alternate_shell = boolean(default=False)\n\n"
+
+"#_advanced\n"
+"use_client_provided_remoteapp = boolean(default=False)\n\n"
+
+"#_advanced\n"
+"use_native_remoteapp_capability = boolean(default=True)\n\n"
 
 "#_hidden\n"
 "enable_session_probe = boolean(default=False)\n\n"
@@ -313,7 +330,7 @@
 "session_probe_use_smart_launcher = boolean(default=True)\n\n"
 
 "#_hidden\n"
-"enable_session_probe_launch_mask = boolean(default=True)\n\n"
+"session_probe_enable_launch_mask = boolean(default=True)\n\n"
 
 "# Behavior on failure to launch Session Probe.\n"
 "#   0: ignore failure and continue.\n"
@@ -352,6 +369,9 @@
 "#_advanced\n"
 "session_probe_customize_executable_name = boolean(default=False)\n\n"
 
+"#_hidden\n"
+"session_probe_enable_log = boolean(default=False)\n\n"
+
 "# This policy setting allows you to configure a time limit for disconnected application sessions.\n"
 "# 0 to disable timeout.\n"
 "# (is in millisecond)\n"
@@ -371,7 +391,7 @@
 "session_probe_idle_session_limit = integer(min=0, default=0)\n\n"
 
 "#_hidden\n"
-"session_probe_exe_or_file = string(max=511, default='CMD')\n\n"
+"session_probe_exe_or_file = string(max=511, default='||CMD')\n\n"
 
 "#_hidden\n"
 "session_probe_arguments = string(max=511, default='/K')\n\n"
@@ -436,6 +456,9 @@
 
 "# Do not transmit client machine name or RDP server.\n"
 "hide_client_name = boolean(default=False)\n\n"
+
+"#_advanced\n"
+"clean_up_32_bpp_cursor = boolean(default=False)\n\n"
 
 "[mod_vnc]\n\n"
 
@@ -646,6 +669,18 @@
 "#_hidden\n"
 "sign_key = string(min=64, max=64, default='000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F')\n\n"
 
+"# Use encryption for session log file.\n"
+"#_advanced\n"
+"session_log_with_encryption = boolean(default=False)\n\n"
+
+"# Use checksum for session log file.\n"
+"#_advanced\n"
+"session_log_with_checksum = boolean(default=False)\n\n"
+
+"[remote_program]\n\n"
+
+"allow_resize_hosted_desktop = boolean(default=True)\n\n"
+
 "[debug]\n\n"
 
 "#_advanced\n"
@@ -665,6 +700,9 @@
 
 "#_advanced\n"
 "secondary_orders = integer(min=0, default=0)\n\n"
+
+"#_advanced\n"
+"bitmap_update = integer(min=0, default=0)\n\n"
 
 "#_advanced\n"
 "bitmap = integer(min=0, default=0)\n\n"
@@ -688,7 +726,7 @@
 "mod_vnc = integer(min=0, default=0)\n\n"
 
 "#_advanced\n"
-"mod_int = integer(min=0, default=0)\n\n"
+"mod_internal = integer(min=0, default=0)\n\n"
 
 "#_advanced\n"
 "mod_xup = integer(min=0, default=0)\n\n"
@@ -709,16 +747,10 @@
 "cache = integer(min=0, default=0)\n\n"
 
 "#_advanced\n"
-"bitmap_update = integer(min=0, default=0)\n\n"
-
-"#_advanced\n"
 "performance = integer(min=0, default=0)\n\n"
 
 "#_advanced\n"
 "pass_dialog_box = integer(min=0, default=0)\n\n"
-
-"#_advanced\n"
-"mod_internal = integer(min=0, default=0)\n\n"
 
 "#_advanced\n"
 "ocr = integer(min=0, default=0)\n\n"

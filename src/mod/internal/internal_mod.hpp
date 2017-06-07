@@ -30,21 +30,27 @@ enum {
 };
 
 struct InternalMod : public mod_api {
-public:
+protected:
     uint16_t front_width;
     uint16_t front_height;
+
     FrontAPI & front;
 
     WidgetScreen screen;
 
+public:
     InternalMod(FrontAPI & front, uint16_t front_width, uint16_t front_height, Font const & font,
-                Theme const & theme)
+                Theme const & theme, bool dont_resize)
         : front_width(front_width)
         , front_height(front_height)
         , front(front)
-        , screen(front, front_width, front_height, font, nullptr, theme)
+        , screen(front, font, nullptr, theme)
     {
-        this->front.server_resize(front_width, front_height, 24);
+        this->screen.set_wh(front_width, front_height);
+
+        if (!dont_resize) {
+            this->front.server_resize(front_width, front_height, 24);
+        }
     }
 
     Font const & font() const {
@@ -57,7 +63,7 @@ public:
 
     ~InternalMod() override {}
 
-    const Rect & get_screen_rect() const
+    Rect get_screen_rect() const
     {
         return this->screen.get_rect();
     }
@@ -66,6 +72,7 @@ public:
         int flags) override {
         const CHANNELS::ChannelDef * front_channel =
             this->front.get_channel_list().get_by_name(mod_channel_name);
+            LOG(LOG_INFO, "Channel \"%s\"", mod_channel_name);
         if (front_channel) {
             this->front.send_to_channel(*front_channel, data, length, chunk_size, flags);
         }
@@ -74,7 +81,7 @@ public:
         }
     }
 
-    void rdp_input_invalidate(const Rect& r) override {
+    void rdp_input_invalidate(Rect r) override {
         this->screen.rdp_input_invalidate(r);
     }
 
@@ -91,6 +98,21 @@ public:
         (void)device_flags;
         (void)param1;
         (void)param2;
+    }
+
+    void refresh(Rect clip) override {
+        this->screen.refresh(clip);
+    }
+
+    Dimension get_dim() const override
+    { return Dimension(this->front_width, this->front_height); }
+
+    void allow_mouse_pointer_change(bool allow) {
+        this->screen.allow_mouse_pointer_change(allow);
+    }
+
+    void redo_mouse_pointer_change() {
+        this->screen.redo_mouse_pointer_change();
     }
 };
 

@@ -42,7 +42,7 @@
 #include "utils/rect.hpp"
 #include "utils/bitmap_data_allocator.hpp"
 
-#include "cxx/attributes.hpp"
+#include "cxx/cxx.hpp"
 
 #include "utils/sugar/array_view.hpp"
 #include "system/ssl_sha1.hpp"
@@ -65,7 +65,7 @@ class Bitmap
         // Memoize compressed bitmap
         /*mutable*/ uint8_t * data_compressed_;
         size_t size_compressed_;
-        mutable uint8_t sha1_[20];
+        mutable uint8_t sha1_[SslSha1::DIGEST_LENGTH];
         mutable bool sha1_is_init_;
 
         DataBitmapBase(uint8_t bpp, uint16_t cx, uint16_t cy, uint8_t * ptr) noexcept
@@ -126,7 +126,7 @@ protected:
             aux_::bitmap_data_allocator.dealloc(cdata);
         }
 
-        void copy_sha1(uint8_t (&sig)[20]) const {
+        void copy_sha1(uint8_t (&sig)[SslSha1::DIGEST_LENGTH]) const {
             if (!this->sha1_is_init_) {
                 this->sha1_is_init_ = true;
                 SslSha1 sha1;
@@ -332,7 +332,7 @@ public:
         }
     }
 
-    Bitmap(const Bitmap & src_bmp, const Rect & r)
+    Bitmap(const Bitmap & src_bmp, const Rect r)
     : data_bitmap(src_bmp.data_bitmap)
     {
         //LOG(LOG_INFO, "Creating bitmap (%p) extracting part cx=%u cy=%u size=%u bpp=%u", this, cx, cy, bmp_size, bpp);
@@ -343,7 +343,7 @@ public:
         }
 
         this->data_bitmap = DataBitmap::construct(src_bmp.bpp(), r.cx, r.cy);
-        if (this->bpp() == 8){
+        if (this->bpp() == 8) {
             this->data_bitmap->palette() = src_bmp.data_bitmap->palette();
         }
 
@@ -2031,7 +2031,7 @@ private:
     }
 
 public:
-    void compute_sha1(uint8_t (&sig)[20]) const
+    void compute_sha1(uint8_t (&sig)[SslSha1::DIGEST_LENGTH]) const
     {
         this->data_bitmap->copy_sha1(sig);
     }
@@ -2043,13 +2043,13 @@ public:
         if (out_bpp != bmp.bpp()) {
             this->data_bitmap = DataBitmap::construct(out_bpp, bmp.cx(), bmp.cy());
 
-            auto buf2col_1B = [ ](uint8_t const * p) -> BGRColor { return p[0]; };
-            auto buf2col_2B = [=](uint8_t const * p) -> BGRColor { return buf2col_1B(p) | (p[1] << 8); };
-            auto buf2col_3B = [=](uint8_t const * p) -> BGRColor { return buf2col_2B(p) | (p[2] << 16); };
+            auto buf2col_1B = [ ](uint8_t const * p) { return RDPColor::from(p[0]); };
+            auto buf2col_2B = [=](uint8_t const * p) { return RDPColor::from(p[0] | (p[1] << 8)); };
+            auto buf2col_3B = [=](uint8_t const * p) { return RDPColor::from(p[0] | (p[1] << 8) | (p[2] << 16)); };
 
-            auto col2buf_1B = [ ](BGRColor c, uint8_t * p) { p[0] = c; };
-            auto col2buf_2B = [=](BGRColor c, uint8_t * p) { col2buf_1B(c, p); p[1] = c >> 8; };
-            auto col2buf_3B = [=](BGRColor c, uint8_t * p) { col2buf_2B(c, p); p[2] = c >> 16; };
+            auto col2buf_1B = [ ](RDPColor c, uint8_t * p) {                   p[0] = c.as_bgr().red(); };
+            auto col2buf_2B = [=](RDPColor c, uint8_t * p) { col2buf_1B(c, p); p[1] = c.as_bgr().green(); };
+            auto col2buf_3B = [=](RDPColor c, uint8_t * p) { col2buf_2B(c, p); p[2] = c.as_bgr().blue(); };
 
             using namespace shortcut_encode;
             using namespace shortcut_decode_with_palette;
@@ -2094,15 +2094,15 @@ private:
 
         for (size_t y = 0; y < bmp.cy() ; y++) {
             for (size_t x = 0; x < bmp.cx() ; x++) {
-                BGRColor pixel = buf_to_color(src);
+                BGRColor pixel = dec(buf_to_color(src));
 
-                pixel = dec(pixel);
-                if (Enc::bpp != 24){
-                    pixel = RGBtoBGR(pixel);
+                constexpr bool enc_15_16 = Enc::bpp == 15 || Enc::bpp == 16;
+                constexpr bool dec_15_16 = Dec::bpp == 15 || Dec::bpp == 16;
+                if (enc_15_16 ^ dec_15_16) {
+                    pixel = BGRasRGBColor(pixel);
                 }
-                pixel = enc(pixel);
 
-                color_to_buf(pixel, dest);
+                color_to_buf(enc(pixel), dest);
                 dest += Bpp;
                 src += src_nbbytes;
             }

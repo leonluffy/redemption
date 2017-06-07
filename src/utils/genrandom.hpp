@@ -27,10 +27,11 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <cerrno>
+#include <cstring>
 #include <cstdint>
 
 #include "utils/log.hpp"
-#include "cxx/attributes.hpp"
+#include "utils/sugar/unique_fd.hpp"
 
 
 class Random
@@ -57,53 +58,6 @@ public:
     }
 };
 
-
-class LCGRandom : public Random
-{
-    uint64_t seed;
-public:
-    explicit LCGRandom(uint32_t seed)
-    : seed(seed)
-    {
-    }
-
-    void random(void * dest, size_t size) override {
-        for (size_t x = 0; x < size ; ++x) {
-            uint32_t r{this->rand32()};
-
-            // TODO suspicious, p[0..3] re-assigned 4 times.
-            uint8_t * p = reinterpret_cast<uint8_t*>(dest) + x / sizeof(uint32_t) * sizeof(uint32_t);
-            // BUG buffer overflow if size % 4 > 0
-            p[0] = r >> 0;
-            p[1] = r >> 8;
-            p[2] = r >> 16;
-            p[3] = r >> 24;
-        }
-        /*
-        uint8_t * p = reinterpret_cast<uint8_t*>(dest);
-        for (size_t x = 0; x < size/4 ; ++x) {
-            uint32_t r{this->rand32()};
-            *p++ = r >> 0;
-            *p++ = r >> 8;
-            *p++ = r >> 16;
-            *p++ = r >> 24;
-        }
-        if (size % 4) {
-            uint32_t r{this->rand32()};
-            switch (size % 4) {
-                case 3: *p++ = r >> 0; REDEMPTION_CXX_FALLTHROUGH;
-                case 2: *p++ = r >> 8; REDEMPTION_CXX_FALLTHROUGH;
-                case 1: *p++ = r >> 16; REDEMPTION_CXX_FALLTHROUGH;
-                default:;
-            }
-        }*/
-    }
-
-    uint32_t rand32() override
-    {
-        return this->seed = 999331UL * this->seed + 200560490131ULL;
-    }
-};
 
 class UdevRandom : public Random
 {
@@ -132,41 +86,33 @@ class UdevRandom : public Random
         }
 
          // this object is useful for RAII, do not unwrap
-        struct fdbuf
-        {
-            const int fd;
-            explicit fdbuf(int fd) : fd(fd){}
-            ~fdbuf() { ::close(this->fd);}
+        unique_fd file(fd);
 
-            // TODO This is basically a blocking read, we should provide timeout management and behaviour
-            ssize_t read(uint8_t * data, size_t len) const
-            {
-                size_t remaining_len = len;
-                while (remaining_len) {
-                    ssize_t ret = ::read(this->fd
-                                , data + (len - remaining_len)
-                                , remaining_len);
-                    if (ret < 0){
-                        if (errno == EINTR){
-                            continue;
-                        }
-                        // Error should still be there next time we try to read
-                        if (remaining_len != len){
-                            return len - remaining_len;
-                        }
-                        return ret;
+        // TODO This is basically a blocking read, we should provide timeout management and behaviour
+        auto read = [fd](uint8_t * data, size_t len) -> ssize_t {
+            size_t remaining_len = len;
+            while (remaining_len) {
+                ssize_t ret = ::read(fd, data + (len - remaining_len), remaining_len);
+                if (ret < 0){
+                    if (errno == EINTR){
+                        continue;
                     }
-                    // We must exit loop or we will enter infinite loop
-                    if (ret == 0){
-                        break;
+                    // Error should still be there next time we try to read
+                    if (remaining_len != len){
+                        return len - remaining_len;
                     }
-                    remaining_len -= ret;
+                    return ret;
                 }
-                return len - remaining_len;
+                // We must exit loop or we will enter infinite loop
+                if (ret == 0){
+                    break;
+                }
+                remaining_len -= ret;
             }
-        } file(fd);
+            return len - remaining_len;
+        };
 
-        ssize_t res = file.read(static_cast<uint8_t*>(dest), size);
+        ssize_t res = read(static_cast<uint8_t*>(dest), size);
         if (res != static_cast<ssize_t>(size)) {
             if (res >= 0){
                 LOG(LOG_ERR, "random source failed to provide enough random data [%zd]", res);

@@ -36,19 +36,18 @@
 #include <cerrno>
 
 #include "openssl_crypto.hpp"
+#include "system/scoped_crypto_init.hpp"
 
 #include "configs/config.hpp"
 #include "core/check_files.hpp"
 #include "core/mainloop.hpp"
 #include "utils/log.hpp"
-#include "utils/fdbuf.hpp"
-#include "utils/fdbuf.hpp"
 
 #include "program_options/program_options.hpp"
 #include "capture/rdp_ppocr/get_ocr_constants.hpp"
 
-#include "capture/cryptofile.hpp"
-#include "utils/genrandom.hpp"
+#include "transport/out_file_transport.hpp"
+#include "transport/in_file_transport.hpp"
 
 
 inline void daemonize(const char * pid_file)
@@ -79,7 +78,10 @@ inline void daemonize(const char * pid_file)
             _exit(1);
         }
         lg = snprintf(text, 255, "%d", pid);
-        if (io::posix::fdbuf(fd).write(text, lg) == -1) {
+
+        try {
+            OutFileTransport(unique_fd{fd}).send(text, lg);
+        } catch (Error const &) {
             LOG(LOG_ERR, "Couldn't write pid to %s: %s", pid_file, strerror(errno));
             _exit(1);
         }
@@ -101,27 +103,27 @@ inline void daemonize(const char * pid_file)
 /*****************************************************************************/
 inline int shutdown(const char * pid_file)
 {
-    std::cout << "stopping rdpproxy\n";
+    std::cout << "stopping rdpproxy\nlooking if pid_file " << pid_file << " exists\n";
     /* read the rdpproxy.pid file */
-    io::posix::fdbuf fd;
-    std::cout << "looking if pid_file " << pid_file <<  " exists\n";
+    unique_fd fd = invalid_fd();
     if ((0 == access(pid_file, F_OK))) {
-        fd.open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        fd = unique_fd(open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR));
         if (!fd) {
             /* can't open read / write, try to open read only */
-            fd.open(pid_file, O_RDONLY);
+            fd = unique_fd(open(pid_file, O_RDONLY));
         }
     }
     if (!fd) {
         return 1; // file does not exist.
     }
-    std::cout << "reading pid_file " << pid_file << "\n";
-    char text[256];
-    memset(text, 0, 32);
-    if (fd.read(text, 31) < 0){
-        std::cerr << "failed to read pid file\n";
-    }
-    else{
+
+    try {
+        std::cout << "reading pid_file " << pid_file << "\n";
+        char text[256];
+        memset(text, 0, 32);
+
+        InFileTransport(std::move(fd)).recv_boom(text, 31);
+
         int pid = atoi(text);
         std::cout << "stopping process id " << pid << "\n";
         if (pid > 0) {
@@ -132,8 +134,7 @@ inline int shutdown(const char * pid_file)
             }
             if ((errno != ESRCH) || (res == 0)){
                 // errno != ESRCH, pid is still running
-                std::cout << "process " << pid << " is still running, "
-                "let's send a KILL signal" << "\n";
+                std::cout << "process " << pid << " is still running, let's send a KILL signal\n";
                 res = kill(pid, SIGKILL);
                 if (res != -1){
                     sleep(1);
@@ -146,39 +147,33 @@ inline int shutdown(const char * pid_file)
             }
         }
     }
-    fd.close();
+    catch (Error const&) {
+        std::cerr << "failed to read pid file\n";
+    }
     unlink(pid_file);
 
     // remove all other pid files
     DIR * d = opendir("/var/run/redemption");
     if (d){
-        size_t path_len = strlen("/var/run/redemption/");
-        size_t file_len = pathconf("/var/run/redemption/", _PC_NAME_MAX) + 1;
-        char * buffer = static_cast<char*>(malloc(file_len + path_len));
-        strcpy(buffer, "/var/run/redemption/");
-        size_t len = offsetof(dirent, d_name) + file_len;
-        dirent * entryp = static_cast<dirent *>(malloc(len));
-        dirent * result;
-        for (readdir_r(d, entryp, &result) ; result ; readdir_r(d, entryp, &result)) {
+        const std::string path("/var/run/redemption/");
+        for (dirent * entryp = readdir(d) ; entryp ; entryp = readdir(d)) {
             if ((0 == strcmp(entryp->d_name, ".")) || (0 == strcmp(entryp->d_name, ".."))){
                 continue;
             }
-            strcpy(buffer + path_len, entryp->d_name);
+            const std::string pidpath = path + std::string(entryp->d_name);
             struct stat st;
-            if (stat(buffer, &st) < 0){
+            if (stat(pidpath.c_str(), &st) < 0){
                 LOG(LOG_ERR, "Failed to read pid directory %s [%d: %s]",
-                    buffer, errno, strerror(errno));
+                    pidpath.c_str(), errno, strerror(errno));
                 continue;
             }
-            LOG(LOG_INFO, "removing old pid file %s", buffer);
-            if (unlink(buffer) < 0){
+            LOG(LOG_INFO, "removing old pid file %s", pidpath.c_str());
+            if (unlink(pidpath.c_str()) < 0){
                 LOG(LOG_ERR, "Failed to remove old session pid file %s [%d: %s]",
-                    buffer, errno, strerror(errno));
+                    pidpath.c_str(), errno, strerror(errno));
             }
         }
         closedir(d);
-        free(entryp);
-        free(buffer);
     }
     else {
         LOG(LOG_ERR, "Failed to open dynamic configuration directory %s [%d: %s]",
@@ -197,7 +192,7 @@ using extra_option_list = std::initializer_list<extra_option>;
 
 static inline int app_proxy(
     int argc, char const * const * argv, const char * copyright_notice
-  , CryptoContext & cctx, Random & rnd
+  , CryptoContext & cctx, Random & rnd, Fstat & fstat
 ) {
     setlocale(LC_CTYPE, "C");
 
@@ -314,7 +309,7 @@ static inline int app_proxy(
     }
 
     if (options.count("inetd")) {
-        redemption_new_session(cctx, rnd, config_filename.c_str());
+        redemption_new_session(cctx, rnd, fstat, config_filename.c_str());
         return 0;
     }
 
@@ -347,22 +342,21 @@ static inline int app_proxy(
 
 
     /* write the pid to file */
-    int fd = open(PID_PATH "/redemption/" LOCKFILE, O_WRONLY | O_CREAT, S_IRWXU);
+    int const fd = open(PID_PATH "/redemption/" LOCKFILE, O_WRONLY | O_CREAT, S_IRWXU);
     if (fd == -1) {
         std::clog
         <<  "Writing process id to " PID_PATH "/redemption/" LOCKFILE " failed. Maybe no rights ?"
         << " : " << errno << ":'" << strerror(errno) << "'\n";
         return 1;
     }
-    {
-        io::posix::fdbuf file(fd);
-        const int pid = getpid();
+
+    try {
         char text[256];
-        size_t lg = snprintf(text, 255, "%d", pid);
-        if (file.write(text, lg) == -1) {
-            LOG(LOG_ERR, "Couldn't write pid to %s: %s", PID_PATH "/redemption/" LOCKFILE, strerror(errno));
-            return 1;
-        }
+        size_t lg = snprintf(text, 255, "%d", getpid());
+        OutFileTransport(unique_fd{fd}).send(text, lg);
+    } catch (Error const &) {
+        LOG(LOG_ERR, "Couldn't write pid to %s: %s", PID_PATH "/redemption/" LOCKFILE, strerror(errno));
+        return 1;
     }
 
     if (!options.count("nodaemon")) {
@@ -372,7 +366,7 @@ static inline int app_proxy(
     Inifile ini;
     { ConfigurationLoader cfg_loader(ini.configuration_holder(), config_filename.c_str()); }
 
-    OpenSSL_add_all_digests();
+    ScopedCryptoInit scoped_crypto;
 
     if (!ini.get<cfg::globals::enable_transparent_mode>()) {
         if (setgid(egid) != 0){
@@ -396,7 +390,7 @@ static inline int app_proxy(
     }
 
     LOG(LOG_INFO, "ReDemPtion " VERSION " starting");
-    redemption_main_loop(ini, cctx, rnd, euid, egid, std::move(config_filename));
+    redemption_main_loop(ini, cctx, rnd, fstat, euid, egid, std::move(config_filename));
 
     /* delete the .pid file if it exists */
     /* don't care about errors. */

@@ -27,11 +27,13 @@
 #include <algorithm>
 
 #include <cstdlib>
+#include <cerrno>
 
 #include "utils/sugar/algostring.hpp"
 #include "utils/sugar/array_view.hpp"
 #include "utils/sugar/splitter.hpp"
 
+#include "utils/log.hpp"
 
 namespace configs {
 
@@ -66,7 +68,7 @@ namespace detail
 
     template<class T>
     struct zstr_buffer_traits<T, true, false>
-    { using type = zstr_buffer<integral_buffer_size<T>()>; };
+    { using type = zstr_buffer<integral_buffer_size<T>() + 1>; };
 
     template<class T>
     struct zstr_buffer_traits<T, false, true>
@@ -398,7 +400,7 @@ namespace detail
             std::size_t sz = rng.size() - ignored;
 
             constexpr std::size_t buf_sz = detail::integral_buffer_size<TInt>();
-            if (sz >= buf_sz) {
+            if (sz > buf_sz) {
                 return parse_error{"too large"};
             }
             if (sz == 0) {

@@ -65,54 +65,19 @@
 #include "core/RDP/MonitorLayoutPDU.hpp"
 #include "core/front_api.hpp"
 #include "core/channel_list.hpp"
-#include "mod/mod_api.hpp"
+//#include "mod/mod_api.hpp"
 #include "utils/bitmap.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
 #include "core/RDP/capabilities/cap_glyphcache.hpp"
 #include "core/RDP/bitmapupdate.hpp"
 #include "keyboard/keymap2.hpp"
 #include "core/client_info.hpp"
+#include "utils/word_identification.hpp"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfloat-equal"
 #pragma GCC diagnostic pop
 
-
-struct ModRDPParamsConfig
-{
-    bool * param;
-    const bool default_value;
-    const std::string cmd;
-    const std::string descrpt;
-    const std::string name;
-
-    ModRDPParamsConfig( bool * param
-                      , bool default_value
-                      , std::string cmd
-                      , std::string descrpt
-                      , std::string name
-                      )
-    : param(param)
-    , default_value(default_value)
-    , cmd(cmd)
-    , descrpt(descrpt)
-    , name(name)
-    {
-        *param = default_value;
-    }
-
-    ModRDPParamsConfig( bool * param
-                      , std::string cmd
-                      , std::string descrpt
-                      , std::string name
-                      )
-    : param(param)
-    , default_value(false)
-    , cmd(cmd)
-    , descrpt(descrpt)
-    , name(name)
-    {}
-};
 
 
 
@@ -183,12 +148,18 @@ public:
     ClientInfo        _info;
     mod_api         * _callback;
     enum : int {
-        INPUT_COMPLETE = 15
+        LOG_COMPLETE   = 3
+      , INPUT_COMPLETE = 12
       , NAME           = 1
       , PWD            = 2
       , IP             = 4
       , PORT           = 8
     };
+
+    enum : long {
+        DEFAULT_MAX_TIMEOUT_MILISEC_RESPONSE = 2000
+    };
+
 
 
     // Keyboard Controllers members
@@ -261,6 +232,8 @@ public:
     bool                        _waiting_for_data;
     int                         _lindex;
     bool                        _running;
+    bool is_pipe_ok;
+    timeval connection_time;
 
 
 
@@ -269,13 +242,12 @@ public:
     //      CONSTRUCTOR
     //------------------------
 
-    TestClientCLI(ClientInfo const & info, uint32_t verbose)
+    TestClientCLI(ClientInfo const & info, ReportMessageApi & report_message, uint32_t verbose)
     : FrontAPI(false, false)
     , _verbose(verbose)
-    , _clipboard_channel(&(this->_to_client_sender), &(this->_to_server_sender) ,*this , [](){
-        ClipboardVirtualChannel::Params params;
+    , _clipboard_channel(&(this->_to_client_sender), &(this->_to_server_sender) ,*this , [&report_message](){
+        ClipboardVirtualChannel::Params params(report_message);
 
-        params.authentifier = nullptr;
         params.exchanged_data_limit = ~decltype(params.exchanged_data_limit){};
         params.verbose = to_verbose_flags(0xfffffff);
 
@@ -293,7 +265,11 @@ public:
     , _info(info)
     , _callback(nullptr)
     , _running(false)
+    , is_pipe_ok(true)
     {
+        SSL_load_error_strings();
+        SSL_library_init();
+
         this->_to_client_sender._front = this;
         this->_keymap.init_layout(this->_info.keylayout);
 
@@ -344,10 +320,11 @@ public:
         return this->_running;
     }
 
-    virtual bool can_be_start_capture(auth_api *) override { return true; }
-    virtual bool can_be_pause_capture() override { return true; }
-    virtual bool can_be_resume_capture() override { return true; }
-    virtual bool must_be_stop_capture() override { return true; }
+    virtual bool can_be_start_capture() override { return true; }
+    virtual bool must_be_stop_capture() override {
+        this->is_pipe_ok = false;
+        return true;
+    }
     virtual void begin_update() override {}
     virtual void end_update() override {}
 
@@ -676,15 +653,16 @@ public:
                                             , CHANNELS::CHANNEL_FLAG_LAST | CHANNELS::CHANNEL_FLAG_FIRST |
                                             CHANNELS::CHANNEL_FLAG_SHOW_PROTOCOL
                                             );
-
-        std::cout << "client >> Format List PDU" << std::endl;
+        if (this->_verbose & SHOW_CLPBRD_PDU_EXCHANGE) {
+            std::cout << "client >> Format List PDU" << std::endl;
+        }
     }
 
     void send_to_clipboard_Buffer(InStream & chunk) { (void)chunk; }
 
     void send_textBuffer_to_clipboard() {}
 
-    void send_imageBuffer_to_clipboard() {}
+    void send_imageBuffer_to_clipboard();
 
     void empty_buffer() {}
 
@@ -702,21 +680,22 @@ public:
     //       DRAW FUNCTIONS
     //-----------------------------
 
-    virtual void draw(const RDPOpaqueRect & cmd, const Rect & clip) override {
+    virtual void draw(const RDPOpaqueRect & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
-            std::cout << "server >> RDPOpaqueRect color=" << int(cmd.color);
+            std::cout << "server >> RDPOpaqueRect color=" << cmd.color.as_bgr().to_u32();
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << " clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPScrBlt & cmd, const Rect & clip) override {
+    virtual void draw(const RDPScrBlt & cmd, Rect clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPScrBlt rop=" << int(cmd.rop);
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPMemBlt & cmd, const Rect & clip, const Bitmap & bitmap) override {
+    virtual void draw(const RDPMemBlt & cmd, Rect clip, const Bitmap & bitmap) override {
         (void)bitmap;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMemBlt rop=" << int(cmd.rop);
@@ -724,25 +703,28 @@ public:
         }
     }
 
-    virtual void draw(const RDPLineTo & cmd, const Rect & clip) override {
+    virtual void draw(const RDPLineTo & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPLineTo " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPPatBlt & cmd, const Rect & clip) override {
+    virtual void draw(const RDPPatBlt & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPatBlt rop=" << int(cmd.rop);
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPMem3Blt & cmd, const Rect & clip, const Bitmap & bitmap) override {
+    virtual void draw(const RDPMem3Blt & cmd, Rect clip, gdi::ColorCtx color_ctx, const Bitmap & bitmap) override {
         (void)bitmap;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMem3Blt rop=" << int(cmd.rop);
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
@@ -755,14 +737,14 @@ public:
         }
     }
 
-    virtual void draw(const RDPDestBlt & cmd, const Rect & clip) override {
+    virtual void draw(const RDPDestBlt & cmd, Rect clip) override {
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPDestBlt rop=" << int(cmd.rop);
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPMultiDstBlt & cmd, const Rect & clip) override {
+    virtual void draw(const RDPMultiDstBlt & cmd, Rect clip) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiDstBlt " << std::endl;
@@ -770,23 +752,25 @@ public:
         }
     }
 
-    virtual void draw(const RDPMultiOpaqueRect & cmd, const Rect & clip) override {
+    virtual void draw(const RDPMultiOpaqueRect & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiOpaqueRect " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDP::RDPMultiPatBlt & cmd, const Rect & clip) override {
+    virtual void draw(const RDP::RDPMultiPatBlt & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiPatBlt " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDP::RDPMultiScrBlt & cmd, const Rect & clip) override {
+    virtual void draw(const RDP::RDPMultiScrBlt & cmd, Rect clip) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPMultiScrBlt " << std::endl;
@@ -794,51 +778,57 @@ public:
         }
     }
 
-    virtual void draw(const RDPGlyphIndex & cmd, const Rect & clip, const GlyphCache & gly_cache) override {
+    virtual void draw(const RDPGlyphIndex & cmd, Rect clip, gdi::ColorCtx color_ctx, const GlyphCache & gly_cache) override {
         (void)cmd;
         (void)gly_cache;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPGlyphIndex " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    void draw(const RDPPolygonSC & cmd, const Rect & clip) override {
+    void draw(const RDPPolygonSC & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPolygonSC " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    void draw(const RDPPolygonCB & cmd, const Rect & clip) override {
+    void draw(const RDPPolygonCB & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPolygonCB " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    void draw(const RDPPolyline & cmd, const Rect & clip) override {
+    void draw(const RDPPolyline & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPPolyline " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPEllipseSC & cmd, const Rect & clip) override {
+    virtual void draw(const RDPEllipseSC & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPEllipseSC " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
 
-    virtual void draw(const RDPEllipseCB & cmd, const Rect & clip) override {
+    virtual void draw(const RDPEllipseCB & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
         (void)cmd;
         if (this->_verbose & SHOW_DRAW_ORDERS_INFO) {
             std::cout << "server >> RDPEllipseCB " << std::endl;
+            std::cout << " bpp: " << color_ctx.depth().to_bpp();
             std::cout << "clip x=" << int(clip.x) <<  std::endl;
         }
     }
@@ -976,12 +966,7 @@ public:
             this->_callback->rdp_input_scancode(scanCode, 0, flag | KBD_FLAG_UP, this->_timer, &(this->_keymap));
         }
     }
-
-
 };
-
-
-
 
 
 
@@ -1183,17 +1168,18 @@ public:
                          , std::string * formatListDataLongName
                          , size_t size) {
         EventConfig * action = new ClipboardChange(front, formatIDs, formatListDataLongName, size);
+
         this->setAction(action);
     }
 
-    void setKey_press(TestClientCLI * front
+    void setKey_press( TestClientCLI * front
                      , uint32_t scanCode
                      , uint32_t flag) {
         EventConfig * action = new KeyPressed(front, scanCode, flag);
         this->setAction(action);
     }
 
-    void setKey_release(TestClientCLI * front
+    void setKey_release( TestClientCLI * front
                        , uint32_t scanCode
                        , uint32_t flag) {
         EventConfig * action = new KeyReleased(front, scanCode, flag);
@@ -1209,9 +1195,9 @@ public:
         this->setAction(action);
     }
 
-    void setKey(TestClientCLI * front
-                , uint32_t scanCode
-                , uint32_t flag) {
+    void setKey( TestClientCLI * front
+               , uint32_t scanCode
+               , uint32_t flag) {
         this->setKey_press(front, scanCode, flag);
         this->setKey_release(front, scanCode, flag);
     }

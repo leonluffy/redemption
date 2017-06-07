@@ -19,9 +19,7 @@
 
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestBouncer2Mod
+#define RED_TEST_MODULE TestBouncer2Mod
 #include "system/redemption_unit_tests.hpp"
 
 
@@ -29,9 +27,9 @@
 //#define LOGPRINT
 
 #include "mod/internal/bouncer2_mod.hpp"
-#include "../../front/fake_front.hpp"
+#include "test_only/front/fake_front.hpp"
 
-BOOST_AUTO_TEST_CASE(TestBouncer2Mod)
+RED_AUTO_TEST_CASE(TestBouncer2Mod)
 {
     ClientInfo info;
     info.keylayout = 0x040C;
@@ -49,6 +47,6 @@ BOOST_AUTO_TEST_CASE(TestBouncer2Mod)
     keymap.init_layout(info.keylayout);
     keymap.push_kevent(Keymap2::KEVENT_ENTER);
 
-    Bouncer2Mod d(front, 800, 600, font);
+    Bouncer2Mod d(front, 800, 600, font, false);
     d.rdp_input_scancode(0, 0, 0, 0, &keymap);
 }

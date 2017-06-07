@@ -30,7 +30,17 @@
 
 #include "core/RDP/gcc.hpp"
 #include "core/RDP/logon.hpp"
+#include "core/RDP/capabilities/bmpcache2.hpp"
+#include "core/RDP/capabilities/cap_bitmap.hpp"
+#include "core/RDP/capabilities/cap_bmpcache.hpp"
 #include "core/RDP/capabilities/cap_glyphcache.hpp"
+#include "core/RDP/capabilities/general.hpp"
+#include "core/RDP/capabilities/largepointer.hpp"
+#include "core/RDP/capabilities/offscreencache.hpp"
+#include "core/RDP/capabilities/order.hpp"
+#include "core/RDP/capabilities/multifragmentupdate.hpp"
+#include "core/RDP/capabilities/rail.hpp"
+#include "core/RDP/capabilities/window.hpp"
 #include "core/RDP/caches/glyphcache.hpp"
 #include "utils/get_printable_password.hpp"
 
@@ -61,7 +71,8 @@ struct ClientInfo {
 
     /* pointer info */
     int pointer_cache_entries = 0;
-    /* other */
+    bool supported_new_pointer_update = false;
+
     //uint32_t desktop_cache = 0;
     bool use_compact_packets = false; /* rdp5 smaller packets */
     char hostname[16] = {0};
@@ -100,6 +111,21 @@ struct ClientInfo {
         , NUMBER_OF_GLYPH_CACHE_ENTRIES, NUMBER_OF_GLYPH_CACHE_ENTRIES, NUMBER_OF_GLYPH_CACHE_ENTRIES
         , NUMBER_OF_GLYPH_CACHE_ENTRIES
     } };
+
+    LargePointerCaps        large_pointer_caps;
+    MultiFragmentUpdateCaps multi_fragment_update_caps;
+
+    GeneralCaps             general_caps;
+    BitmapCaps              bitmap_caps;
+    OrderCaps               order_caps;
+    BmpCacheCaps            bmp_cache_caps;
+    BmpCache2Caps           bmp_cache_2_caps;
+    OffScreenCacheCaps      off_screen_cache_caps;
+    GlyphCacheCaps          glyph_cache_caps;
+    RailCaps                rail_caps;
+    WindowListCaps          window_list_caps;
+
+    bool use_bmp_cache_2 = false;
 
     ClientInfo() = default;
 
@@ -149,7 +175,7 @@ struct ClientInfo {
         const uint32_t mandatory_flags = INFO_MOUSE
                                        | INFO_DISABLECTRLALTDEL
                                        | INFO_UNICODE
-                                       | INFO_MAXIMIZESHELL
+                                       // | INFO_MAXIMIZESHELL // unnecessary. Following by "'RDP' failed at RDP_GET_LICENSE state" if absent.
                                        ;
 
         if ((infoPacket.flags & mandatory_flags) != mandatory_flags){

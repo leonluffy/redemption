@@ -33,14 +33,11 @@
 
 #define NLA_PKG_NAME NTLMSP_NAME
 
-struct rdpCredssp
+class rdpCredssp : noncopyable
 {
     bool server;
     int send_seq_num;
     int recv_seq_num;
-
-    CtxtHandle context;
-    CredHandle credentials;
 
     Transport& trans;
 
@@ -63,8 +60,10 @@ struct rdpCredssp
     TimeObj & timeobj;
     const bool verbose;
 
+public:
     bool hardcoded_tests = false;
 
+public:
     rdpCredssp(Transport & transport,
                uint8_t * user,
                uint8_t * domain,
@@ -100,16 +99,10 @@ struct rdpCredssp
     ~rdpCredssp()
     {
         if (this->table) {
-            this->table->FreeContextBuffer(&this->context);
-            this->table->FreeCredentialsHandle(&this->credentials);
             delete this->table;
             this->table = nullptr;
         }
     }
-
-private:
-    rdpCredssp(const rdpCredssp &) /*= delete*/;
-    rdpCredssp&operator=(const rdpCredssp &) /*= delete*/;
 
 public:
     void set_credentials(uint8_t * user, uint8_t * domain,
@@ -144,29 +137,33 @@ public:
         if (this->verbose) {
             LOG(LOG_INFO, "rdpCredssp::InitSecurityInterface");
         }
+
         if (this->table) {
-            this->table->FreeContextBuffer(&this->context);
-            this->table->FreeCredentialsHandle(&this->credentials);
             delete this->table;
             this->table = nullptr;
         }
-        if (secInter == NTLM_Interface) {
-            LOG(LOG_INFO, "Credssp: NTLM Authentication");
-            auto table = new Ntlm_SecurityFunctionTable(this->rand, this->timeobj);
-            if (this->hardcoded_tests) {
-                table->hardcoded_tests = true;
-            }
-            this->table = table;
-        }
-        if (secInter == Kerberos_Interface) {
-            LOG(LOG_INFO, "Credssp: KERBEROS Authentication");
 
-            #ifndef __EMSCRIPTEN__
-            this->table = new Kerberos_SecurityFunctionTable;
-            #endif
-        }
-        else if (this->table == nullptr) {
-            this->table = new SecurityFunctionTable;
+        switch (secInter) {
+            case NTLM_Interface:
+                LOG(LOG_INFO, "Credssp: NTLM Authentication");
+                {
+                    auto table = new Ntlm_SecurityFunctionTable(this->rand, this->timeobj);
+                    if (this->hardcoded_tests) {
+                        table->hardcoded_tests = true;
+                    }
+                    this->table = table;
+                }
+                break;
+            case Kerberos_Interface:
+                LOG(LOG_INFO, "Credssp: KERBEROS Authentication");
+                #ifndef __EMSCRIPTEN__
+                this->table = new Kerberos_SecurityFunctionTable;
+                #else
+                assert(false && "Unsupported Kerberos");
+                #endif
+                break;
+            default:
+                this->table = new SecurityFunctionTable;
         }
     }
 
@@ -177,17 +174,14 @@ public:
 
         this->server = false;
 
-// ============================================
-/* Get Public Key From TLS Layer and hostname */
-// ============================================
-
+        // ============================================
+        /* Get Public Key From TLS Layer and hostname */
+        // ============================================
 
         this->PublicKey.init(this->trans.get_public_key_length());
         this->PublicKey.copy(this->trans.get_public_key(), this->trans.get_public_key_length());
 
-
         return 1;
-
     }
 
     int credssp_ntlm_server_init() {
@@ -268,7 +262,7 @@ public:
         Message.ulVersion = SECBUFFER_VERSION;
         Message.pBuffers = Buffers;
 
-        status = this->table->EncryptMessage(&this->context, 0, &Message, this->send_seq_num++);
+        status = this->table->EncryptMessage(&Message, this->send_seq_num++);
 
         if (status != SEC_E_OK) {
             LOG(LOG_ERR, "EncryptMessage status: 0x%08X\n", status);
@@ -288,7 +282,6 @@ public:
 
     SEC_STATUS credssp_decrypt_public_key_echo() {
         int length = 0;
-        unsigned long pfQOP = 0;
         uint8_t* public_key1 = nullptr;
         uint8_t* public_key2 = nullptr;
         unsigned int public_key_length = 0;
@@ -302,6 +295,9 @@ public:
         if (this->pubKeyAuth.size() < this->ContextSizes.cbMaxSignature) {
             LOG(LOG_ERR, "unexpected pubKeyAuth buffer size:%zu\n",
                 this->pubKeyAuth.size());
+            if (this->pubKeyAuth.size() == 0) {
+                LOG(LOG_INFO, "Provided password is probably incorrect.\n");
+            }
             return SEC_E_INVALID_TOKEN;
         }
         length = this->pubKeyAuth.size();
@@ -323,7 +319,7 @@ public:
         Message.ulVersion = SECBUFFER_VERSION;
         Message.pBuffers = Buffers;
 
-        status = this->table->DecryptMessage(&this->context, &Message, this->recv_seq_num++, &pfQOP);
+        status = this->table->DecryptMessage(&Message, this->recv_seq_num++);
 
         if (status != SEC_E_OK) {
             LOG(LOG_ERR, "DecryptMessage failure: 0x%08X\n", status);
@@ -403,7 +399,7 @@ public:
         Message.ulVersion = SECBUFFER_VERSION;
         Message.pBuffers = Buffers;
 
-        status = this->table->EncryptMessage(&this->context, 0, &Message, this->send_seq_num++);
+        status = this->table->EncryptMessage(&Message, this->send_seq_num++);
 
         if (status != SEC_E_OK)
             return status;
@@ -421,7 +417,6 @@ public:
 
     SEC_STATUS credssp_decrypt_ts_credentials() {
         int length;
-        unsigned long pfQOP = 0;
         SecBuffer Buffers[2];
         SecBufferDesc Message;
         SEC_STATUS status;
@@ -450,7 +445,7 @@ public:
         Message.ulVersion = SECBUFFER_VERSION;
         Message.pBuffers = Buffers;
 
-        status = this->table->DecryptMessage(&this->context, &Message, this->recv_seq_num++, &pfQOP);
+        status = this->table->DecryptMessage(&Message, this->recv_seq_num++);
 
         if (status != SEC_E_OK)
             return status;
@@ -484,11 +479,13 @@ public:
         uint8_t head[4] = {};
         uint8_t * point = head;
         size_t length = 0;
-        this->trans.recv(&point, 2);
+        this->trans.recv_boom(point, 2);
+        point += 2;
         uint8_t byte = head[1];
         if (byte & 0x80) {
             byte &= ~(0x80);
-            this->trans.recv(&point, byte);
+            this->trans.recv_boom(point, byte);
+
             if (byte == 1) {
                 length = head[2];
             }
@@ -506,8 +503,7 @@ public:
         StreamBufMaker<65536> ts_request_received_maker;
         OutStream ts_request_received = ts_request_received_maker.reserve_out_stream(2 + byte + length);
         ts_request_received.out_copy_bytes(head, 2 + byte);
-        auto end = ts_request_received.get_current();
-        this->trans.recv(&end, length);
+        this->trans.recv_boom(ts_request_received.get_current(), length);
         InStream in_stream(ts_request_received.get_data(), ts_request_received.get_capacity());
         this->ts_request.recv(in_stream);
 
@@ -534,7 +530,6 @@ public:
         if (this->credssp_ntlm_client_init() == 0) {
             return 0;
         }
-        TimeStamp expiration;
         SecPkgInfo packageInfo;
         bool interface_changed = false;
         do {
@@ -545,7 +540,7 @@ public:
                 LOG(LOG_ERR, "Could not Initiate %d Security Interface!", this->sec_interface);
                 return 0;
             }
-            status = this->table->QuerySecurityPackageInfo(NLA_PKG_NAME, &packageInfo);
+            status = this->table->QuerySecurityPackageInfo(&packageInfo);
 
             if (status != SEC_E_OK) {
                 LOG(LOG_ERR, "QuerySecurityPackageInfo status: 0x%08X\n", status);
@@ -554,11 +549,9 @@ public:
 
 
             status = this->table->AcquireCredentialsHandle(this->target_host,
-                                                           NLA_PKG_NAME,
                                                            SECPKG_CRED_OUTBOUND,
                                                            &this->ServicePrincipalName,
-                                                           &this->identity, nullptr, nullptr,
-                                                           &this->credentials, &expiration);
+                                                           &this->identity);
             if (status == SEC_E_NO_CREDENTIALS) {
                 if (this->sec_interface != NTLM_Interface) {
                     this->sec_interface = NTLM_Interface;
@@ -579,7 +572,6 @@ public:
         SecBuffer output_buffer;
         SecBufferDesc input_buffer_desc = {0,0,nullptr};
         SecBufferDesc output_buffer_desc;
-        bool have_context = false;
         bool have_input_buffer = false;
         input_buffer.setzero();
         output_buffer.setzero();
@@ -602,18 +594,12 @@ public:
             output_buffer_desc.pBuffers = &output_buffer;
             output_buffer.BufferType = SECBUFFER_TOKEN;
             output_buffer.Buffer.init(cbMaxToken);
-            status = this->table->InitializeSecurityContext(&this->credentials,
-                                                            (have_context) ?
-                                                            &this->context : nullptr,
-                                                            reinterpret_cast<char*>(
-                                                                this->ServicePrincipalName.get_data()),
-                                                            fContextReq,
-                                                            SECURITY_NATIVE_DREP,
-                                                            (have_input_buffer) ?
-                                                            &input_buffer_desc : nullptr,
-                                                            this->verbose, &this->context,
-                                                            &output_buffer_desc,
-                                                            &expiration);
+            status = this->table->InitializeSecurityContext(
+                reinterpret_cast<char*>(this->ServicePrincipalName.get_data()),
+                fContextReq,
+                have_input_buffer ? &input_buffer_desc : nullptr,
+                this->verbose,
+                &output_buffer_desc);
             if ((status != SEC_I_COMPLETE_AND_CONTINUE) &&
                 (status != SEC_I_COMPLETE_NEEDED) &&
                 (status != SEC_E_OK) &&
@@ -629,12 +615,11 @@ public:
             if ((status == SEC_I_COMPLETE_AND_CONTINUE) ||
                 (status == SEC_I_COMPLETE_NEEDED) ||
                 (status == SEC_E_OK)) {
-                this->table->CompleteAuthToken(&this->context, &output_buffer_desc);
+                this->table->CompleteAuthToken(&output_buffer_desc);
 
                 // have_pub_key_auth = true;
-                if (this->table->QueryContextAttributes(&this->context, SECPKG_ATTR_SIZES,
-                                                        &this->ContextSizes) != SEC_E_OK) {
-                    LOG(LOG_ERR, "QueryContextAttributes SECPKG_ATTR_SIZES failure");
+                if (this->table->QueryContextSizes(&this->ContextSizes) != SEC_E_OK) {
+                    LOG(LOG_ERR, "QueryContextSizes failure");
                     return 0;
                 }
                 encrypted = this->credssp_encrypt_public_key_echo();
@@ -700,7 +685,6 @@ public:
                                      this->negoToken.size());
 
             have_input_buffer = true;
-            have_context = true;
         }
 
         /* Encrypted Public Key +1 */
@@ -757,7 +741,7 @@ public:
        this->InitSecurityInterface(NTLM_Interface);
 
        SecPkgInfo packageInfo;
-       status = this->table->QuerySecurityPackageInfo(NLA_PKG_NAME, &packageInfo);
+       status = this->table->QuerySecurityPackageInfo(&packageInfo);
 
        if (status != SEC_E_OK) {
            LOG(LOG_ERR, "QuerySecurityPackageInfo status: 0x%08X\n", status);
@@ -765,12 +749,11 @@ public:
        }
 
        unsigned long cbMaxToken = packageInfo.cbMaxToken;
-       TimeStamp expiration;
 
-       status = this->table->AcquireCredentialsHandle(nullptr, NLA_PKG_NAME,
-                                                      SECPKG_CRED_INBOUND, nullptr,
-                                                      nullptr, nullptr, nullptr,
-                                                      &this->credentials, &expiration);
+       status = this->table->AcquireCredentialsHandle(nullptr,
+                                                      SECPKG_CRED_INBOUND,
+                                                      nullptr,
+                                                      nullptr);
 
        if (status != SEC_E_OK) {
            LOG(LOG_ERR, "AcquireCredentialsHandle status: 0x%08X\n", status);
@@ -782,9 +765,6 @@ public:
        SecBuffer output_buffer;
        SecBufferDesc input_buffer_desc;
        SecBufferDesc output_buffer_desc;
-       bool have_context;
-
-       have_context = false;
 
        input_buffer.setzero();
        output_buffer.setzero();
@@ -834,18 +814,15 @@ public:
            output_buffer.BufferType = SECBUFFER_TOKEN;
            output_buffer.Buffer.init(cbMaxToken);
 
-           status = this->table->AcceptSecurityContext(&this->credentials,
-                                                       have_context? &this->context: nullptr,
-                                                       &input_buffer_desc, fContextReq,
-                                                       SECURITY_NATIVE_DREP, &this->context,
-                                                       &output_buffer_desc, &expiration);
+           status = this->table->AcceptSecurityContext(&input_buffer_desc, fContextReq,
+                                                       &output_buffer_desc);
 
            this->negoToken.init(output_buffer.Buffer.size());
            this->negoToken.copy(output_buffer.Buffer.get_data(),
                                 output_buffer.Buffer.size());
 
            if ((status == SEC_I_COMPLETE_AND_CONTINUE) || (status == SEC_I_COMPLETE_NEEDED)) {
-               this->table->CompleteAuthToken(&this->context, &output_buffer_desc);
+               this->table->CompleteAuthToken(&output_buffer_desc);
 
                if (status == SEC_I_COMPLETE_NEEDED)
                    status = SEC_E_OK;
@@ -855,10 +832,8 @@ public:
 
            if (status == SEC_E_OK) {
 
-               if (this->table->QueryContextAttributes(&this->context,
-                                                       SECPKG_ATTR_SIZES,
-                                                       &this->ContextSizes) != SEC_E_OK) {
-                   LOG(LOG_ERR, "QueryContextAttributes SECPKG_ATTR_SIZES failure");
+               if (this->table->QueryContextSizes(&this->ContextSizes) != SEC_E_OK) {
+                   LOG(LOG_ERR, "QueryContextSizes failure");
                    return 0;
                }
 
@@ -883,8 +858,6 @@ public:
 
            if (status != SEC_I_CONTINUE_NEEDED)
                break;
-
-           have_context = true;
        }
 
        /* Receive encrypted credentials */
@@ -902,14 +875,14 @@ public:
            return 0;
        }
 
-       status = this->table->ImpersonateSecurityContext(&this->context);
+       status = this->table->ImpersonateSecurityContext();
 
        if (status != SEC_E_OK) {
            LOG(LOG_ERR, "ImpersonateSecurityContext status: 0x%08X\n", status);
            return 0;
        }
        else {
-           status = this->table->RevertSecurityContext(&this->context);
+           status = this->table->RevertSecurityContext();
 
            if (status != SEC_E_OK) {
                LOG(LOG_ERR, "RevertSecurityContext status: 0x%08X\n", status);
@@ -920,6 +893,3 @@ public:
        return 1;
     }
 };
-
-
-

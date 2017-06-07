@@ -33,6 +33,7 @@
 #include "mod/null/null.hpp"
 #include "mod/rdp/windowing_api.hpp"
 #include "mod/rdp/rdp.hpp"
+#include "mod/rdp/rdp_api.hpp"
 #include "mod/vnc/vnc.hpp"
 #include "mod/xup/xup.hpp"
 #include "mod/internal/bouncer2_mod.hpp"
@@ -49,9 +50,10 @@
 #include "mod/internal/flat_dialog_mod.hpp"
 #include "mod/internal/flat_wait_mod.hpp"
 #include "mod/internal/interactive_target_mod.hpp"
+#include "mod/internal/rail_module_host_mod.hpp"
 #include "mod/internal/widget_test_mod.hpp"
 
-#include "utils/protect_graphics.hpp"
+#include "gdi/protected_graphics.hpp"
 #include "mm_api.hpp"
 
 inline Rect get_widget_rect(uint16_t width, uint16_t height,
@@ -115,7 +117,9 @@ enum {
     MODULE_EXIT_INTERNAL_CLOSE,
     MODULE_TRANSITORY,
     MODULE_AUTH,
-    MODULE_CLI
+    MODULE_CLI,
+
+    MODULE_UNKNOWN
 };
 
 inline const char * get_module_name(int module_id) {
@@ -167,7 +171,8 @@ public:
 
     void remove_mod() override {}
 
-    void new_mod(int target_module, time_t now, auth_api *) override {
+    void new_mod(int target_module, time_t now, AuthApi &, ReportMessageApi &) override
+    {
         LOG(LOG_INFO, "new mod %d at time: %d\n", target_module, static_cast<int>(now));
         switch (target_module) {
         case MODULE_VNC:
@@ -180,8 +185,8 @@ public:
         };
     }
 
-    void invoke_close_box(const char * auth_error_message,
-                          BackEvent_t & signal, time_t now) override {
+    void invoke_close_box(const char * auth_error_message, BackEvent_t & signal,
+                          time_t now, AuthApi & authentifier, ReportMessageApi & report_message) override {
         LOG(LOG_INFO, "----------> ACL invoke_close_box <--------");
         this->last_module = true;
         if (auth_error_message) {
@@ -192,7 +197,7 @@ public:
         }
         this->remove_mod();
         if (this->ini.get<cfg::globals::enable_close_box>()) {
-            this->new_mod(MODULE_INTERNAL_CLOSE, now, nullptr);
+            this->new_mod(MODULE_INTERNAL_CLOSE, now, authentifier, report_message);
             signal = BACK_EVENT_NONE;
         }
         else {
@@ -253,7 +258,7 @@ public:
              module_cstr == STRMODULE_VNC)) {
             LOG(LOG_INFO, "===========> MODULE_CLOSE");
             if (this->ini.get<cfg::context::auth_error_message>().empty()) {
-                this->ini.set<cfg::context::auth_error_message>(TR("end_connection", language(this->ini)));
+                this->ini.set<cfg::context::auth_error_message>(TR(trkeys::end_connection, language(this->ini)));
             }
             return MODULE_INTERNAL_CLOSE;
         }
@@ -325,20 +330,20 @@ class ModuleManager : public MMIni
     } accounts;
 
 private:
-    class ModOSD : public ProtectGraphics, public mod_api
+    class ModOSD : public gdi::ProtectedGraphics, public mod_api
     {
         ModuleManager & mm;
 
         std::string osd_message;
         Rect clip;
-        uint32_t color;
-        uint32_t background_color;
+        RDPColor color;
+        RDPColor background_color;
         bool is_disable_by_input = false;
         bool bogus_refresh_rect_ex;
 
     public:
         explicit ModOSD(ModuleManager & mm)
-        : ProtectGraphics(mm.front, Rect{})
+        : gdi::ProtectedGraphics(mm.front, Rect{})
         , mm(mm)
         {}
 
@@ -374,19 +379,29 @@ private:
 
             if (is_disable_by_input) {
                 this->osd_message += "  ";
-                this->osd_message += TR("disable_osd", language(this->mm.ini));
+                this->osd_message += TR(trkeys::disable_osd, language(this->mm.ini));
             }
 
             gdi::TextMetrics tm(this->mm.ini.get<cfg::font>(), this->osd_message.c_str());
             int w = tm.width + padw * 2;
             int h = tm.height + padh * 2;
-            this->color = BLACK;
-            this->background_color = LIGHT_YELLOW;
-            if (24 != this->mm.front.client_info.bpp) {
-                this->color = color_encode(color, this->mm.front.client_info.bpp);
-                this->background_color = color_encode(background_color, this->mm.front.client_info.bpp);
+            this->color = color_encode(BGRColor(BLACK), this->mm.front.client_info.bpp);
+            this->background_color = color_encode(BGRColor(LIGHT_YELLOW), this->mm.front.client_info.bpp);
+
+            if (this->mm.front.client_info.remote_program &&
+                (this->mm.winapi == static_cast<windowing_api*>(&this->mm.client_execute))) {
+
+                Rect current_work_area_rect = this->mm.client_execute.get_current_work_area_rect();
+
+                this->clip = Rect(
+                    current_work_area_rect.x +
+                        (current_work_area_rect.cx < w ? 0 : (current_work_area_rect.cx - w) / 2),
+                    0, w, h);
             }
-            this->clip = Rect(this->mm.front.client_info.width < w ? 0 : (this->mm.front.client_info.width - w) / 2, 0, w, h);
+            else {
+                this->clip = Rect(this->mm.front.client_info.width < w ? 0 : (this->mm.front.client_info.width - w) / 2, 0, w, h);
+            }
+
             this->set_protected_rect(this->clip);
 
             if (this->mm.winapi) {
@@ -433,10 +448,10 @@ private:
             return false;
         }
 
-        bool try_input_invalidate(const Rect & r)
+        bool try_input_invalidate(const Rect r)
         {
             if (!this->get_protected_rect().isempty() && r.has_intersection(this->get_protected_rect())) {
-                auto rects = subrect4(r, this->get_protected_rect());
+                auto rects = gdi::subrect4(r, this->get_protected_rect());
                 auto p = std::begin(rects);
                 auto e = std::remove_if(p, std::end(rects), [](Rect const & rect) {
                     return rect.isempty();
@@ -480,7 +495,9 @@ private:
                 return ;
             }
 
-            drawable.draw(RDPOpaqueRect(this->clip, this->background_color), this->clip);
+            auto const color_ctx = gdi::ColorCtx::from_bpp(this->mm.front.client_info.bpp, this->mm.front.get_palette());
+
+            drawable.draw(RDPOpaqueRect(this->clip, this->background_color), this->clip, color_ctx);
 
             StaticOutStream<256> deltaPoints;
             deltaPoints.out_sint16_le(this->clip.cx - 1);
@@ -495,14 +512,14 @@ private:
             InStream in_deltaPoints(deltaPoints.get_data(), deltaPoints.get_offset());
 
             // TODO Not supported on MAC OS with Microsoft Remote Desktop 8.0.15 (Build 25886)
-            RDPPolyline polyline_box(this->clip.x, this->clip.y, 0x0D, 0, BLACK, 4, in_deltaPoints);
-            drawable.draw(polyline_box, this->clip);
+            RDPPolyline polyline_box(this->clip.x, this->clip.y, 0x0D, 0, encode_color24()(BLACK) /* NOTE WHITE and BLACK should be special color*/, 4, in_deltaPoints);
+            drawable.draw(polyline_box, this->clip, color_ctx);
 
             gdi::server_draw_text(
                 drawable, this->mm.ini.get<cfg::font>(),
                 this->get_protected_rect().x + padw, padh,
                 this->osd_message.c_str(),
-                this->color, this->background_color, this->clip
+                this->color, this->background_color, color_ctx, this->clip
             );
 
             this->clip = Rect();
@@ -527,7 +544,7 @@ private:
             }
         }
 
-        void rdp_input_invalidate(const Rect & r) override
+        void rdp_input_invalidate(Rect r) override
         {
             if (!this->try_input_invalidate(r)) {
                 this->mm.internal_mod->rdp_input_invalidate(r);
@@ -553,6 +570,11 @@ private:
         void rdp_suppress_display_updates() override
         { this->mm.internal_mod->rdp_suppress_display_updates(); }
 
+        void refresh(Rect r) override
+        {
+            this->mm.internal_mod->refresh(r);
+        }
+
         void send_to_mod_channel(
             const char * const front_channel_name, InStream & chunk,
             std::size_t length, uint32_t flags
@@ -565,20 +587,8 @@ private:
         wait_obj & get_event() override
         { return this->mm.internal_mod->get_event(); }
 
-        wait_obj * get_secondary_event() override
-        { return this->mm.internal_mod->get_secondary_event(); }
-
-        wait_obj * get_asynchronous_task_event(int & out_fd) override
-        { return this->mm.internal_mod->get_asynchronous_task_event(out_fd); }
-
-        void process_asynchronous_task() override
-        { this->mm.internal_mod->process_asynchronous_task(); }
-
-        wait_obj * get_session_probe_launcher_event() override
-        { return this->mm.internal_mod->get_session_probe_launcher_event(); }
-
-        void process_session_probe_launcher() override
-        { this->mm.internal_mod->process_session_probe_launcher(); }
+        void get_event_handlers(std::vector<EventHandler>& out_event_handlers) override
+        { return this->mm.internal_mod->get_event_handlers(out_event_handlers); }
 
         void send_to_front_channel(const char * const mod_channel_name,
             uint8_t const * data, size_t length, size_t chunk_size, int flags) override
@@ -595,6 +605,11 @@ private:
 
         void display_osd_message(std::string const & message) override
         { this->mm.internal_mod->display_osd_message(message); }
+
+        Dimension get_dim() const override
+        {
+            return this->mm.internal_mod->get_dim();
+        }
     };
 
 public:
@@ -614,20 +629,29 @@ private:
     class ModWithSocket final : private SocketTransport, public Mod
     {
         ModuleManager & mm;
+        AuthApi & authentifier;
         bool target_info_is_shown = false;
 
     public:
         template<class... Args>
-        ModWithSocket( ModuleManager & mm, const char * name, int sck, uint32_t verbose
-                     , std::string * error_message, sock_mod_barrier, Args && ... mod_args)
+        ModWithSocket(
+            ModuleManager & mm, AuthApi & authentifier,
+            const char * name, int sck, uint32_t verbose,
+            std::string * error_message, sock_mod_barrier, Args && ... mod_args)
         : SocketTransport( name, sck
                          , mm.ini.get<cfg::context::target_host>().c_str()
                          , mm.ini.get<cfg::context::target_port>()
                          , to_verbose_flags(verbose), error_message)
         , Mod(*this, std::forward<Args>(mod_args)...)
         , mm(mm)
+        , authentifier(authentifier)
         {
-            mm.mod_transport = this;
+            this->authentifier.start_mod();
+        }
+
+        ~ModWithSocket()
+        {
+            this->authentifier.stop_mod();
         }
 
         void display_osd_message(std::string const & message) override {
@@ -654,12 +678,37 @@ private:
                 else if (!this->target_info_is_shown && !f12_released) {
                     // LOG(LOG_INFO, "Show info");
                     std::string msg;
+                    msg.reserve(64);
                     if (this->mm.ini.template get<cfg::client::show_target_user_in_f12_message>()) {
                         msg  = this->mm.ini.template get<cfg::globals::target_user>();
                         msg += "@";
                     }
                     msg += this->mm.ini.template get<cfg::globals::target_device>();
-                    this->mm.osd_message(msg, false);
+                    const uint32_t enddate = this->mm.ini.template get<cfg::context::end_date_cnx>();
+                    if (enddate) {
+                        const auto now = time(nullptr);
+                        const auto elapsed_time = enddate - now;
+                        // only if "reasonable" time
+                        if (elapsed_time < 60*60*24*366L) {
+                            msg += "  [";
+                            const auto minutes = elapsed_time / 60;
+                            const auto seconds = elapsed_time - minutes * 60;
+                            const Translator tr(language(this->mm.ini));
+                            if (minutes) {
+                                msg += std::to_string(minutes);
+                                msg += ' ';
+                                msg += tr(trkeys::minute);
+                                msg += (minutes > 1) ? "s " : " ";
+                            }
+                            msg += std::to_string(seconds);
+                            msg += ' ';
+                            msg += tr(trkeys::second);
+                            msg += (seconds > 1) ? "s " : " ";
+                            msg += tr(trkeys::before_closing);
+                            msg += ']';
+                        }
+                    }
+                    this->mm.osd_message(std::move(msg), false);
                     this->target_info_is_shown = true;
                 }
             }
@@ -675,7 +724,7 @@ private:
             Mod::rdp_input_mouse(device_flags, x, y, keymap);
         }
 
-        void rdp_input_invalidate(const Rect & r) override
+        void rdp_input_invalidate(const Rect r) override
         {
             if (this->mm.mod_osd.try_input_invalidate(r)) {
                 return ;
@@ -714,11 +763,12 @@ public:
     null_mod no_mod;
     ModOSD mod_osd;
     mod_api * internal_mod = &no_mod;
-    SocketTransport * mod_transport;
     Random & gen;
     TimeObj & timeobj;
 
     ClientExecute client_execute;
+
+    int old_target_module = MODULE_UNKNOWN;
 
     REDEMPTION_VERBOSE_FLAGS(private, verbose)
     {
@@ -726,6 +776,7 @@ public:
         new_mod = 0x1,
     };
 
+    rdp_api*       rdpapi = nullptr;
     windowing_api* winapi = nullptr;
 
     ModuleManager(Front & front, Inifile & ini, Random & gen, TimeObj & timeobj)
@@ -733,10 +784,10 @@ public:
         , front(front)
         , no_mod(this->front)
         , mod_osd(*this)
-        , mod_transport(nullptr)
         , gen(gen)
         , timeobj(timeobj)
-        , client_execute(front, ini.get<cfg::debug::mod_internal>() & 1)
+        , client_execute(front, this->front.client_info.window_list_caps,
+                         ini.get<cfg::debug::mod_internal>() & 1)
         , verbose(static_cast<Verbose>(ini.get<cfg::debug::auth>()))
     {
         this->no_mod.get_event().reset();
@@ -748,9 +799,9 @@ public:
             delete this->internal_mod;
             this->internal_mod = &this->no_mod;
             this->mod = &this->no_mod;
-            this->mod_transport = nullptr;
+            this->rdpapi = nullptr;
+            this->winapi = nullptr;
         }
-        this->front.must_be_stop_capture();
     }
 
     ~ModuleManager() override {
@@ -758,7 +809,7 @@ public:
     }
 
 private:
-    void set_mod(non_null_ptr<mod_api> mod, windowing_api* winapi = nullptr)
+    void set_mod(non_null_ptr<mod_api> mod, rdp_api* rdpapi = nullptr, windowing_api* winapi = nullptr)
     {
         while (this->front.keymap.nb_char_available())
             this->front.keymap.get_char();
@@ -770,15 +821,31 @@ private:
         this->internal_mod = mod.get();
         this->mod = mod.get();
 
+        this->rdpapi = rdpapi;
         this->winapi = winapi;
     }
 
 public:
-    void new_mod(int target_module, time_t now, auth_api * acl) override {
+    void new_mod(int target_module, time_t now, AuthApi & authentifier, ReportMessageApi & report_message) override
+    {
         LOG(LOG_INFO, "----------> ACL new_mod <--------");
         LOG(LOG_INFO, "target_module=%s(%d)", get_module_name(target_module), target_module);
         this->connected = false;
-        if (this->last_module) this->front.must_be_stop_capture();
+        if (this->old_target_module != target_module) {
+            this->front.must_be_stop_capture();
+        }
+        this->old_target_module = target_module;
+
+        auto final = finally([this]() {
+            this->ini.set<cfg::context::perform_automatic_reconnection>(false);
+        });
+        if (!this->ini.get<cfg::context::perform_automatic_reconnection>()) {
+            std::array<uint8_t, 28>& server_auto_reconnect_packet_ref =
+                this->ini.get_ref<cfg::context::server_auto_reconnect_packet>();
+
+            server_auto_reconnect_packet_ref.fill(0);
+        }
+
         switch (target_module)
         {
         case MODULE_INTERNAL_BOUNCER2:
@@ -787,9 +854,10 @@ public:
                 this->front,
                 this->front.client_info.width,
                 this->front.client_info.height,
-                this->ini.get<cfg::font>()
+                this->ini.get<cfg::font>(),
+                false
             ));
-            if (this->verbose & Verbose::new_mod){
+            if (bool(this->verbose & Verbose::new_mod)) {
                 LOG(LOG_INFO, "ModuleManager::internal module 'bouncer2_mod' ready");
             }
             break;
@@ -806,20 +874,42 @@ public:
                 !this->ini.get<cfg::mod_replay::on_end_of_data>(),
                 to_verbose_flags(this->ini.get<cfg::debug::capture>())
             ));
-            if (this->verbose & Verbose::new_mod){
+            if (bool(this->verbose & Verbose::new_mod)) {
                 LOG(LOG_INFO, "ModuleManager::internal module 'test' ready");
             }
             break;
         case MODULE_INTERNAL_WIDGETTEST:
-            LOG(LOG_INFO, "ModuleManager::Creation of internal module 'widgettest'");
-            this->set_mod(new WidgetTestMod(
-                this->front,
-                this->front.client_info.width,
-                this->front.client_info.height,
-                this->ini.get<cfg::font>(),
-                this->ini.get<cfg::theme>()
-            ));
-            LOG(LOG_INFO, "ModuleManager::internal module 'widgettest' ready");
+            {
+                LOG(LOG_INFO, "ModuleManager::Creation of internal module 'widgettest'");
+
+                Rect adjusted_client_execute_rect =
+                    this->client_execute.adjust_rect(get_widget_rect(
+                            this->front.client_info.width,
+                            this->front.client_info.height,
+                            this->front.client_info.cs_monitor
+                        ));
+
+                std::unique_ptr<mod_api> managed_mod(
+                        new Bouncer2Mod(
+                                this->front,
+                                adjusted_client_execute_rect.cx - 8 * 2,
+                                adjusted_client_execute_rect.cy - 8 * 2,
+                                this->ini.get<cfg::font>(),
+                                true
+                            )
+                    );
+                this->set_mod(new WidgetTestMod(
+                    this->ini,
+                    this->front,
+                    this->front.client_info.width,
+                    this->front.client_info.height,
+                    adjusted_client_execute_rect,
+                    std::move(managed_mod),
+                    this->client_execute,
+                    this->front.client_info.cs_monitor
+                ));
+                LOG(LOG_INFO, "ModuleManager::internal module 'widgettest' ready");
+            }
             break;
         case MODULE_INTERNAL_CARD:
             LOG(LOG_INFO, "ModuleManager::Creation of internal module 'test_card'");
@@ -847,7 +937,7 @@ public:
                 )),
                 this->client_execute
             ));
-            if (this->verbose & Verbose::new_mod){
+            if (bool(this->verbose & Verbose::new_mod)) {
                 LOG(LOG_INFO, "ModuleManager::internal module 'selector' ready");
             }
             break;
@@ -921,7 +1011,7 @@ public:
             {
                 LOG(LOG_INFO, "ModuleManager::Creation of internal module 'Dialog Accept Message'");
                 const char * message = this->ini.get<cfg::context::message>().c_str();
-                const char * button = TR("refused", language(this->ini));
+                const char * button = TR(trkeys::refused, language(this->ini));
                 const char * caption = "Information";
                 this->set_mod(new FlatDialogMod(
                     this->ini,
@@ -1005,7 +1095,7 @@ public:
             {
                 LOG(LOG_INFO, "ModuleManager::Creation of internal module 'Wait Info Message'");
                 const char * message = this->ini.get<cfg::context::message>().c_str();
-                const char * caption = TR("information", language(this->ini));
+                const char * caption = TR(trkeys::information, language(this->ini));
                 bool showform = this->ini.get<cfg::context::showform>();
                 uint flag = this->ini.get<cfg::context::formflag>();
                 this->set_mod(new FlatWaitMod(
@@ -1079,7 +1169,7 @@ public:
         case MODULE_XUP:
             {
                 const char * name = "XUP Target";
-                if (this->verbose & Verbose::new_mod){
+                if (bool(this->verbose & Verbose::new_mod)) {
                     LOG(LOG_INFO, "ModuleManager::Creation of new mod 'XUP'\n");
                 }
 
@@ -1088,9 +1178,7 @@ public:
                 in_addr s4_sin_addr;
                 int status = resolve_ipv4_address(ip, s4_sin_addr);
                 if (status){
-                    if (acl) {
-                        acl->log4(false, "CONNECTION_FAILED");
-                    }
+                    report_message.log4(false, "CONNECTION_FAILED");
 
                     this->ini.set<cfg::context::auth_error_message>("failed to connect to remote TCP host");
                     // TODO: actually this is DNS Failure or invalid address
@@ -1102,9 +1190,7 @@ public:
                 int client_sck = ip_connect(ip, this->ini.get<cfg::context::target_port>(), 4, 1000);
 
                 if (client_sck == -1){
-                    if (acl) {
-                        acl->log4(false, "CONNECTION_FAILED");
-                    }
+                    report_message.log4(false, "CONNECTION_FAILED");
 
                     this->ini.set<cfg::context::auth_error_message>("failed to connect to remote TCP host");
                     throw Error(ERR_SOCKET_CONNECT_FAILED);
@@ -1115,6 +1201,7 @@ public:
 
                 this->set_mod(new ModWithSocket<xup_mod>(
                     *this,
+                    authentifier,
                     name,
                     client_sck,
                     this->ini.get<cfg::debug::mod_xup>(),
@@ -1126,6 +1213,7 @@ public:
                     this->ini.get<cfg::context::opt_width>(),
                     this->ini.get<cfg::context::opt_height>(),
                     this->ini.get<cfg::context::opt_bpp>()
+                    // TODO: shouldn't alls mods have access to sesman authentifier ?
                 ));
 
                 this->ini.get_ref<cfg::context::auth_error_message>().clear();
@@ -1157,9 +1245,7 @@ public:
                 in_addr s4_sin_addr;
                 int status = resolve_ipv4_address(ip, s4_sin_addr);
                 if (status){
-                    if (acl) {
-                        acl->log4(false, "CONNECTION_FAILED");
-                    }
+                    report_message.log4(false, "CONNECTION_FAILED");
 
                     this->ini.set<cfg::context::auth_error_message>("failed to connect to remote TCP host");
                     // TODO: actually this is DNS Failure or invalid address
@@ -1171,9 +1257,7 @@ public:
                 int client_sck = ip_connect(ip, this->ini.get<cfg::context::target_port>(), 3, 1000);
 
                 if (client_sck == -1) {
-                    if (acl) {
-                        acl->log4(false, "CONNECTION_FAILED");
-                    }
+                    report_message.log4(false, "CONNECTION_FAILED");
 
                     this->ini.set<cfg::context::auth_error_message>("failed to connect to remote TCP host");
                     throw Error(ERR_SOCKET_CONNECT_FAILED);
@@ -1199,11 +1283,13 @@ public:
                                            , this->front.keymap.key_flags
                                            , this->ini.get<cfg::font>()
                                            , this->ini.get<cfg::theme>()
+                                           , this->ini.get_ref<cfg::context::server_auto_reconnect_packet>()
                                            , to_verbose_flags(this->ini.get<cfg::debug::mod_rdp>())
+                                           //, RDPVerbose::basic_trace4 | RDPVerbose::basic_trace3 | RDPVerbose::basic_trace7 | RDPVerbose::basic_trace
                                            );
                 mod_rdp_params.device_id                           = this->ini.get<cfg::globals::device_id>().c_str();
 
-                mod_rdp_params.auth_user                           = this->ini.get<cfg::globals::auth_user>().c_str();
+                mod_rdp_params.primary_user_id                     = this->ini.get<cfg::globals::primary_user_id>().c_str();
                 mod_rdp_params.target_application                  = this->ini.get<cfg::globals::target_application>().c_str();
 
                 //mod_rdp_params.enable_tls                          = true;
@@ -1216,12 +1302,11 @@ public:
                 mod_rdp_params.enable_krb                          = this->ini.get<cfg::mod_rdp::enable_kerberos>();
                 mod_rdp_params.enable_fastpath                     = this->ini.get<cfg::mod_rdp::fast_path>();
                 //mod_rdp_params.enable_mem3blt                      = true;
-                mod_rdp_params.enable_bitmap_update                = this->ini.get<cfg::globals::enable_bitmap_update>();
                 //mod_rdp_params.enable_new_pointer                  = true;
                 mod_rdp_params.enable_glyph_cache                  = this->ini.get<cfg::globals::glyph_cache>();
 
                 mod_rdp_params.enable_session_probe                = this->ini.get<cfg::mod_rdp::enable_session_probe>();
-                mod_rdp_params.enable_session_probe_launch_mask    = this->ini.get<cfg::mod_rdp::enable_session_probe_launch_mask>();
+                mod_rdp_params.session_probe_enable_launch_mask    = this->ini.get<cfg::mod_rdp::session_probe_enable_launch_mask>();
 
                 mod_rdp_params.session_probe_use_clipboard_based_launcher
                                                                    = this->ini.get<cfg::mod_rdp::session_probe_use_clipboard_based_launcher>();
@@ -1251,15 +1336,20 @@ public:
                 mod_rdp_params.disable_clipboard_log_wrm           = bool(this->ini.get<cfg::video::disable_clipboard_log>() & ClipboardLogFlags::wrm);
                 mod_rdp_params.disable_file_system_log_syslog      = bool(this->ini.get<cfg::video::disable_file_system_log>() & FileSystemLogFlags::syslog);
                 mod_rdp_params.disable_file_system_log_wrm         = bool(this->ini.get<cfg::video::disable_file_system_log>() & FileSystemLogFlags::wrm);
-                mod_rdp_params.acl                                 = acl;
-                mod_rdp_params.outbound_connection_monitoring_rules=
-                    this->ini.get<cfg::context::outbound_connection_monitoring_rules>().c_str();
-                mod_rdp_params.process_monitoring_rules            =
-                    this->ini.get<cfg::context::process_monitoring_rules>().c_str();
+                mod_rdp_params.session_probe_extra_system_processes               =
+                    this->ini.get<cfg::context::session_probe_extra_system_processes>().c_str();
+                mod_rdp_params.session_probe_outbound_connection_monitoring_rules =
+                    this->ini.get<cfg::context::session_probe_outbound_connection_monitoring_rules>().c_str();
+                mod_rdp_params.session_probe_process_monitoring_rules             =
+                    this->ini.get<cfg::context::session_probe_process_monitoring_rules>().c_str();
+
+                mod_rdp_params.session_probe_enable_log            = this->ini.get<cfg::mod_rdp::session_probe_enable_log>();
+
                 mod_rdp_params.ignore_auth_channel                 = this->ini.get<cfg::mod_rdp::ignore_auth_channel>();
                 mod_rdp_params.auth_channel                        = this->ini.get<cfg::mod_rdp::auth_channel>();
                 mod_rdp_params.alternate_shell                     = this->ini.get<cfg::mod_rdp::alternate_shell>().c_str();
-                mod_rdp_params.working_dir                         = this->ini.get<cfg::mod_rdp::shell_working_directory>().c_str();
+                mod_rdp_params.shell_arguments                     = this->ini.get<cfg::mod_rdp::shell_arguments>().c_str();
+                mod_rdp_params.shell_working_dir                   = this->ini.get<cfg::mod_rdp::shell_working_directory>().c_str();
                 mod_rdp_params.use_client_provided_alternate_shell = this->ini.get<cfg::mod_rdp::use_client_provided_alternate_shell>();
                 mod_rdp_params.target_application_account          = this->ini.get<cfg::globals::target_application_account>().c_str();
                 mod_rdp_params.target_application_password         = this->ini.get<cfg::globals::target_application_password>().c_str();
@@ -1307,16 +1397,56 @@ public:
                                                                       ((this->ini.get<cfg::video::capture_flags>() &
                                                                         (CaptureFlags::wrm | CaptureFlags::ocr)) !=
                                                                        CaptureFlags::none));
+                mod_rdp_params.client_execute                      = &this->client_execute;
                 mod_rdp_params.client_execute_flags                = this->client_execute.Flags();
                 mod_rdp_params.client_execute_exe_or_file          = this->client_execute.ExeOrFile();
                 mod_rdp_params.client_execute_working_dir          = this->client_execute.WorkingDir();
                 mod_rdp_params.client_execute_arguments            = this->client_execute.Arguments();
 
+                mod_rdp_params.remote_program                      = (client_info.remote_program &&
+                                                                      this->ini.get<cfg::mod_rdp::use_native_remoteapp_capability>() &&
+                                                                      ((mod_rdp_params.target_application &&
+                                                                        (*mod_rdp_params.target_application)) ||
+                                                                       (this->ini.get<cfg::mod_rdp::use_client_provided_remoteapp>() &&
+                                                                        mod_rdp_params.client_execute_exe_or_file &&
+                                                                        (*mod_rdp_params.client_execute_exe_or_file))));
+                mod_rdp_params.use_client_provided_remoteapp       = this->ini.get<cfg::mod_rdp::use_client_provided_remoteapp>();
+
+                mod_rdp_params.clean_up_32_bpp_cursor              = this->ini.get<cfg::mod_rdp::clean_up_32_bpp_cursor>();
+
+                mod_rdp_params.large_pointer_support               = this->ini.get<cfg::globals::large_pointer_support>();
+
+                mod_rdp_params.load_balance_info                   = this->ini.get<cfg::mod_rdp::load_balance_info>().c_str();
+
                 try {
                     const char * const name = "RDP Target";
-                    // TODO RZ: We need find a better way to give access of STRAUTHID_AUTH_ERROR_MESSAGE to SocketTransport
+
+                    Rect adjusted_client_execute_rect;
+
+                    const bool host_mod_in_widget =
+                        (this->front.client_info.remote_program &&
+                         !mod_rdp_params.remote_program);
+
+                    if (host_mod_in_widget) {
+                        adjusted_client_execute_rect =
+                            this->client_execute.adjust_rect(get_widget_rect(
+                                    client_info.width,
+                                    client_info.height,
+                                    this->front.client_info.cs_monitor
+                                ));
+
+                        client_info.width  = adjusted_client_execute_rect.cx / 4 * 4;
+                        client_info.height = adjusted_client_execute_rect.cy;
+
+                        ::memset(&client_info.cs_monitor, 0, sizeof(client_info.cs_monitor));
+                    }
+                    else {
+                        this->client_execute.reset(false);
+                    }
+
                     ModWithSocket<mod_rdp>* new_mod = new ModWithSocket<mod_rdp>(
                         *this,
+                        authentifier,
                         name,
                         client_sck,
                         this->ini.get<cfg::debug::mod_rdp>(),
@@ -1327,14 +1457,49 @@ public:
                         ini.get_ref<cfg::mod_rdp::redir_info>(),
                         this->gen,
                         this->timeobj,
-                        mod_rdp_params
+                        mod_rdp_params,
+                        authentifier,
+                        report_message,
+                        this->ini
                     );
-                    this->set_mod(new_mod, (new_mod ? new_mod->get_windowing_api() : nullptr));
+
+                    rdp_api*       rdpapi = new_mod;
+                    windowing_api* winapi = new_mod->get_windowing_api();
+
+                    std::unique_ptr<mod_api> managed_mod(new_mod);
+
+                    if (host_mod_in_widget) {
+                        LOG(LOG_INFO, "ModuleManager::Creation of internal module 'RailModuleHostMod'");
+
+                        std::string target_info = this->ini.get<cfg::context::target_str>().c_str();
+                        target_info += ":";
+                        target_info += this->ini.get<cfg::globals::primary_user_id>().c_str();
+
+                        this->client_execute.set_target_info(target_info.c_str());
+
+                        this->set_mod(
+                                new RailModuleHostMod(
+                                        this->ini,
+                                        this->front,
+                                        this->front.client_info.width,
+                                        this->front.client_info.height,
+                                        adjusted_client_execute_rect,
+                                        std::move(managed_mod),
+                                        this->client_execute,
+                                        this->front.client_info.cs_monitor
+                                    ),
+                                nullptr,
+                                &this->client_execute
+                            );
+                        LOG(LOG_INFO, "ModuleManager::internal module 'RailModuleHostMod' ready");
+                    }
+                    else {
+                        // TODO RZ: We need find a better way to give access of STRAUTHID_AUTH_ERROR_MESSAGE to SocketTransport
+                        this->set_mod(managed_mod.release(), rdpapi, winapi);
+                    }
                 }
                 catch (...) {
-                    if (acl) {
-                        acl->log4(false, "SESSION_CREATION_FAILED");
-                    }
+                    report_message.log4(false, "SESSION_CREATION_FAILED");
 
                     throw;
                 }
@@ -1362,9 +1527,7 @@ public:
                 in_addr s4_sin_addr;
                 int status = resolve_ipv4_address(ip, s4_sin_addr);
                 if (status){
-                    if (acl) {
-                        acl->log4(false, "CONNECTION_FAILED");
-                    }
+                    report_message.log4(false, "CONNECTION_FAILED");
 
                     this->ini.set<cfg::context::auth_error_message>("failed to connect to remote TCP host");
                     // TODO: actually this is DNS Failure or invalid address
@@ -1376,9 +1539,7 @@ public:
                 int client_sck = ip_connect(ip, this->ini.get<cfg::context::target_port>(), 3, 1000);
 
                 if (client_sck == -1) {
-                    if (acl) {
-                        acl->log4(false, "CONNECTION_FAILED");
-                    }
+                    report_message.log4(false, "CONNECTION_FAILED");
 
                     this->ini.set<cfg::context::auth_error_message>("failed to connect to remote TCP host");
                     throw Error(ERR_SOCKET_CONNECT_FAILED);
@@ -1389,8 +1550,10 @@ public:
 
                 try {
                     const char * const name = "VNC Target";
-                    this->set_mod(new ModWithSocket<mod_vnc>(
+
+                    std::unique_ptr<mod_api> managed_mod(new ModWithSocket<mod_vnc>(
                         *this,
+                        authentifier,
                         name,
                         client_sck,
                         this->ini.get<cfg::debug::mod_vnc>(),
@@ -1402,7 +1565,8 @@ public:
                         this->front.client_info.width,
                         this->front.client_info.height,
                         this->ini.get<cfg::font>(),
-                        Translator(language(this->ini)),
+                        TR(trkeys::authentication_required, language(this->ini)),
+                        TR(trkeys::password, language(this->ini)), 
                         this->ini.get<cfg::theme>(),
                         this->front.client_info.keylayout,
                         this->front.keymap.key_flags,
@@ -1416,19 +1580,50 @@ public:
                             ? mod_vnc::ClipboardEncodingType::UTF8
                             : mod_vnc::ClipboardEncodingType::Latin1,
                         this->ini.get<cfg::mod_vnc::bogus_clipboard_infinite_loop>(),
-                        acl,
+                        report_message,
+                        false,
                         this->ini.get<cfg::debug::mod_vnc>()
                     ));
+
+                    if (this->front.client_info.remote_program) {
+                        LOG(LOG_INFO, "ModuleManager::Creation of internal module 'RailModuleHostMod'");
+
+                        Rect adjusted_client_execute_rect =
+                            this->client_execute.adjust_rect(get_widget_rect(
+                                    this->front.client_info.width,
+                                    this->front.client_info.height,
+                                    this->front.client_info.cs_monitor
+                                ));
+
+                        std::string target_info = this->ini.get<cfg::context::target_str>().c_str();
+                        target_info += ":";
+                        target_info += this->ini.get<cfg::globals::primary_user_id>().c_str();
+
+                        this->client_execute.set_target_info(target_info.c_str());
+
+                        this->set_mod(new RailModuleHostMod(
+                                this->ini,
+                                this->front,
+                                this->front.client_info.width,
+                                this->front.client_info.height,
+                                adjusted_client_execute_rect,
+                                std::move(managed_mod),
+                                this->client_execute,
+                                this->front.client_info.cs_monitor
+                            ));
+                        LOG(LOG_INFO, "ModuleManager::internal module 'RailModuleHostMod' ready");
+                    }
+                    else {
+                        this->set_mod(managed_mod.release());
+                    }
                 }
                 catch (...) {
-                    if (acl) {
-                        acl->log4(false, "SESSION_CREATION_FAILED");
-                    }
+                    report_message.log4(false, "SESSION_CREATION_FAILED");
 
                     throw;
                 }
 
-                LOG(LOG_INFO, "ModuleManager::Creation of new mod 'VNC' suceeded\n");
+                LOG(LOG_INFO, "ModuleManager::Creation of new mod 'VNC' suceeded");
                 this->ini.get_ref<cfg::context::auth_error_message>().clear();
                 this->connected = true;
             }
@@ -1436,10 +1631,14 @@ public:
 
         default:
             {
-                LOG(LOG_INFO, "ModuleManager::Unknown backend exception\n");
+                LOG(LOG_INFO, "ModuleManager::Unknown backend exception");
                 throw Error(ERR_SESSION_UNKNOWN_BACKEND);
             }
         }
+    }
+
+    rdp_api* get_rdp_api() const override {
+        return this->rdpapi;
     }
 };
 

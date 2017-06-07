@@ -975,6 +975,10 @@ class RDPBmpCache {
             this->key1 = stream.in_uint32_le();
             this->key2 = stream.in_uint32_le();
         }
+        else {
+            this->key1 = 0;
+            this->key2 = 0;
+        }
 
         uint16_t bitmapWidth  = stream.in_2BUE();
         uint16_t bitmapHeight;
@@ -1128,6 +1132,10 @@ class RDPBmpCache {
             this->key1 = stream.in_uint32_le();
             this->key2 = stream.in_uint32_le();
         }
+        else {
+            this->key1 = 0;
+            this->key2 = 0;
+        }
 
         uint16_t bitmapWidth  = stream.in_2BUE();
         uint16_t bitmapHeight;
@@ -1265,12 +1273,4 @@ class RDPBmpCache {
         this->str(buffer, 1024);
         LOG(level, "%s", buffer);
     }
-
-    void print() const
-    {
-        char buffer[1024];
-        this->str(buffer, 1024);
-        printf("%s", buffer);
-    }
 };
-

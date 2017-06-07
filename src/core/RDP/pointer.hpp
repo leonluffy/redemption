@@ -27,7 +27,6 @@
 #include <algorithm> // std:min
 
 struct Pointer {
-
     enum  {
         POINTER_NULL             ,
         POINTER_NORMAL           ,
@@ -37,21 +36,24 @@ struct Pointer {
         POINTER_SIZENESW         ,  // Double-pointed arrow pointing northeast and southwest
         POINTER_SIZENS           ,  // Double-pointed arrow pointing north and south
         POINTER_SIZENWSE         ,  // Double-pointed arrow pointing northwest and southeast
-        POINTER_SIZEWE              // Double-pointed arrow pointing west and east
+        POINTER_SIZEWE           ,  // Double-pointed arrow pointing west and east
+
+        POINTER_CUSTOM
     };
 
 public:
     // Bitmap sizes (in bytes)
     enum {
-          DATA_SIZE = 32 * 32 * 4 // maxHeight x maxWidth x bpp = 32 pixel x 32 pixel x 32 bits
-        , MASK_SIZE = 32 * 32 / 8 // maxHeight x maxWidth x bpp = 32 pixel x 32 pixel x  1 bit
+          MAX_WIDTH  = 96
+        , MAX_HEIGHT = 96
+        , MAX_BPP    = 32
     };
     enum {
-          MAX_WIDTH  = 32
-        , MAX_HEIGHT = 32
+          DATA_SIZE = MAX_WIDTH * MAX_HEIGHT * MAX_BPP / 8
+        , MASK_SIZE = MAX_WIDTH * MAX_HEIGHT * 1 / 8
     };
 
-    unsigned bpp;
+//    unsigned bpp;
     unsigned width;
     unsigned height;
     uint8_t  pointer_type;
@@ -63,6 +65,8 @@ public:
     uint8_t data[DATA_SIZE];
     uint8_t mask[MASK_SIZE];
 
+    bool only_black_white = false;
+
 public:
     explicit Pointer(uint8_t pointer_type = POINTER_NULL)
     : pointer_type(pointer_type)
@@ -71,11 +75,12 @@ public:
             default:
             case POINTER_NULL:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 0;
-                    this->y      = 0;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 0;
+                    this->y                = 0;
+                    this->only_black_white = true;
                     ::memset(this->data, 0, DATA_SIZE);
                     ::memset(this->mask, 0xFF, MASK_SIZE);
                 }
@@ -83,11 +88,12 @@ public:
 
             case POINTER_NORMAL:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 0; /* hotspot */
-                    this->y      = 0;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 0; /* hotspot */
+                    this->y                = 0;
+                    this->only_black_white = true;
                     const char * data_cursor0 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -169,11 +175,12 @@ public:
 
             case POINTER_EDIT:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 15; /* hotspot */
-                    this->y      = 16;
+//                    this->bpp                = 24;
+                    this->width              = 32;
+                    this->height             = 32;
+                    this->x                  = 15; /* hotspot */
+                    this->y                  = 16;
+                    this->only_black_white = true;
                     const char * data_cursor1 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -254,11 +261,12 @@ public:
 
             case POINTER_DRAWABLE_DEFAULT:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 0; /* hotspot */
-                    this->y      = 0;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 0; /* hotspot */
+                    this->y                = 0;
+                    this->only_black_white = true;
                     const char * data_cursor2 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -340,11 +348,12 @@ public:
 
             case POINTER_SYSTEM_DEFAULT:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 10; /* hotspot */
-                    this->y      = 10;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 10; /* hotspot */
+                    this->y                = 10;
+                    this->only_black_white = true;
                     const char * data_cursor3 =
                         /* 0000 */ "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                         /* 0060 */ "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -426,11 +435,12 @@ public:
 
             case POINTER_SIZENS:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 10; /* hotspot */
-                    this->y      = 10;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 10; /* hotspot */
+                    this->y                = 10;
+                    this->only_black_white = true;
                     const char * data_cursor4 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -512,11 +522,12 @@ public:
 
             case POINTER_SIZENESW:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 10; /* hotspot */
-                    this->y      = 10;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 10; /* hotspot */
+                    this->y                = 10;
+                    this->only_black_white = true;
                     const char * data_cursor5 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -598,11 +609,12 @@ public:
 
             case POINTER_SIZENWSE:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 10; /* hotspot */
-                    this->y      = 10;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 10; /* hotspot */
+                    this->y                = 10;
+                    this->only_black_white = true;
                     const char * data_cursor6 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -684,11 +696,12 @@ public:
 
             case POINTER_SIZEWE:
                 {
-                    this->bpp    = 24;
-                    this->width  = 32;
-                    this->height = 32;
-                    this->x      = 10; /* hotspot */
-                    this->y      = 10;
+//                    this->bpp              = 24;
+                    this->width            = 32;
+                    this->height           = 32;
+                    this->x                = 10; /* hotspot */
+                    this->y                = 10;
+                    this->only_black_white = true;
                     const char * data_cursor7 =
                         /* 0000 */ "................................"
                         /* 0060 */ "................................"
@@ -770,11 +783,9 @@ public:
         }   // switch (pointer_type)
     }   // Pointer(uint8_t pointer_type)
 
-    ~Pointer() = default;
-
-    void initialize(unsigned bpp, unsigned width, unsigned height, int x, int y, uint8_t * data, size_t data_size,
+    void initialize(/*unsigned bpp, */unsigned width, unsigned height, int x, int y, uint8_t * data, size_t data_size,
         uint8_t * mask, size_t mask_size) {
-        this->bpp    = bpp;
+//        this->bpp    = bpp;
         this->width  = width;
         this->height = height;
         this->x      = x;
@@ -799,22 +810,48 @@ public:
     //}
 
     unsigned data_size() const {
-        switch (this->bpp){
-        case 1:
-            return (this->width * this->height) / 8;
-        case 4:
-            return (this->width * this->height) / 2;
-        default:
-            return (this->width * this->height) * nbbytes(this->bpp);
-        }
+        const unsigned int xor_line_length_in_byte = this->width * 3;
+        const unsigned int xor_padded_line_length_in_byte =
+            ((xor_line_length_in_byte % 2) ?
+             xor_line_length_in_byte + 1 :
+             xor_line_length_in_byte);
+
+        return (xor_padded_line_length_in_byte * this->height);
     }
 
     unsigned mask_size() const {
-        return (this->width * this->height) / 8;
+        const unsigned int remainder = (this->width % 8);
+        const unsigned int and_line_length_in_byte = this->width / 8 + (remainder ? 1 : 0);
+        const unsigned int and_padded_line_length_in_byte =
+            ((and_line_length_in_byte % 2) ?
+             and_line_length_in_byte + 1 :
+             and_line_length_in_byte);
+
+        return (and_padded_line_length_in_byte * this->height);
     }
 
     bool is_valid() const {
-        return (this->width && this->height && this->bpp);
+        return (this->width && this->height/* && this->bpp*/);
+    }
+
+    void update_bw() {
+        const unsigned int xor_line_length_in_byte = this->width * 3;
+        const unsigned int xor_padded_line_length_in_byte =
+            ((xor_line_length_in_byte % 2) ?
+             xor_line_length_in_byte + 1 :
+             xor_line_length_in_byte);
+        for (unsigned int h = 0; h < this->height; ++h) {
+            const uint8_t* xorMask = this->data + (this->height - h - 1) * xor_padded_line_length_in_byte;
+            for (unsigned int w = 0; w < this->width; ++w) {
+                if (((*xorMask) > 0) && ((*xorMask) < 255)) { this->only_black_white = false; return; }
+                xorMask++;
+                if (((*xorMask) > 0) && ((*xorMask) < 255)) { this->only_black_white = false; return; }
+                xorMask++;
+                if (((*xorMask) > 0) && ((*xorMask) < 255)) { this->only_black_white = false; return; }
+                xorMask++;
+            }
+        }
+
+        this->only_black_white = true;
     }
 };
-

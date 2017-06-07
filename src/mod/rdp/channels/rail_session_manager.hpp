@@ -26,50 +26,45 @@
 #include "core/RDP/remote_programs.hpp"
 #include "gdi/clip_from_cmd.hpp"
 #include "gdi/graphic_api.hpp"
+#include "gdi/protected_graphics.hpp"
+#include "mod/internal/client_execute.hpp"
 #include "mod/internal/widget2/flat_button.hpp"
 #include "mod/mod_api.hpp"
+#include "mod/rdp/channels/rail_window_id_manager.hpp"
 #include "mod/rdp/rdp_log.hpp"
 #include "mod/rdp/windowing_api.hpp"
-#include "mod/rdp/channels/rail_window_id_manager.hpp"
-#include "utils/protect_graphics.hpp"
 #include "utils/rect.hpp"
 #include "utils/theme.hpp"
 #include "utils/translation.hpp"
 
-#include <set>
 #include <string>
 
-class RemoteProgramsSessionManager : public gdi::GraphicBase<RemoteProgramsSessionManager>,
-    public RemoteProgramsWindowIdManager,
-    public windowing_api {
-
-private:
+class RemoteProgramsSessionManager
+: public gdi::GraphicApi
+, public RemoteProgramsWindowIdManager
+, public windowing_api
+{
     FrontAPI & front;
     mod_api  & mod;
 
     Translation::language_t lang;
 
-    uint16_t front_width;
-    uint16_t front_height;
-
     Font  const & font;
     Theme const & theme;
 
-    const implicit_bool_flags<RDPVerbose> verbose;
+    const RDPVerbose verbose;
 
     uint32_t blocked_server_window_id = RemoteProgramsWindowIdManager::INVALID_WINDOW_ID;
 
     bool graphics_update_disabled = false;
 
-    Rect dialog_box_rect;
     Rect protected_rect;
 
     uint32_t dialog_box_window_id = RemoteProgramsWindowIdManager::INVALID_WINDOW_ID;
 
     gdi::GraphicApi * drawable = nullptr;
-    int               bpp      = 0;
 
-    enum DialogBoxType {
+    enum class DialogBoxType {
         SPLASH_SCREEN,
         WAITING_SCREEN,
 
@@ -79,7 +74,7 @@ private:
     Rect disconnect_now_button_rect;
     bool disconnect_now_button_clicked = false;
 
-    auth_api* acl = nullptr;
+    AuthApi& authentifier;
 
     bool has_previous_window = false;
 
@@ -87,30 +82,74 @@ private:
 
     uint32_t auxiliary_window_id = RemoteProgramsWindowIdManager::INVALID_WINDOW_ID;
 
+    const non_null_ptr<ClientExecute> client_execute;
+
+    bool currently_without_window = false;
+
+    wait_obj event;
+
 public:
+    void draw(RDP::FrameMarker    const & cmd) override { this->draw_impl( cmd); }
+    void draw(RDPDestBlt          const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDPMultiDstBlt      const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDPPatBlt           const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDP::RDPMultiPatBlt const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPOpaqueRect       const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPMultiOpaqueRect  const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPScrBlt           const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDP::RDPMultiScrBlt const & cmd, Rect clip) override { this->draw_impl(cmd, clip); }
+    void draw(RDPLineTo           const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPPolygonSC        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPPolygonCB        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPPolyline         const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPEllipseSC        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPEllipseCB        const & cmd, Rect clip, gdi::ColorCtx color_ctx) override { this->draw_impl(cmd, clip, color_ctx); }
+    void draw(RDPBitmapData       const & cmd, Bitmap const & bmp) override { this->draw_impl(cmd, bmp); }
+    void draw(RDPMemBlt           const & cmd, Rect clip, Bitmap const & bmp) override { this->draw_impl(cmd, clip, bmp);}
+    void draw(RDPMem3Blt          const & cmd, Rect clip, gdi::ColorCtx color_ctx, Bitmap const & bmp) override { this->draw_impl(cmd, clip, color_ctx, bmp); }
+    void draw(RDPGlyphIndex       const & cmd, Rect clip, gdi::ColorCtx color_ctx, GlyphCache const & gly_cache) override { this->draw_impl(cmd, clip, color_ctx, gly_cache); }
+
+    void draw(RDPColCache   const & cmd) override { this->draw_impl(cmd); }
+    void draw(RDPBrushCache const & cmd) override { this->draw_impl(cmd); }
+
     RemoteProgramsSessionManager(FrontAPI& front, mod_api& mod, Translation::language_t lang,
-                                 uint16_t front_width, uint16_t front_height,
-                                 Font const & font, Theme const & theme, auth_api* acl,
-                                 char const* session_probe_window_title, RDPVerbose verbose)
+                                 Font const & font, Theme const & theme, AuthApi & authentifier,
+                                 char const * session_probe_window_title,
+                                 non_null_ptr<ClientExecute> client_execute, RDPVerbose verbose)
     : front(front)
     , mod(mod)
     , lang(lang)
-    , front_width(front_width)
-    , front_height(front_height)
     , font(font)
     , theme(theme)
     , verbose(verbose)
-    , dialog_box_rect((front_width - 640) / 2, (front_height - 480) / 2, 640, 480)
-    , acl(acl)
-    , session_probe_window_title(session_probe_window_title) {}
+    , authentifier(authentifier)
+    , session_probe_window_title(session_probe_window_title)
+    , client_execute(client_execute)
+    {}
+
+    void begin_update() override
+    {
+        if (this->drawable) {
+            this->drawable->begin_update();
+        }
+    }
+
+    void end_update() override
+    {
+        if (this->drawable) {
+            this->drawable->end_update();
+        }
+    }
 
     void disable_graphics_update(bool disable) {
         this->graphics_update_disabled = disable;
 
-        LOG(LOG_INFO,
-            "RemoteProgramsSessionManager::disable_graphics_update: "
-                "graphics_update_disabled=%s",
-            (this->graphics_update_disabled ? "yes" : "no"));
+        if (bool(this->verbose & RDPVerbose::rail)) {
+            LOG(LOG_INFO,
+                "RemoteProgramsSessionManager::disable_graphics_update: "
+                    "graphics_update_disabled=%s",
+                (this->graphics_update_disabled ? "yes" : "no"));
+        }
 
         if (!disable) {
             if (RemoteProgramsWindowIdManager::INVALID_WINDOW_ID != this->dialog_box_window_id) {
@@ -128,9 +167,8 @@ public:
         return (this->blocked_server_window_id == window_id);
     }
 
-    void set_drawable(gdi::GraphicApi * drawable, int bpp) {
+    void set_drawable(gdi::GraphicApi * drawable) {
         this->drawable = drawable;
-        this->bpp      = bpp;
     }
 
     void input_mouse(int device_flags, int x, int y) {
@@ -152,9 +190,7 @@ public:
             if (!(device_flags & SlowPath::PTRFLAGS_DOWN) &&
                 (this->disconnect_now_button_rect.contains_pt(x, y))) {
                 LOG(LOG_INFO, "RemoteApp session initiated disconnect by user");
-                if (this->acl) {
-                    this->acl->disconnect_target();
-                }
+                this->authentifier.disconnect_target();
                 throw Error(ERR_DISCONNECT_BY_USER);
             }
         }
@@ -168,119 +204,62 @@ public:
         (void)param2;
         if ((28 == param1) && !(device_flags & SlowPath::KBDFLAGS_RELEASE)) {
             LOG(LOG_INFO, "RemoteApp session initiated disconnect by user");
-            if (this->acl) {
-                this->acl->disconnect_target();
-            }
+            this->authentifier.disconnect_target();
             throw Error(ERR_DISCONNECT_BY_USER);
         }
     }
 
 private:
-    friend gdi::GraphicCoreAccess;
+    struct InternalProtectedGraphics final : gdi::ProtectedGraphics
+    {
+        RemoteProgramsSessionManager & manager_;
 
-    template<class Cmd>
-    void draw_impl(Cmd const & cmd) {
-        if (this->drawable) {
-            this->drawable->draw(cmd);
-        }
-    }
+        InternalProtectedGraphics(RemoteProgramsSessionManager & self)
+        : gdi::ProtectedGraphics(*self.drawable, self.protected_rect)
+        , manager_(self)
+        {}
+
+        void refresh_rects(array_view<Rect const> av) override
+        { this->manager_.mod.rdp_input_invalidate2(av); }
+    };
 
     template<class Cmd, class... Args>
-    void draw_impl(Cmd const & cmd, Rect const & clip, Args const &... args) {
+    void draw_impl(Cmd const & cmd, Args const &... args) {
         if (this->drawable) {
-            Rect const rect = ::clip_from_cmd(cmd).intersect(clip);
-            if (this->protected_rect.contains(rect) || rect.isempty()) {
-                //nada
-            }
-            else if (rect.has_intersection(this->protected_rect)) {
-                this->drawable->begin_update();
-                // TODO used multi orders
-                for (const Rect & subrect : subrect4(rect, this->protected_rect)) {
-                    if (!subrect.isempty()) {
-                        this->drawable->draw(cmd, subrect, args...);
-                    }
-                }
-                this->drawable->end_update();
-            }
-            else {
-                this->drawable->draw(cmd, clip, args...);
-            }
+            InternalProtectedGraphics(*this).draw(cmd, args...);
         }
     }
 
-    void draw_impl(RDPBitmapData const & bitmap_data, Bitmap const & bmp) {
-        if (this->drawable) {
-            Rect rectBmp( bitmap_data.dest_left, bitmap_data.dest_top
-                        , bitmap_data.dest_right - bitmap_data.dest_left + 1
-                        , bitmap_data.dest_bottom - bitmap_data.dest_top + 1);
-
-            if (rectBmp.has_intersection(this->protected_rect)) {
-                this->drawable->begin_update();
-                for (const Rect & subrect : subrect4(rectBmp, this->protected_rect)) {
-                    if (!subrect.isempty()) {
-                        this->drawable->draw(
-                            RDPMemBlt(0, subrect, 0xCC, subrect.x - rectBmp.x, subrect.y - rectBmp.y, 0),
-                            subrect, bmp
-                        );
-                    }
-                }
-                this->drawable->end_update();
-            }
-            else {
-                this->drawable->draw(bitmap_data, bmp);
-            }
-        }
-    }
-
-    void draw_impl(const RDPScrBlt & cmd, const Rect & clip) {
-        const Rect drect = cmd.rect.intersect(clip);
-        const int deltax = cmd.srcx - cmd.rect.x;
-        const int deltay = cmd.srcy - cmd.rect.y;
-        const int srcx = drect.x + deltax;
-        const int srcy = drect.y + deltay;
-        const Rect srect(srcx, srcy, drect.cx, drect.cy);
-
-        const bool has_dest_intersec_fg = drect.has_intersection(this->protected_rect);
-        const bool has_src_intersec_fg = srect.has_intersection(this->protected_rect);
-
-        if (!has_dest_intersec_fg && !has_src_intersec_fg) {
-            this->drawable->draw(cmd, clip);
-        }
-        else {
-            this->drawable->begin_update();
-            subrect4_t rects = subrect4(drect, this->protected_rect);
-            auto e = std::remove_if(rects.begin(), rects.end(), [](const Rect & rect) { return !rect.isempty(); });
-            auto av = make_array_view(rects.begin(), e);
-            this->mod.rdp_input_invalidate2(av);
-            this->drawable->end_update();
-        }
-    }
-
-    void draw_impl(RDP::RAIL::WindowIcon const & order) {
+public:
+    void draw(RDP::RAIL::WindowIcon const & order) override {
         if (this->drawable) {
             if (order.header.WindowId() != this->blocked_server_window_id) {
                 order.map_window_id(*this);
                 this->drawable->draw(order);
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(WindowIcon): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(WindowIcon): Order bloacked.");
+                }
             }
         }
     }
 
-    void draw_impl(RDP::RAIL::CachedIcon const & order) {
+    void draw(RDP::RAIL::CachedIcon const & order) override {
         if (this->drawable) {
             if (order.header.WindowId() != this->blocked_server_window_id) {
                 order.map_window_id(*this);
                 this->drawable->draw(order);
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(CachedIcon): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(CachedIcon): Order bloacked.");
+                }
             }
         }
     }
 
-    void draw_impl(RDP::RAIL::DeletedWindow const & order) {
+    void draw(RDP::RAIL::DeletedWindow const & order) override {
         const uint32_t window_id         = order.header.WindowId();
         const bool     window_is_blocked = (window_id == this->blocked_server_window_id);
 
@@ -290,79 +269,120 @@ private:
                 this->drawable->draw(order);
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedWindow): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedWindow): Order bloacked.");
+                }
             }
         }
 
         if (window_is_blocked) {
             this->unregister_server_window(window_id);
 
-            LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedWindow): Remove window 0x%X from blocked windows list.", window_id);
+            if (bool(this->verbose & RDPVerbose::rail)) {
+                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedWindow): Remove window 0x%X from blocked windows list.", window_id);
+            }
 
             this->blocked_server_window_id = RemoteProgramsWindowIdManager::INVALID_WINDOW_ID;
         }
     }
 
-    void draw_impl(RDP::RAIL::NewOrExistingWindow const & order) {
+    void draw(RDP::RAIL::NewOrExistingWindow const & order) override {
         const char *   title_info        = order.TitleInfo();
         const uint32_t window_id         = order.header.WindowId();
               bool     window_is_blocked = (window_id == this->blocked_server_window_id);
         const bool     window_is_new     = (RDP::RAIL::WINDOW_ORDER_STATE_NEW & order.header.FieldsPresentFlags());
 
-        const char*  blocked_window_title        = this->session_probe_window_title.c_str();
-        const size_t blocked_window_title_length = this->session_probe_window_title.length();
+        if (window_is_new) {
+            if (DialogBoxType::WAITING_SCREEN == this->dialog_box_type) {
+                this->dialog_box_destroy();
+            }
 
-        if (window_is_new &&
-            (DialogBoxType::WAITING_SCREEN == this->dialog_box_type)) {
-
-            this->dialog_box_destroy();
+            this->currently_without_window = false;
         }
 
-        if (this->graphics_update_disabled && window_is_new) {
+        //if (bool(this->verbose & RDPVerbose::rail)) {
+        //    LOG(LOG_INFO,
+        //        "RemoteProgramsSessionManager::draw(NewOrExistingWindow): "
+        //            "TitleInfo=\"%s\" WindowIsNew=%s GraphicsUpdateDisabled=%s",
+        //        title_info, (window_is_new ? "yes" : "no"),
+        //        (this->graphics_update_disabled ? "yes" : "no"));
+        //}
+
+        if ((RemoteProgramsWindowIdManager::INVALID_WINDOW_ID == this->blocked_server_window_id) &&
+            this->graphics_update_disabled) {
             REDASSERT(!window_is_blocked);
+
+            const char*  blocked_window_title        = this->session_probe_window_title.c_str();
+            const size_t blocked_window_title_length = this->session_probe_window_title.length();
 
             const size_t title_info_length = ::strlen(title_info);
 
             if ((title_info_length >= blocked_window_title_length) &&
                 !::strcmp(title_info + (title_info_length - blocked_window_title_length), blocked_window_title)) {
+                if (window_is_new) {
+                    {
+                        RAILPDUHeader rpduh;
 
-                REDASSERT(RemoteProgramsWindowIdManager::INVALID_WINDOW_ID == this->blocked_server_window_id);
+                        ClientSystemCommandPDU cscpdu;
+                        cscpdu.WindowId(this->get_client_window_id_ex(window_id));
+                        cscpdu.Command(SC_MINIMIZE);
 
-                {
-                    RAILPDUHeader rpduh;
+                        StaticOutStream<1024> out_s;
 
-                    ClientSystemCommandPDU cscpdu;
-                    cscpdu.WindowId(this->get_client_window_id_ex(window_id));
-                    cscpdu.Command(SC_MINIMIZE);
+                        rpduh.emit_begin(out_s, TS_RAIL_ORDER_SYSCOMMAND);
 
-                    StaticOutStream<1024> out_s;
+                        cscpdu.emit(out_s);
 
-                    rpduh.emit_begin(out_s, TS_RAIL_ORDER_SYSCOMMAND);
+                        rpduh.emit_end();
 
-                    cscpdu.emit(out_s);
+                        const size_t totalLength = out_s.get_offset();
 
-                    rpduh.emit_end();
+                        InStream in_s(out_s.get_data(), totalLength);
 
-                    const size_t totalLength = out_s.get_offset();
+                        this->mod.send_to_mod_channel(channel_names::rail,
+                                                      in_s,
+                                                      totalLength,
+                                                        CHANNELS::CHANNEL_FLAG_FIRST
+                                                      | CHANNELS::CHANNEL_FLAG_LAST);
 
-                    InStream in_s(out_s.get_data(), totalLength);
-
-                    this->mod.send_to_mod_channel(channel_names::rail,
-                                                  in_s,
-                                                  totalLength,
-                                                    CHANNELS::CHANNEL_FLAG_FIRST
-                                                  | CHANNELS::CHANNEL_FLAG_LAST);
+                        if (bool(this->verbose & RDPVerbose::rail)) {
+                            LOG(LOG_INFO, "RemoteProgramsSessionManager::draw(NewOrExistingWindow): Window 0x%X is minimized.", window_id);
+                        }
+                    }
                 }
+                else {
+                    {
+                        RDP::RAIL::DeletedWindow order;
 
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(NewOrExistingWindow): Window 0x%X is minimized.", window_id);
+                        order.header.FieldsPresentFlags(
+                                  RDP::RAIL::WINDOW_ORDER_STATE_DELETED
+                                | RDP::RAIL::WINDOW_ORDER_TYPE_WINDOW
+                            );
+                        order.header.WindowId(window_id);
+
+                        if (bool(this->verbose & RDPVerbose::rail)) {
+                            StaticOutStream<1024> out_s;
+                            order.emit(out_s);
+                            order.log(LOG_INFO);
+                        }
+
+                        this->front.draw(order);
+
+                        if (bool(this->verbose & RDPVerbose::rail)) {
+                            LOG(LOG_INFO, "RemoteProgramsSessionManager::draw(NewOrExistingWindow): Window 0x%X is deletec.", window_id);
+                        }
+                    }
+                }
 
                 this->blocked_server_window_id = window_id;
 
                 window_is_blocked = true;
 
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(NewOrExistingWindow): Window 0x%X is blocked.", window_id);
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw(NewOrExistingWindow): Window 0x%X is blocked.", window_id);
+                }
 
-                this->dialog_box_create(RemoteProgramsSessionManager::SPLASH_SCREEN);
+                this->dialog_box_create(DialogBoxType::SPLASH_SCREEN);
 
                 this->splash_screen_draw();
             }
@@ -374,36 +394,42 @@ private:
                 this->drawable->draw(order);
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(NewOrExistingWindow): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(NewOrExistingWindow): Order bloacked.");
+                }
             }
         }
     }
 
-    void draw_impl(RDP::RAIL::NewOrExistingNotificationIcons const & order) {
+    void draw(RDP::RAIL::NewOrExistingNotificationIcons const & order) override {
         if (this->drawable) {
             if (order.header.WindowId() != this->blocked_server_window_id) {
                 order.map_window_id(*this);
                 this->drawable->draw(order);
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(NewOrExistingNotificationIcons): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(NewOrExistingNotificationIcons): Order bloacked.");
+                }
             }
         }
     }
 
-    void draw_impl(RDP::RAIL::DeletedNotificationIcons const & order) {
+    void draw(RDP::RAIL::DeletedNotificationIcons const & order) override {
         if (this->drawable) {
             if (order.header.WindowId() != this->blocked_server_window_id) {
                 order.map_window_id(*this);
                 this->drawable->draw(order);
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedNotificationIcons): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedNotificationIcons): Order bloacked.");
+                }
             }
         }
     }
 
-    void draw_impl(RDP::RAIL::ActivelyMonitoredDesktop const & order) {
+    void draw(RDP::RAIL::ActivelyMonitoredDesktop const & order) override {
         bool has_not_window =
             ((RDP::RAIL::WINDOW_ORDER_FIELD_DESKTOP_ZORDER & order.header.FieldsPresentFlags()) &&
              !order.NumWindowIds());
@@ -419,16 +445,18 @@ private:
                      order.NumWindowIds());
             }
             else {
-                LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedNotificationIcons): Order bloacked.");
+                if (bool(this->verbose & RDPVerbose::rail)) {
+                    LOG(LOG_INFO, "RemoteProgramsSessionManager::draw_impl(DeletedNotificationIcons): Order bloacked.");
+                }
             }
         }
 
         if (has_not_window && (DialogBoxType::NONE == this->dialog_box_type) &&
             this->has_previous_window) {
 
-            this->dialog_box_create(DialogBoxType::WAITING_SCREEN);
+            this->currently_without_window = true;
 
-            this->waiting_screen_draw(0);
+            this->event.set(3000000);
         }
 
         if (has_window) {
@@ -436,12 +464,25 @@ private:
         }
     }
 
+    void draw(const RDP::RAIL::NonMonitoredDesktop & /*cmd*/) override
+    {}
+
+private:
     void dialog_box_create(DialogBoxType type) {
         if (RemoteProgramsWindowIdManager::INVALID_WINDOW_ID != this->dialog_box_window_id) return;
 
         this->dialog_box_window_id = this->register_client_window();
 
-        this->protected_rect = this->dialog_box_rect;
+        Rect mod_window_rect = this->client_execute->get_window_rect();
+
+        Rect dialog_box_rect(
+                mod_window_rect.x + (mod_window_rect.cx - 640) / 2,
+                mod_window_rect.y + (mod_window_rect.cy - 480) / 2,
+                640,
+                480
+            );
+
+        this->protected_rect = dialog_box_rect;
 
         {
             RDP::RAIL::NewOrExistingWindow order;
@@ -480,7 +521,7 @@ private:
             order.NumVisibilityRects(1);
             order.VisibilityRects(0, RDP::RAIL::Rectangle(0, 0, this->protected_rect.cx, this->protected_rect.cy));
 
-            /*if (this->verbose & MODRDP_LOGLEVEL_RAIL) */{
+            if (bool(this->verbose & RDPVerbose::rail)) {
                 StaticOutStream<1024> out_s;
                 order.emit(out_s);
                 order.log(LOG_INFO);
@@ -501,7 +542,7 @@ private:
             order.NumWindowIds(1);
             order.window_ids(0, this->dialog_box_window_id);
 
-            /*if (this->verbose & MODINTERNAL_LOGLEVEL_CLIENTEXECUTE) */{
+            if (bool(this->verbose & RDPVerbose::rail)) {
                 StaticOutStream<256> out_s;
                 order.emit(out_s);
                 order.log(LOG_INFO);
@@ -528,7 +569,7 @@ private:
                 );
             order.header.WindowId(this->dialog_box_window_id);
 
-            /*if (this->verbose & MODRDP_LOGLEVEL_RAIL) */{
+            if (bool(this->verbose & RDPVerbose::rail)) {
                 StaticOutStream<1024> out_s;
                 order.emit(out_s);
                 order.log(LOG_INFO);
@@ -544,7 +585,7 @@ private:
 
         this->dialog_box_window_id = RemoteProgramsWindowIdManager::INVALID_WINDOW_ID;
 
-        this->dialog_box_type = RemoteProgramsSessionManager::NONE;
+        this->dialog_box_type = DialogBoxType::NONE;
 
         this->disconnect_now_button_rect    = Rect();
         this->disconnect_now_button_clicked = false;
@@ -556,28 +597,31 @@ private:
         this->drawable->begin_update();
 
         {
-            RDPOpaqueRect order(this->protected_rect, 0x000000);
+            RDPOpaqueRect order(this->protected_rect, encode_color24()(BLACK));
 
-            this->drawable->draw(order, this->protected_rect);
+            this->drawable->draw(order, this->protected_rect, gdi::ColorCtx::depth24());
         }
 
         {
             Rect rect = this->protected_rect.shrink(1);
 
-            RDPOpaqueRect order(rect, color_encode(this->theme.global.bgcolor, this->bpp));
-            order.log(LOG_INFO, rect);
+            RDPOpaqueRect order(rect, encode_color24()(this->theme.global.bgcolor));
+            if (bool(this->verbose & RDPVerbose::rail)) {
+                order.log(LOG_INFO, rect);
+            }
 
-            this->drawable->draw(order, rect);
+            this->drawable->draw(order, rect, gdi::ColorCtx::depth24());
         }
 
-        gdi::TextMetrics tm(this->font, TR("starting_remoteapp", this->lang));
+        gdi::TextMetrics tm(this->font, TR(trkeys::starting_remoteapp, this->lang));
         gdi::server_draw_text(*this->drawable,
                               this->font,
-                              (this->front_width - tm.width) / 2,
-                              (this->front_height - tm.height) / 2,
-                              TR("starting_remoteapp", this->lang),
-                              color_encode(this->theme.global.fgcolor, this->bpp),
-                              color_encode(this->theme.global.bgcolor, this->bpp),
+                              this->protected_rect.x + (this->protected_rect.cx - tm.width) / 2,
+                              this->protected_rect.y + (this->protected_rect.cy - tm.height) / 2,
+                              TR(trkeys::starting_remoteapp, this->lang),
+                              encode_color24()(this->theme.global.fgcolor),
+                              encode_color24()(this->theme.global.bgcolor),
+                              gdi::ColorCtx::depth24(),
                               this->protected_rect
                               );
 
@@ -590,46 +634,49 @@ private:
         this->drawable->begin_update();
 
         {
-            RDPOpaqueRect order(this->protected_rect, 0x000000);
+            RDPOpaqueRect order(this->protected_rect, encode_color24()(BLACK));
 
-            this->drawable->draw(order, this->protected_rect);
+            this->drawable->draw(order, this->protected_rect, gdi::ColorCtx::depth24());
         }
 
         {
             Rect rect = this->protected_rect.shrink(1);
 
-            RDPOpaqueRect order(rect, color_encode(this->theme.global.bgcolor, this->bpp));
-            order.log(LOG_INFO, rect);
+            RDPOpaqueRect order(rect, encode_color24()(this->theme.global.bgcolor));
+            if (bool(this->verbose & RDPVerbose::rail)) {
+                order.log(LOG_INFO, rect);
+            }
 
-            this->drawable->draw(order, rect);
+            this->drawable->draw(order, rect, gdi::ColorCtx::depth24());
         }
 
-        const gdi::TextMetrics tm_msg(this->font, TR("closing_remoteapp", this->lang));
+        const gdi::TextMetrics tm_msg(this->font, TR(trkeys::closing_remoteapp, this->lang));
 
         const int xtext = 6;
         const int ytext = 2;
 
-        const Dimension dim_button = WidgetFlatButton::get_optimal_dim(this->font, TR("disconnect_now", this->lang), xtext, ytext);
+        const Dimension dim_button = WidgetFlatButton::get_optimal_dim(2, this->font, TR(trkeys::disconnect_now, this->lang), xtext, ytext);
 
         const uint32_t interspace = 60;
 
         const uint32_t height = tm_msg.height + interspace + dim_button.h;
 
-        int ypos = (this->front_height - height) / 2;
+        int ypos = this->protected_rect.y + (this->protected_rect.cy - height) / 2;
 
         gdi::server_draw_text(*this->drawable,
                               this->font,
-                              (this->front_width - tm_msg.width) / 2,
+                              this->protected_rect.x + (this->protected_rect.cx - tm_msg.width) / 2,
                               ypos,
-                              TR("closing_remoteapp", this->lang),
-                              color_encode(this->theme.global.fgcolor, this->bpp),
-                              color_encode(this->theme.global.bgcolor, this->bpp),
+                              TR(trkeys::closing_remoteapp, this->lang),
+                              encode_color24()(this->theme.global.fgcolor),
+                              encode_color24()(this->theme.global.bgcolor),
+                              gdi::ColorCtx::depth24(),
                               this->protected_rect
                               );
 
         ypos += (tm_msg.height + interspace);
 
-        this->disconnect_now_button_rect.x  = (this->front_width - dim_button.w) / 2;
+        this->disconnect_now_button_rect.x  = this->protected_rect.x + (this->protected_rect.cx - dim_button.w) / 2;
         this->disconnect_now_button_rect.y  = ypos;
         this->disconnect_now_button_rect.cx = dim_button.w;
         this->disconnect_now_button_rect.cy = dim_button.h;
@@ -639,12 +686,14 @@ private:
                                *this->drawable,
                                false,   // logo
                                true,    // has_focus
-                               TR("disconnect_now", this->lang),
-                               color_encode(this->theme.global.fgcolor, this->bpp),
-                               color_encode(this->theme.global.bgcolor, this->bpp),
-                               color_encode(this->theme.global.focus_color, this->bpp),
+                               TR(trkeys::disconnect_now, this->lang),
+                               encode_color24()(this->theme.global.fgcolor),
+                               encode_color24()(this->theme.global.bgcolor),
+                               encode_color24()(this->theme.global.focus_color),
+                               gdi::ColorCtx::depth24(),
                                Rect(),
                                state,
+                               2,
                                this->font,
                                xtext,
                                ytext
@@ -658,7 +707,7 @@ private:
     //
 
 public:
-    void create_auxiliary_window(Rect const& window_rect) override {
+    void create_auxiliary_window(Rect const window_rect) override {
         if (RemoteProgramsWindowIdManager::INVALID_WINDOW_ID != this->auxiliary_window_id) return;
 
         this->auxiliary_window_id = this->register_client_window();
@@ -700,7 +749,7 @@ public:
             order.NumVisibilityRects(1);
             order.VisibilityRects(0, RDP::RAIL::Rectangle(0, 0, window_rect.cx, window_rect.cy));
 
-            /*if (this->verbose & MODRDP_LOGLEVEL_RAIL) */{
+            if (bool(this->verbose & RDPVerbose::rail)) {
                 StaticOutStream<1024> out_s;
                 order.emit(out_s);
                 order.log(LOG_INFO);
@@ -723,7 +772,7 @@ public:
                 );
             order.header.WindowId(this->auxiliary_window_id);
 
-            /*if (this->verbose & MODRDP_LOGLEVEL_RAIL) */{
+            if (bool(this->verbose & RDPVerbose::rail)) {
                 StaticOutStream<1024> out_s;
                 order.emit(out_s);
                 order.log(LOG_INFO);
@@ -734,5 +783,27 @@ public:
         }
 
         this->auxiliary_window_id = RemoteProgramsWindowIdManager::INVALID_WINDOW_ID;
+    }
+
+    wait_obj* get_event() {
+        if (this->currently_without_window &&
+            (DialogBoxType::NONE == this->dialog_box_type) &&
+            this->has_previous_window) {
+            return &this->event;
+        }
+
+        return nullptr;
+    }
+
+    void process_event() {
+        if (this->currently_without_window) {
+            REDASSERT(DialogBoxType::NONE == this->dialog_box_type);
+
+            if (this->currently_without_window) {
+                this->dialog_box_create(DialogBoxType::WAITING_SCREEN);
+
+                this->waiting_screen_draw(0);
+            }
+        }
     }
 };  // class RemoteProgramsSessionManager

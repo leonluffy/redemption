@@ -152,22 +152,26 @@
 
 
 
-struct NTLMNegotiateMessage {
+class NTLMNegotiateMessage
+{
     NTLMMessage message;
 
+public:
     NtlmNegotiateFlags negoFlags; /* 4 Bytes */
     NtlmField DomainName;         /* 8 Bytes */
     NtlmField Workstation;        /* 8 Bytes */
     NtlmVersion version;          /* 8 Bytes */
+private:
     uint32_t PayloadOffset;
 
+public:
     NTLMNegotiateMessage()
         : message(NtlmNegotiate)
         , PayloadOffset(12+4+8+8+8)
     {
     }
 
-    void emit(OutStream & stream) {
+    void emit(OutStream & stream) /* TODO const*/ {
         uint32_t currentOffset = this->PayloadOffset;
         if (this->version.ignore_version) {
             currentOffset -= 8;

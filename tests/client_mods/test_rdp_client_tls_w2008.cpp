@@ -21,27 +21,30 @@
    Unit test to writing RDP orders to file and rereading them
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestRdpClientTLSW2008
+#define RED_TEST_MODULE TestRdpClientTLSW2008
+
+
 #include "system/redemption_unit_tests.hpp"
 
 
 // Comment the code block below to generate testing data.
 #define LOGNULL
 // Uncomment the code block below to generate testing data.
-//#define LOGPRINT
+// #define LOGPRINT
 
 #include "configs/config.hpp"
 // Uncomment the code block below to generate testing data.
 //#include "transport/socket_transport.hpp"
-#include "transport/test_transport.hpp"
+#include "test_only/transport/test_transport.hpp"
 #include "core/client_info.hpp"
 #include "mod/rdp/rdp.hpp"
 
-#include "../front/fake_front.hpp"
+#include "test_only/lcg_random.hpp"
 
-BOOST_AUTO_TEST_CASE(TestDecodePacket)
+#include "test_only/front/fake_front.hpp"
+
+
+RED_AUTO_TEST_CASE(TestDecodePacket)
 {
     int verbose = 256;
 
@@ -55,6 +58,9 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
     info.rdp5_performanceflags =   PERF_DISABLE_WALLPAPER
                                  | PERF_DISABLE_FULLWINDOWDRAG
                                  | PERF_DISABLE_MENUANIMATIONS;
+
+    memset(info.order_caps.orderSupport, 0xFF, sizeof(info.order_caps.orderSupport));
+    info.order_caps.orderSupportExFlags = 0xFFFF;
 
     // Uncomment the code block below to generate testing data.
     //SSL_library_init();
@@ -76,9 +82,8 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
     //                     );
 
     // Comment the code block below to generate testing data.
-    #include "../fixtures/dump_TLSw2008.hpp"
-    TestTransport t(indata, sizeof(indata) - 1,
-        outdata, sizeof(outdata) - 1, verbose);
+    #include "fixtures/dump_TLSw2008.hpp"
+    TestTransport t(indata, sizeof(indata) - 1, outdata, sizeof(outdata) - 1);
 
     if (verbose > 2) {
         LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
@@ -95,6 +100,7 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
                                , 7
                                , ini.get<cfg::font>()
                                , ini.get<cfg::theme>()
+                               , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
                                , to_verbose_flags(511)
                                );
     mod_rdp_params.device_id                       = "device_id";
@@ -104,7 +110,6 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
     //mod_rdp_params.enable_clipboard                = true;
     mod_rdp_params.enable_fastpath                 = false;
     mod_rdp_params.enable_mem3blt                  = false;
-    //mod_rdp_params.enable_bitmap_update            = false;
     mod_rdp_params.enable_new_pointer              = false;
     //mod_rdp_params.rdp_compression                 = 0;
     //mod_rdp_params.error_message                   = nullptr;
@@ -113,35 +118,35 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket)
     //mod_rdp_params.certificate_change_action       = 0;
     //mod_rdp_params.extra_orders                    = "";
     mod_rdp_params.server_redirection_support        = true;
+    mod_rdp_params.large_pointer_support             = false;
 
     // To always get the same client random, in tests
     LCGRandom gen(0);
     LCGTime timeobj;
-    mod_rdp mod_(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params);
-    mod_api * mod = &mod_;
+    NullAuthentifier authentifier;
+    NullReportMessage report_message;
+    mod_rdp mod(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
+        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
 
     if (verbose > 2) {
-        LOG(LOG_INFO,
-            "========= CREATION OF MOD DONE ====================\n\n");
+        LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
     }
-    BOOST_CHECK(t.get_status());
-
-    BOOST_CHECK_EQUAL(front.info.width, 1024);
-    BOOST_CHECK_EQUAL(front.info.height, 768);
+    RED_CHECK_EQUAL(front.info.width, 1024);
+    RED_CHECK_EQUAL(front.info.height, 768);
 
     uint32_t count = 0;
     BackEvent_t res = BACK_EVENT_NONE;
     while (res == BACK_EVENT_NONE) {
         LOG(LOG_INFO, "===================> count = %u", count);
         if (count++ >= 70) break;
-        mod->draw_event(time(nullptr), front);
+        mod.draw_event(time(nullptr), front);
     }
 
+    t.disable_remaining_error();
     //front.dump_png("trace_w2008_tls_");
 }
 
-BOOST_AUTO_TEST_CASE(TestDecodePacket2)
+RED_AUTO_TEST_CASE(TestDecodePacket2)
 {
     int verbose = 256;
 
@@ -154,6 +159,9 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket2)
     info.height                = 768;
     info.rdp5_performanceflags =   PERF_DISABLE_WALLPAPER
                                  | PERF_DISABLE_FULLWINDOWDRAG | PERF_DISABLE_MENUANIMATIONS;
+
+    memset(info.order_caps.orderSupport, 0xFF, sizeof(info.order_caps.orderSupport));
+    info.order_caps.orderSupportExFlags = 0xFFFF;
 
     //SSL_library_init();
 
@@ -171,8 +179,8 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket2)
     //                     , &error_message
     //                     );
 
-    #include "../fixtures/dump_TLSw2008_2.hpp"
-    TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1, verbose);
+    #include "fixtures/dump_TLSw2008_2.hpp"
+    TestTransport t(indata, sizeof(indata)-1, outdata, sizeof(outdata)-1);
 
     if (verbose > 2) {
         LOG(LOG_INFO, "--------- CREATION OF MOD ------------------------");
@@ -189,7 +197,8 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket2)
                                , 7
                                , ini.get<cfg::font>()
                                , ini.get<cfg::theme>()
-                               , to_verbose_flags(511)
+                               , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
+                               , to_verbose_flags(2023)
                                );
     mod_rdp_params.device_id                       = "device_id";
     //mod_rdp_params.enable_tls                      = true;
@@ -198,7 +207,6 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket2)
     //mod_rdp_params.enable_clipboard                = true;
     mod_rdp_params.enable_fastpath                 = false;
     mod_rdp_params.enable_mem3blt                  = false;
-    //mod_rdp_params.enable_bitmap_update            = false;
     mod_rdp_params.enable_new_pointer              = false;
     //mod_rdp_params.rdp_compression                 = 0;
     //mod_rdp_params.error_message                   = nullptr;
@@ -207,29 +215,31 @@ BOOST_AUTO_TEST_CASE(TestDecodePacket2)
     //mod_rdp_params.certificate_change_action       = 0;
     //mod_rdp_params.extra_orders                    = "";
     mod_rdp_params.server_redirection_support        = true;
+    mod_rdp_params.large_pointer_support             = false;
 
     // To always get the same client random, in tests
     LCGRandom gen(0);
     LCGTime timeobj;
-    mod_rdp mod_(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
-        gen, timeobj, mod_rdp_params);
-    mod_api * mod = &mod_;
+    NullAuthentifier authentifier;
+    NullReportMessage report_message;
+    mod_rdp mod(t, front, info, ini.get_ref<cfg::mod_rdp::redir_info>(),
+        gen, timeobj, mod_rdp_params, authentifier, report_message, ini);
 
     if (verbose > 2) {
         LOG(LOG_INFO, "========= CREATION OF MOD DONE ====================\n\n");
     }
-    BOOST_CHECK(t.get_status());
 
-    BOOST_CHECK_EQUAL(front.info.width, 1024);
-    BOOST_CHECK_EQUAL(front.info.height, 768);
+    RED_CHECK_EQUAL(front.info.width, 1024);
+    RED_CHECK_EQUAL(front.info.height, 768);
 
     uint32_t count = 0;
     BackEvent_t res = BACK_EVENT_NONE;
     while (res == BACK_EVENT_NONE) {
         LOG(LOG_INFO, "===================> count = %u", count);
         if (count++ >= 40) break;
-        mod->draw_event(time(nullptr), front);
+        mod.draw_event(time(nullptr), front);
     }
 
+    t.disable_remaining_error();
 //    front.dump_png("trace_w2008_tls_");
 }

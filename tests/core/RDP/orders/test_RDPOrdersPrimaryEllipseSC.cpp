@@ -22,9 +22,7 @@
    Using lib boost functions for testing
 */
 
-#define BOOST_AUTO_TEST_MAIN
-#define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE TestOrderEllipseSC
+#define RED_TEST_MODULE TestOrderEllipseSC
 #include "system/redemption_unit_tests.hpp"
 
 #define LOGNULL
@@ -32,21 +30,21 @@
 
 #include "core/RDP/orders/RDPOrdersPrimaryEllipseSC.hpp"
 
-#include "test_orders.hpp"
+#include "./test_orders.hpp"
 
-BOOST_AUTO_TEST_CASE(TestEllipseSC)
+RED_AUTO_TEST_CASE(TestEllipseSC)
 {
     using namespace RDP;
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(ELLIPSESC, Rect(700, 200, 100, 200));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 800, 600), 0);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 800, 600), RDPColor{});
 
-        BOOST_CHECK_EQUAL(0, (out_stream.get_offset()));
+        RED_CHECK_EQUAL(0, (out_stream.get_offset()));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 400, 800, 76));
-        RDPEllipseSC(Rect(0, 0, 800, 600), 0).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(0, 0, 800, 600), RDPColor{}).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[7] = {
             SMALL | BOUNDS | STANDARD | DELTA,
@@ -62,33 +60,33 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
-        BOOST_CHECK_EQUAL(0, common_cmd.clip.x);
-        BOOST_CHECK_EQUAL(400, common_cmd.clip.y);
-        BOOST_CHECK_EQUAL(800, common_cmd.clip.cx);
-        BOOST_CHECK_EQUAL(76, common_cmd.clip.cy);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(0, common_cmd.clip.x);
+        RED_CHECK_EQUAL(400, common_cmd.clip.y);
+        RED_CHECK_EQUAL(800, common_cmd.clip.cx);
+        RED_CHECK_EQUAL(76, common_cmd.clip.cy);
 
-        RDPEllipseSC cmd(Rect(0, 0, 800, 600), 0);
+        RDPEllipseSC cmd(Rect(0, 0, 800, 600), RDPColor{});
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
                             RDPOrderCommon(ELLIPSESC, Rect(0, 400, 800, 76)),
-                            RDPEllipseSC(Rect(0, 0, 800, 600), 0),
+                            RDPEllipseSC(Rect(0, 0, 800, 600), RDPColor{}),
                             "ellipsesc draw 01");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
-        BOOST_CHECK_EQUAL(0, (out_stream.get_offset()));
+        RED_CHECK_EQUAL(0, (out_stream.get_offset()));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(0, 0, 10, 10), 0xFFFFFF).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(0, 0, 10, 10), encode_color24()(WHITE)).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[2] = {SMALL | CHANGE | STANDARD | DELTA, ELLIPSESC};
         check_datas(out_stream.get_offset(), out_stream.get_data(), 2, datas, "ellipse draw identical");
@@ -97,27 +95,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(0, 0, 10, 10), 0xFFFFFF),
+            RDPEllipseSC(Rect(0, 0, 10, 10), encode_color24()(WHITE)),
             "ellipse draw identical");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(5, 0, 10, 10), 0xFFFFFF).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 0, 10, 10), encode_color24()(WHITE)).emit(out_stream, newcommon, state_common, state_ellipse);
         // out_stream = old - cmd
 
         uint8_t datas[5] = {CHANGE | STANDARD | DELTA,
@@ -132,27 +130,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(5, 0, 10, 10), 0xFFFFFF),
+            RDPEllipseSC(Rect(5, 0, 10, 10), encode_color24()(WHITE)),
             "ellipse draw 1");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC newcmd(Rect(5, 10, 25, 30), 0xFFFFFF);
+        RDPEllipseSC newcmd(Rect(5, 10, 25, 30), encode_color24()(WHITE));
         newcmd.emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[7] = {CHANGE | STANDARD | DELTA,
@@ -169,27 +167,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(5, 10, 25, 30), 0xFFFFFF),
+            RDPEllipseSC(Rect(5, 10, 25, 30), encode_color24()(WHITE)),
             "ellipse draw 2");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(0, 300, 10, 10), 0xFFFFFF).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(0, 300, 10, 10), encode_color24()(WHITE)).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[7] = {CHANGE | STANDARD, ELLIPSESC,
                             0x02 | 0x08, // top and bottom coordinate changed
@@ -202,27 +200,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(0, 300, 10, 10), 0xFFFFFF),
+            RDPEllipseSC(Rect(0, 300, 10, 10), encode_color24()(WHITE)),
                             "ellipse draw 3");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(5, 300, 10, 10), 0xFFFFFF).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 300, 10, 10), encode_color24()(WHITE)).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[11] = {CHANGE | STANDARD, ELLIPSESC,
                              0x0f,    // left top right bottom coordinate changed
@@ -237,27 +235,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
                             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-                            RDPEllipseSC(Rect(5, 300, 10, 10), 0xFFFFFF),
+                            RDPEllipseSC(Rect(5, 300, 10, 10), encode_color24()(WHITE)),
                             "ellipse draw 4");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(5, 300, 25, 30), 0xFFFFFF).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 300, 25, 30), encode_color24()(WHITE)).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[11] = {CHANGE | STANDARD, ELLIPSESC,
             0x0F,   // x, y, w, h coordinates changed
@@ -272,27 +270,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(5, 300, 25, 30), 0xFFFFFF),
+            RDPEllipseSC(Rect(5, 300, 25, 30), encode_color24()(WHITE)),
             "ellipse draw 5");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(5, 300, 25, 30), 0x102030).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 300, 25, 30), encode_color24()(BGRColor{0x102030})).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[14] = {CHANGE | STANDARD, ELLIPSESC,
             0x4F,   // top left right bottom coordinates and color changed
@@ -308,27 +306,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(5, 300, 25, 30), 0x102030),
+            RDPEllipseSC(Rect(5, 300, 25, 30), encode_color24()(BGRColor{0x102030})),
             "ellipse draw 6");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 300, 310, 20));
-        RDPEllipseSC(Rect(5, 300, 25, 30), 0x102030).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 300, 25, 30), encode_color24()(BGRColor{0x102030})).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[21] = {CHANGE | STANDARD | BOUNDS, ELLIPSESC,
             0x4F,   // x, y, w, h, r, g, b coordinates changed
@@ -348,27 +346,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 300, 310, 20)),
-            RDPEllipseSC(Rect(5, 300, 25, 30), 0x102030),
+            RDPEllipseSC(Rect(5, 300, 25, 30), encode_color24()(BGRColor{0x102030})),
             "ellipse draw 7");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(10, 10, 800, 600));
-        RDPEllipseSC(Rect(5, 0, 810, 605), 0x102030).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 0, 810, 605), encode_color24()(BGRColor{0x102030})).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[17] = {CHANGE | STANDARD | BOUNDS, ELLIPSESC,
             0x4D,   // x, w, h, r, g, b coordinates changed
@@ -388,27 +386,27 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(10, 10, 800, 600)),
-            RDPEllipseSC(Rect(5, 0, 810, 605), 0x102030),
+            RDPEllipseSC(Rect(5, 0, 810, 605), encode_color24()(BGRColor{0x102030})),
             "ellipse draw 8");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(5, 0, 810, 605), 0x102030).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 0, 810, 605), encode_color24()(BGRColor{0x102030})).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[11] = {
             STANDARD | BOUNDS | LASTBOUNDS,
@@ -424,29 +422,29 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(5, 0, 810, 605), 0x102030),
+            RDPEllipseSC(Rect(5, 0, 810, 605), encode_color24()(BGRColor{0x102030})),
             "Ellipse Draw 9");
     }
 
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(0, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
-        BOOST_CHECK_EQUAL(0, (out_stream.get_offset()));
+        RED_CHECK_EQUAL(0, (out_stream.get_offset()));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(0, 0, 10, 10), 0xFFFFFF, 0x0A, 0x00).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(0, 0, 10, 10), encode_color24()(WHITE), 0x0A, 0x00).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[5] = { CHANGE | STANDARD | DELTA,
                              ELLIPSESC,
@@ -459,17 +457,17 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(0, 0, 10, 10), 0xFFFFFF, 0x0A, 0x00),
+            RDPEllipseSC(Rect(0, 0, 10, 10), encode_color24()(WHITE), 0x0A, 0x00),
             "ellipse draw 10");
     }
 
@@ -477,10 +475,10 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
     {
         StaticOutStream<1000> out_stream;
         RDPOrderCommon state_common(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC state_ellipse(Rect(0, 0, 10, 10), encode_color24()(WHITE));
 
         RDPOrderCommon newcommon(ELLIPSESC, Rect(0, 0, 800, 600));
-        RDPEllipseSC(Rect(5, 0, 810, 605), 0x102030, 0x0E, 0x00).emit(out_stream, newcommon, state_common, state_ellipse);
+        RDPEllipseSC(Rect(5, 0, 810, 605), encode_color24()(BGRColor{0x102030}), 0x0E, 0x00).emit(out_stream, newcommon, state_common, state_ellipse);
 
         uint8_t datas[13] = {
             STANDARD | BOUNDS | LASTBOUNDS,
@@ -498,23 +496,23 @@ BOOST_AUTO_TEST_CASE(TestEllipseSC)
 
         RDPOrderCommon common_cmd = state_common;
         uint8_t control = in_stream.in_uint8();
-        BOOST_CHECK_EQUAL(true, !!(control & STANDARD));
+        RED_CHECK_EQUAL(true, !!(control & STANDARD));
         RDPPrimaryOrderHeader header = common_cmd.receive(in_stream, control);
 
-        BOOST_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
+        RED_CHECK_EQUAL(static_cast<uint8_t>(ELLIPSESC), common_cmd.order);
 
-        RDPEllipseSC cmd(Rect(0, 0, 10, 10), 0xFFFFFF);
+        RDPEllipseSC cmd(Rect(0, 0, 10, 10), encode_color24()(WHITE));
         cmd.receive(in_stream, header);
 
         check<RDPEllipseSC>(common_cmd, cmd,
             RDPOrderCommon(ELLIPSESC, Rect(0, 0, 800, 600)),
-            RDPEllipseSC(Rect(5, 0, 810, 605), 0x102030, 0x0E, 0x00),
+            RDPEllipseSC(Rect(5, 0, 810, 605), encode_color24()(BGRColor{0x102030}), 0x0E, 0x00),
             "Ellipse Draw 11");
     }
 
 
     RDPEllipseSC nullellipse;
-    BOOST_CHECK(nullellipse.id() == ELLIPSESC);
+    RED_CHECK(nullellipse.id() == ELLIPSESC);
     //nullellipse.log(1, Rect());
     //nullellipse.print(Rect());
 }
