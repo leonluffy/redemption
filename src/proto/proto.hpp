@@ -567,6 +567,22 @@ namespace proto
                 }
                 return {};
             }
+
+            static sizeof_ size()
+            {
+                return {};
+            }
+        };
+
+        template<std::size_t N>
+        struct pad
+        {
+            using sizeof_ = static_size<N>;
+
+            sizeof_ static_serialize(uint8_t * p) const
+            {
+                return {};
+            }
         };
 
         template<std::size_t N> using array_u8 = array<u8, N>;
@@ -2210,6 +2226,20 @@ namespace proto
     constexpr auto if_(Cond cond)
     {
         return detail::if_<Deps, Cond>{cond};
+    }
+
+    /// \brief if_(cond)[var_if].else_[var_else]
+    template<class Cond, class TIf, class TElse>
+    constexpr auto choose(Cond cond, TIf var_if, TElse var_else)
+    {
+        return if_(cond)[var_if].else_[var_else];
+    }
+
+    /// \brief if_< Deps>(cond)[var_if].else_[var_else]
+    template<class Deps, class Cond, class TIf, class TElse>
+    constexpr auto choose(Cond cond, TIf var_if, TElse var_else)
+    {
+        return if_<Deps>(cond)[var_if].else_[var_else];
     }
 
     template<class Var>

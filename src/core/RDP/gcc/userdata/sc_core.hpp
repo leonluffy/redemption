@@ -328,7 +328,7 @@ struct SCCore {
 //         proto::val<class length, proto::types::u16_le>{{236_c}},
 //         encryption_method,
 //         encryption_level,
-//         proto::val<class server_random_size, proto::types::u32_le>{{server_random.opti_size()}},
+//         proto::val<class server_random_size, proto::types::u32_le>{{server_random.size()}},
 //         proto::val<class server_cert_len, proto::types::u32_le>{{184_c}} /* len of rsa info(certificate) */,
 //         server_random,
 //         /* start certificate */
@@ -343,10 +343,10 @@ struct SCCore {
 //         server_proprietary_certificate::rsapk::data_len = 63_c,
 //         server_proprietary_certificate::rsapk::pub_exp,
 //         server_proprietary_certificate::rsapk::modulus,
-//         proto::clear_bytes<class pad1, SEC_PADDING_SIZE>{},
+//         proto::val<class pad1, proto::types::pad<SEC_PADDING_SIZE>>{},
 //         server_proprietary_certificate::w_signature_blob_type = BB_RSA_SIGNATURE_BLOB,
 //         server_proprietary_certificate::w_signature_blob,
-//         proto::clear_bytes<class pad2, SEC_PADDING_SIZE>{}
+//         proto::val<class pad2, proto::types::pad<SEC_PADDING_SIZE>>{}
 //     );
 //
 //     constexpr auto sc_security = proto::choose(
