@@ -1133,7 +1133,12 @@ test-canonical gdi/graphic_cmd_color.hpp ;
 test-canonical gdi/protected_graphics.hpp : <library>bitmap <library>png.o <library>crypto <library>z <library>snappy <library>dl ;
 
 
-test-run test_meta_protocol2 : test_meta_protocol2.cpp : : <cxxflags>-std=c++14 <library>crypto <library>openssl ;
+test-run test_meta_protocol2 : test_meta_protocol2.cpp : :
+    <cxxflags>-std=c++14
+    <toolset>clang:<cxxflags>-Wno-missing-braces # TODO
+    <library>crypto
+    <library>openssl
+;
 explicit test_meta_protocol2 ;
 
 explicit server_sc1 client_sc1 ;

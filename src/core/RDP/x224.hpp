@@ -1476,7 +1476,7 @@ namespace X224
 
 #include "proto/proto.hpp"
 #include "falcon/literals/integer_constant.hpp"
-using namespace falcon::literals::integer_constant_literals;
+using falcon::literals::integer_constant_literals::operator "" _c;
 namespace x224
 {
     PROTO_VAR(proto::types::u8, version);

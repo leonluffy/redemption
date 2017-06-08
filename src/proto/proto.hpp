@@ -289,9 +289,10 @@ namespace proto
     using t_ = typename T::type;
 
     template<class... Ts, class F>
-    void for_each(brigand::list<Ts...>, F && f) {
+    void for_each(brigand::list<Ts...>, F && f)
+    {
         (void)std::initializer_list<int>{
-            (void(f(Ts{})), 1)...
+            ((void)(f(Ts{})), 1)...
         };
     }
 
@@ -450,7 +451,7 @@ namespace proto
 
             safe_int<type> val;
 
-            std::size_t static_serialize(uint8_t * p) const
+            sizeof_ static_serialize(uint8_t * p) const
             {
                 assert(!(val & 0x8000));
                 return u16_be{uint16_t(val|0x8000)}.static_serialize(p);
@@ -543,6 +544,32 @@ namespace proto
                 return this->av;
             }
         };
+
+        template<class ProtoType, std::size_t N>
+        struct array
+        {
+            using type = typename ProtoType::type const (&)[N];
+            using sizeof_ = static_size<ProtoType::sizeof_::value * N>;
+
+            type av;
+
+            constexpr array(array &&) = default;
+            constexpr array(array const &) = default;
+
+            constexpr array(type av) noexcept
+            : av(av)
+            {}
+
+            sizeof_ static_serialize(uint8_t * p) const
+            {
+                for (auto const & v : av) {
+                    p += ProtoType{v}.static_serialize(p);
+                }
+                return {};
+            }
+        };
+
+        template<std::size_t N> using array_u8 = array<u8, N>;
 
         template<class T>
         struct value
@@ -2322,7 +2349,7 @@ namespace proto
                 bool is_ignored = false;
 
                 for (bool is_enable : is_enable_values_list) {
-                    assert(!is_ignored || !is_enable && "previous value is not ignored");
+                    assert((!is_ignored || !is_enable) && "previous value is not ignored");
                     is_ignored |= !is_enable;
                 }
                 #endif
@@ -2415,7 +2442,7 @@ namespace proto
         void named_dep_out(std::basic_ostream<Ch, Tr> & out, brigand::list<T, Ts...>)
         {
             out << "{ " << named_dep<T>{};
-            std::initializer_list<int>{(void(out << " " << named_dep<Ts>{}), 1)...};
+            (void)std::initializer_list<int>{((void)(out << " " << named_dep<Ts>{}), 1)...};
             out << " }";
         }
     }

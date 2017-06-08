@@ -1,5 +1,5 @@
 #define RED_TEST_MODULE TestVerifier
-#include <boost/test/auto_unit_test.hpp>
+#include "system/redemption_unit_tests.hpp"
 
 #define LOGPRINT
 // TODO
@@ -134,20 +134,10 @@ inline bool check_range(const_byte_array p, const_byte_array mem, char * message
     return true;
 }
 
-#define CHECK_RANGE(p, mem)                      \
-    {                                            \
-        char message[1024*64];                   \
-        if (!check_range(p, mem, message)) {     \
-            RED_CHECK_MESSAGE(false, message); \
-        }                                        \
-    }
 
-inline array_view_const_u8 iov2av(iovec const iov)
+inline array_view_const_u8 make_array_view(iovec const iov)
 {
-    return array_view_const_u8{
-        reinterpret_cast<uint8_t const *>(iov.iov_base),
-        iov.iov_len
-    };
+    return {static_cast<uint8_t const *>(iov.iov_base), iov.iov_len};
 }
 
 
@@ -196,10 +186,7 @@ void test_new()
     proto::apply(
         buffering2_checker([&used](iovec_array iovs){
             BOOST_CHECK_EQUAL(iovs.size(), 1);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff")
-            );
+            RED_CHECK_MEM_AC(iovs[0], "\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff");
             log_policy::send(iovs);
             used = true;
         }),
@@ -213,7 +200,7 @@ void test_new()
     used = false;
     proto::apply(
         buffering3_checker([&used](array_view_u8 av) {
-            CHECK_RANGE(av, cstr_array_view("\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff"));
+            RED_CHECK_MEM_AC(av, "\x03\x00\x00\x0b\x02\xf0\x80\xf7\xff\xff\xff");
             iovec iov{av.data(), av.size()};
             log_policy::send(iovec_array{&iov, 1u});
             used = true;
@@ -331,16 +318,8 @@ void other_test()
     auto buffuring2_ll = buffering2_checker([&used](iovec_array iovs){
         log_policy::send(iovs);
         BOOST_REQUIRE_EQUAL(iovs.size(), 2);
-        BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
-        BOOST_CHECK_EQUAL(iovs[1].iov_len, 2);
-        CHECK_RANGE(
-            iov2av(iovs[0]),
-            cstr_array_view("\x02")
-        );
-        CHECK_RANGE(
-            iov2av(iovs[1]),
-            cstr_array_view("\x03\x02")
-        );
+        RED_CHECK_MEM_AC(iovs[0], "\x02");
+        RED_CHECK_MEM_AC(iovs[1], "\x03\x02");
         used = true;
     });
     proto::apply(
@@ -356,11 +335,7 @@ void other_test()
         buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 3);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x02\x03\x02")
-            );
+            RED_CHECK_MEM_AC(iovs[0], "\x02\x03\x02");
             used = true;
         }),
         b2(),
@@ -396,21 +371,9 @@ void other_test()
         buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 3);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
-            BOOST_CHECK_EQUAL(iovs[1].iov_len, 2);
-            BOOST_CHECK_EQUAL(iovs[2].iov_len, 3);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x05")
-            );
-            CHECK_RANGE(
-                iov2av(iovs[1]),
-                cstr_array_view("\x03\x02")
-            );
-            CHECK_RANGE(
-                iov2av(iovs[2]),
-                cstr_array_view("abc")
-            );
+            RED_CHECK_MEM_AC(iovs[0], "\x05");
+            RED_CHECK_MEM_AC(iovs[1], "\x03\x02");
+            RED_CHECK_MEM_AC(iovs[2], "abc");
             used = true;
         }),
         b2(),
@@ -443,21 +406,9 @@ void other_test()
         buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 3);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 1);
-            BOOST_CHECK_EQUAL(iovs[1].iov_len, 1);
-            BOOST_CHECK_EQUAL(iovs[2].iov_len, 3);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x04")
-            );
-            CHECK_RANGE(
-                iov2av(iovs[1]),
-                cstr_array_view("\x02")
-            );
-            CHECK_RANGE(
-                iov2av(iovs[2]),
-                cstr_array_view("abc")
-            );
+            RED_CHECK_MEM_AC(iovs[0], "\x04");
+            RED_CHECK_MEM_AC(iovs[1], "\x02");
+            RED_CHECK_MEM_AC(iovs[2], "abc");
             used = true;
         }),
         proto::desc(
@@ -481,11 +432,7 @@ void other_test()
         buffering2_checker([&used](iovec_array iovs){
             log_policy::send(iovs);
             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x03\x02\x01\x07")
-            );
+            RED_CHECK_MEM_AC(iovs[0], "\x03\x02\x01\x07");
             used = true;
         }),
         desc_subpkt()
@@ -498,11 +445,7 @@ void other_test()
     proto::apply(
         buffering2_checker([&used](iovec_array iovs){
             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
-            BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
-            CHECK_RANGE(
-                iov2av(iovs[0]),
-                cstr_array_view("\x02\x03\x00\03")
-            );
+            RED_CHECK_MEM_AC(iovs[0], "\x02\x03\x00\03");
             used = true;
         }),
         proto::desc(
@@ -512,34 +455,22 @@ void other_test()
     BOOST_CHECK(used);
 
 
-//     auto desc_optseq = proto::desc(
-//         proto::pkt_sz<proto::types::u8>(),
-//         XXX::a,
-//         proto::optseq(XXX::b, XXX::d)
-//     );
-//
-//     struct Policy6 : log_policy
-//     {
-//         void send(iovec_array iovs) const {
-//             log_policy::send(iovs);
-//             BOOST_REQUIRE_EQUAL(iovs.size(), 1);
-//             BOOST_CHECK_EQUAL(iovs[0].iov_len, 4);
-//             CHECK_RANGE(
-//                 iov2av(iovs[0]),
-//                 cstr_array_view("\x03\x02\x01\x07")
-//             );
-//             this->used = true;
-//         }
-//
-//         Policy6(bool & used) : used(used) {}
-//         bool & used;
-//     };
-//     used = false;
-//     proto::apply(
-//         Buffering2<Policy6>{used},
-//         desc_optseq(XXX::a = 1_c, XXX::b = 2_c, XXX::d = 3_c)
-//     );
-//     BOOST_CHECK(used);
+    used = false;
+    auto desc_optseq = proto::desc(
+        proto::current_pkts_sz<proto::types::u8>(),
+        XXX::a,
+        proto::optseq(XXX::b, XXX::d)
+    );
+    proto::apply(
+        buffering2_checker([&used](iovec_array iovs){
+            log_policy::send(iovs);
+            BOOST_REQUIRE_EQUAL(iovs.size(), 1);
+            RED_CHECK_MEM_AC(iovs[0], "\x05\x01\x02\x03\x00");
+            used = true;
+        }),
+        desc_optseq(XXX::a = 1_c, XXX::b = 2_c, XXX::d = 3_c)
+    );
+    BOOST_CHECK(used);
 }
 
 // #include <chrono>

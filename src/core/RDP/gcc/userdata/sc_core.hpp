@@ -268,11 +268,13 @@ struct SCCore {
 //     PROTO_VAR(proto::types::u32_le, early_capability_flags);
 //     PROTO_VAR(proto::types::enum_u16_le<DATA_BLOCK_TYPE>, user_data_type);
 //
+//     constexpr auto sc_core_opt = proto::optseq(client_requested_protocols, early_capability_flags);
+//
 //     constexpr auto sc_core = proto::desc(
 //         user_data_type = SC_CORE,
-//         proto::optseq_size() + 8_c,
+//         sc_core_opt.get_optseq_sz() + 8_c,
 //         version,
-//         proto::optseq(client_requested_protocols, early_capability_flags)
+//         sc_core_opt
 //     );
 //
 //     PROTO_VAR(proto::types::u16_le, mcs_channel_id);
@@ -280,7 +282,7 @@ struct SCCore {
 //
 //     constexpr auto sc_net = proto::desc(
 //         user_data_type = SC_NET,
-//         proto::pkt_sz<proto::types::u16_le>{},
+//         proto::current_pkts_sz<proto::types::u16_le>{},
 //         mcs_channel_id,
 //         channel_id_list
 //     );
@@ -330,7 +332,7 @@ struct SCCore {
 //         proto::val<class server_cert_len, proto::types::u32_le>{{184_c}} /* len of rsa info(certificate) */,
 //         server_random,
 //         /* start certificate */
-//         dw_version |= temporary << 31,
+//         dw_version |= temporary << 31_c,
 //         server_proprietary_certificate::dw_sig_alg_id = SIGNATURE_ALG_RSA,
 //         server_proprietary_certificate::dw_key_alg_id = KEY_EXCHANGE_ALG_RSA,
 //         server_proprietary_certificate::w_public_key_blob_type = BB_RSA_KEY_BLOB,
