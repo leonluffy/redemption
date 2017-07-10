@@ -6199,8 +6199,8 @@ public:
 
                 const uint16_t entries_max = totalEntriesCache[cache_id];
                 for (uint16_t cache_index = 0; cache_index < entries_max; cache_index++) {
-                    pklpdu.entries[pdu_number_of_entries].Key1 = cache[cache_index].sig.sig_32[0];
-                    pklpdu.entries[pdu_number_of_entries].Key2 = cache[cache_index].sig.sig_32[1];
+                    pklpdu.entries[pdu_number_of_entries].Key1 = cache[cache_index].sig.hash>>32;
+                    pklpdu.entries[pdu_number_of_entries].Key2 = cache[cache_index].sig.hash;
 
                     pklpdu.numEntriesCache[cache_id]++;
                     number_of_entries++;

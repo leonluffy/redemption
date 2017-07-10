@@ -43,27 +43,22 @@ private:
 
     class map_key
     {
-        uint8_t key[8];
+        uint64_t hash;
 
     public:
-        explicit map_key(const uint8_t (& sig)[8]) {
-            memcpy(this->key, sig, sizeof(this->key));
+        explicit map_key(uint64_t hash)
+          : hash(hash)
+        {
         }
 
         bool operator<(const map_key & other) const /*noexcept*/ {
-            typedef std::pair<const uint8_t *, const uint8_t *> iterator_pair;
-            iterator_pair p = std::mismatch(this->begin(), this->end(), other.begin());
-            return p.first == this->end() ? false : *p.first < *p.second;
+            return this->hash < other.hash;
         }
 
         struct CString
         {
-            explicit CString(const uint8_t (& sig)[8]) {
-                std::snprintf(
-                    this->s, sizeof(this->s), "%02X%02X%02X%02X%02X%02X%02X%02X",
-                    unsigned(sig[0]), unsigned(sig[1]), unsigned(sig[2]), unsigned(sig[3]),
-                    unsigned(sig[4]), unsigned(sig[5]), unsigned(sig[6]), unsigned(sig[7])
-                );
+            explicit CString(uint64_t hash) {
+                std::snprintf(this->s, sizeof(this->s), "%08lX", hash);
             }
 
             const char * c_str() const
@@ -74,15 +69,8 @@ private:
         };
 
         CString str() const {
-            return CString(this->key);
+            return CString(this->hash);
         }
-
-    private:
-        uint8_t const * begin() const
-        { return this->key; }
-
-        uint8_t const * end() const
-        { return this->key + sizeof(this->key); }
     };
 
     typedef std::map<map_key, map_value> container_type;
@@ -156,9 +144,7 @@ private:
             t.recv_boom(end, 13); // sig(8) + original_bpp(1) + cx(2) + cy(2);
             end += 13;
 
-            uint8_t sig[8];
-
-            stream.in_copy_bytes(sig, 8); // sig(8);
+            uint64_t const sig = stream.in_uint64_le(); // sig(8);
 
             uint8_t  original_bpp = stream.in_uint8();
             REDASSERT((original_bpp == 8) || (original_bpp == 15) || (original_bpp == 16) ||
@@ -199,9 +185,8 @@ private:
                           , &original_palette, cx, cy, stream.get_data()
                           , bmp_size);
 
-                uint8_t sha1[SslSha1::DIGEST_LENGTH];
-                bmp.compute_sha1(sha1);
-                if (memcmp(sig, sha1, sizeof(sig))) {
+                uint64_t const hash = bmp.get_hash();
+                if (sig != hash) {
                     LOG( LOG_ERR
                        , "BmpCachePersister::preload_from_disk: Preload failed. Cause: bitmap or key corruption.");
                     REDASSERT(false);
@@ -222,16 +207,13 @@ public:
                          , uint8_t number_of_entries, uint16_t first_entry_index) {
         uint16_t   max_number_of_entries = this->bmp_cache.get_cache(cache_id).size();
         uint16_t   cache_index           = first_entry_index;
-        const union Sig {
-            uint8_t  sig_8[8];
-            uint32_t sig_32[2];
-        }              * sig             = reinterpret_cast<const Sig *>(entries);
+        const uint64_t * sig             = reinterpret_cast<const uint64_t *>(entries);
         for (uint8_t entry_index = 0;
              (entry_index < number_of_entries) && (cache_index < max_number_of_entries);
              entry_index++, cache_index++, sig++) {
             REDASSERT(!this->bmp_cache.get_cache(cache_id)[cache_index]);
 
-            map_key key(sig->sig_8);
+            map_key key(*sig);
 
             container_type::iterator it = this->bmp_map[cache_id].find(key);
             if (it != this->bmp_map[cache_id].end()) {
@@ -240,7 +222,7 @@ public:
                 }
 
                 if (this->bmp_cache.get_cache(cache_id).size() > cache_index) {
-                    this->bmp_cache.put(cache_id, cache_index, it->second, sig->sig_32[0], sig->sig_32[1]);
+                    this->bmp_cache.put(cache_id, cache_index, it->second, *sig >> 32, *sig);
                 }
 
                 this->bmp_map[cache_id].erase(it);
@@ -307,12 +289,7 @@ private:
             t.recv_boom(end, 13); // sig(8) + original_bpp(1) + cx(2) + cy(2);
             end +=  13;
 
-            union {
-                uint8_t  sig_8[8];
-                uint32_t sig_32[2];
-            } sig;
-
-            stream.in_copy_bytes(sig.sig_8, 8); // sig(8);
+            uint64_t const sig = stream.in_uint64_le(); // sig(8);
 
             uint8_t  original_bpp = stream.in_uint8();
             REDASSERT((original_bpp == 8) || (original_bpp == 15) || (original_bpp == 16) ||
@@ -340,7 +317,7 @@ private:
 
             if (bmp_cache.get_cache(cache_id).persistent() && (i < bmp_cache.get_cache(cache_id).size())) {
                 if (bool(verbose & Verbose::bmp_info)) {
-                    map_key key(sig.sig_8);
+                    map_key key(sig);
                     LOG( LOG_INFO
                         , "BmpCachePersister::load_from_disk: sig=\"%s\" original_bpp=%u cx=%u cy=%u bmp_size=%u"
                         , key.str(), original_bpp, cx, cy, bmp_size);
@@ -348,7 +325,7 @@ private:
 
                 Bitmap bmp(bmp_cache.bpp, original_bpp, &original_palette, cx, cy, stream.get_data(), stream.get_data() - end);
 
-                bmp_cache.put(cache_id, i, bmp, sig.sig_32[0], sig.sig_32[1]);
+                bmp_cache.put(cache_id, i, bmp, sig>>32, sig);
             }
 
             end = buf;
@@ -400,7 +377,7 @@ private:
                 stream.rewind();
 
                 const Bitmap &   bmp      = cache[cache_index].bmp;
-                const uint8_t (& sig)[8]  = cache[cache_index].sig.sig_8;
+                const uint64_t   sig      = cache[cache_index].sig.hash;
                 const uint16_t   bmp_size = bmp.bmp_size();
                 const uint8_t  * bmp_data = bmp.data();
 
@@ -433,7 +410,7 @@ private:
                        , key.str(), bmp.bpp(), bmp.cx(), bmp.cy(), bmp_size);
                 }
 
-                stream.out_copy_bytes(sig, 8);
+                stream.out_uint64_le(sig);
                 stream.out_uint8(bmp.bpp());
                 stream.out_uint16_le(bmp.cx());
                 stream.out_uint16_le(bmp.cy());

@@ -57,18 +57,17 @@ private:
         Bitmap bmp;
         #endif
         uint_fast32_t stamp;
-        uint8_t sha1[SslSha1::DIGEST_LENGTH];
+        uint64_t hash;
         bool is_valid;
 
         cache_lite_element()
         : stamp(0)
-        , sha1()
         , is_valid(false) {}
 
-        explicit cache_lite_element(const uint8_t (& sha1_)[SslSha1::DIGEST_LENGTH])
+        explicit cache_lite_element(uint64_t hash)
         : stamp(0)
+        , hash(hash)
         , is_valid(true) {
-            memcpy(this->sha1, sha1_, sizeof(this->sha1));
         }
 
         cache_lite_element(cache_lite_element const &) = delete;
@@ -89,11 +88,12 @@ private:
     {
         Bitmap bmp;
         uint_fast32_t stamp;
-        union {
-            uint8_t  sig_8[8];
-            uint32_t sig_32[2];
+        struct {
+            uint64_t hash;
+            uint32_t low() const { return hash; }
+            uint32_t high() const { return hash >> 32; }
         } sig;
-        uint8_t sha1[SslSha1::DIGEST_LENGTH];
+        uint64_t hash;
         bool cached;
 
         cache_element()
@@ -222,10 +222,7 @@ private:
         {}
 
         bool operator<(value_set const & other) const {
-            typedef std::pair<const uint8_t *, const uint8_t *> iterator_pair;
-            const uint8_t * e = this->elem.sha1 + sizeof(this->elem.sha1);
-            iterator_pair p = std::mismatch(this->elem.sha1 + 0, e, other.elem.sha1 + 0);
-            return p.first == e ? false : *p.first < *p.second;
+            return this->elem.hash < other.elem.hash;
         }
     };
 
@@ -301,10 +298,9 @@ private:
         }
 
         #ifndef NDEBUG
-        void check_uniq_bmp(uint8_t const * sig, Bitmap const & bmp) const {
+        void check_uniq_bmp(uint64_t const sig, Bitmap const & bmp) const {
             auto pred = [sig, &bmp](const T & e) {
-                return e
-                    && (*reinterpret_cast<uint64_t const *>(&sig[0]) == *reinterpret_cast<uint64_t const *>(&e.sha1[0]))
+                return e && sig == e.hash
                     ? (bmp.cx() != e.bmp.cx() || bmp.cy() != e.bmp.cy() || memcmp(bmp.data(), e.bmp.data(), bmp.bmp_size()))
                     : false;
             };
@@ -539,13 +535,12 @@ public:
             r.remove(e);
         }
         e.bmp = bmp;
-        e.bmp.compute_sha1(e.sha1);
+        e.hash = e.bmp.get_hash();
         e.stamp = ++this->stamp;
         e.cached = true;
 
         if (r.persistent()) {
-            e.sig.sig_32[0] = key1;
-            e.sig.sig_32[1] = key2;
+            e.sig.hash = uint64_t(key1) << 32 | key2;
         }
 
         r.add(e);
@@ -677,17 +672,16 @@ public:
         const bool persistent = cache.persistent();
 
         cache_element e_compare(bmp);
-        bmp.compute_sha1(e_compare.sha1);
+        e_compare.hash = bmp.get_hash();
 
         const uint32_t cache_index_32 = cache.get_cache_index(e_compare);
         if (cache_index_32 != cache_range<cache_element>::invalid_cache_index) {
             if (bool(this->verbose & Verbose::persistent)) {
                 if (persistent) {
                     LOG( LOG_INFO
-                        , "BmpCache: %s use bitmap %02X%02X%02X%02X%02X%02X%02X%02X stored in persistent disk bitmap cache"
+                        , "BmpCache: %s use bitmap %08lX stored in persistent disk bitmap cache"
                         , ((this->owner == Front) ? "Front" : ((this->owner == Mod_rdp) ? "Mod_rdp" : "Recorder"))
-                        , e_compare.sha1[0], e_compare.sha1[1], e_compare.sha1[2], e_compare.sha1[3]
-                        , e_compare.sha1[4], e_compare.sha1[5], e_compare.sha1[6], e_compare.sha1[7]);
+                        , e_compare.hash);
                 }
             }
             cache[cache_index_32].stamp = ++this->stamp;
@@ -711,7 +705,7 @@ public:
         if (persistent && this->use_waiting_list) {
             // The bitmap cache is persistent.
 
-            cache_lite_element le_compare(e_compare.sha1);
+            cache_lite_element le_compare(e_compare.hash);
 
             const uint32_t cache_index_32 = this->waiting_list.get_cache_index(le_compare);
             if (cache_index_32 == cache_range<cache_lite_element>::invalid_cache_index) {
@@ -720,10 +714,9 @@ public:
                 id          |= IN_WAIT_LIST;
 
                 if (bool(this->verbose & Verbose::persistent)) {
-                    LOG( LOG_INFO, "BmpCache: %s Put bitmap %02X%02X%02X%02X%02X%02X%02X%02X into wait list."
+                    LOG( LOG_INFO, "BmpCache: %s Put bitmap %08lX into wait list."
                         , ((this->owner == Front) ? "Front" : ((this->owner == Mod_rdp) ? "Mod_rdp" : "Recorder"))
-                        , le_compare.sha1[0], le_compare.sha1[1], le_compare.sha1[2], le_compare.sha1[3]
-                        , le_compare.sha1[4], le_compare.sha1[5], le_compare.sha1[6], le_compare.sha1[7]);
+                        , le_compare.hash);
                 }
             }
             else {
@@ -732,10 +725,9 @@ public:
 
                 if (bool(this->verbose & Verbose::persistent)) {
                     LOG( LOG_INFO
-                        , "BmpCache: %s Put bitmap %02X%02X%02X%02X%02X%02X%02X%02X into persistent cache, cache_index=%u"
+                        , "BmpCache: %s Put bitmap %08lX into persistent cache, cache_index=%u"
                         , ((this->owner == Front) ? "Front" : ((this->owner == Mod_rdp) ? "Mod_rdp" : "Recorder"))
-                        , le_compare.sha1[0], le_compare.sha1[1], le_compare.sha1[2], le_compare.sha1[3]
-                        , le_compare.sha1[4], le_compare.sha1[5], le_compare.sha1[6], le_compare.sha1[7], oldest_cidx);
+                        , le_compare.hash, oldest_cidx);
                 }
             }
         }
@@ -747,15 +739,15 @@ public:
             if (e) {
                 cache_real.remove(e);
             }
-            ::memcpy(e.sig.sig_8, e_compare.sha1, sizeof(e.sig.sig_8));
-            ::memcpy(e.sha1, e_compare.sha1, 20);
+            e.sig.hash = e_compare.hash;
+            e.hash = e_compare.hash;
             e.bmp = bmp;
             e.stamp = ++this->stamp;
             e.cached = true;
             cache_real.add(e);
             #ifndef NDEBUG
             if (cache_real.persistent()) {
-                cache_real.check_uniq_bmp(e.sig.sig_8, bmp);
+                cache_real.check_uniq_bmp(e.sig.hash, bmp);
             }
             #endif
         }
@@ -764,7 +756,7 @@ public:
             if (e) {
                 this->waiting_list.remove(e);
             }
-            ::memcpy(e.sha1, e_compare.sha1, 20);
+            e.hash = e_compare.hash;
             e.is_valid = true;
             #ifndef NDEBUG
             e.bmp = e_compare.bmp;
@@ -774,7 +766,7 @@ public:
             this->waiting_list.add(e);
             #ifndef NDEBUG
             if (this->waiting_list.persistent()) {
-                this->waiting_list.check_uniq_bmp(e.sha1, e.bmp);
+                this->waiting_list.check_uniq_bmp(e.hash, e.bmp);
             }
             #endif
         }

@@ -65,8 +65,8 @@ class Bitmap
         // Memoize compressed bitmap
         /*mutable*/ uint8_t * data_compressed_;
         size_t size_compressed_;
-        mutable uint8_t sha1_[SslSha1::DIGEST_LENGTH];
-        mutable bool sha1_is_init_;
+        mutable uint64_t hash;
+        mutable bool hash_is_init_;
 
         DataBitmapBase(uint8_t bpp, uint16_t cx, uint16_t cy, uint8_t * ptr) noexcept
         : cx_(cx)
@@ -78,7 +78,7 @@ class Bitmap
         , ptr_(ptr)
         , data_compressed_(nullptr)
         , size_compressed_(0)
-        , sha1_is_init_(false)
+        , hash_is_init_(false)
         {}
     };
 
@@ -126,24 +126,31 @@ protected:
             aux_::bitmap_data_allocator.dealloc(cdata);
         }
 
-        void copy_sha1(uint8_t (&sig)[SslSha1::DIGEST_LENGTH]) const {
-            if (!this->sha1_is_init_) {
-                this->sha1_is_init_ = true;
-                SslSha1 sha1;
+        uint64_t get_hash() const {
+            if (!this->hash_is_init_) {
+                this->hash_is_init_ = true;
+                uint64_t h = 0xcbf29ce484222325u;
+                auto fnv1a = [&h](cbyte_array rng){
+                    for (auto c : rng) {
+                        h ^= c;
+                        h *= 0x100000001b3u;
+                    }
+                    return h;
+                };
                 if (this->bpp_ == 8) {
-                    sha1.update(this->data_palette(), sizeof(BGRPalette));
+                    fnv1a({this->data_palette(), sizeof(BGRPalette)});
                 }
-                sha1.update(&this->bpp_, sizeof(this->bpp_));
-                sha1.update(reinterpret_cast<const uint8_t *>(&this->cx_), sizeof(this->cx_));
-                sha1.update(reinterpret_cast<const uint8_t *>(&this->cy_), sizeof(this->cy_));
+                fnv1a({&this->bpp_, sizeof(this->bpp_)});
+                fnv1a({reinterpret_cast<const uint8_t *>(&this->cx_), sizeof(this->cx_)});
+                fnv1a({reinterpret_cast<const uint8_t *>(&this->cy_), sizeof(this->cy_)});
                 const uint8_t * first = this->get();
                 const uint8_t * last = first + this->cy_ * this->line_size_;
                 for (; first != last; first += this->line_size_) {
-                    sha1.update(first, this->line_size_);
+                    fnv1a({first, this->line_size_});
                 }
-                sha1.final(this->sha1_);
+                this->hash = h;
             }
-            memcpy(sig, this->sha1_, sizeof(this->sha1_));
+            return this->hash;
         }
 
         uint8_t * get() const noexcept {
@@ -2031,9 +2038,9 @@ private:
     }
 
 public:
-    void compute_sha1(uint8_t (&sig)[SslSha1::DIGEST_LENGTH]) const
+    uint64_t get_hash() const
     {
-        this->data_bitmap->copy_sha1(sig);
+        return this->data_bitmap->get_hash();
     }
 
     Bitmap(uint8_t out_bpp, const Bitmap& bmp)

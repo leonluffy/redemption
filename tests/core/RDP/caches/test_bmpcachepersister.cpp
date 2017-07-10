@@ -325,12 +325,12 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister1)
     uint16_t first_entry_index = 0;
     bmp_cache_persister.process_key_list(cache_id, persistent_list, number_of_entries, first_entry_index);
 
-    RED_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
-    RED_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
+    RED_CHECK_EQUAL(bmp_cache.get_cache(cache_id)[0].sig.hash, 0x99E1C40C);
+    RED_CHECK_EQUAL(bmp_cache.get_cache(cache_id)[1].sig.hash, 0x03E8896E);
 
     RED_CHECK(!bmp_cache.get_cache(cache_id)[2]);
 
-    RED_CHECK((bmp_cache.get_cache(cache_id)[3].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[3].sig.sig_32[1] == 0x0A888EF6));
+    RED_CHECK_EQUAL(bmp_cache.get_cache(cache_id)[3].sig.hash, 0x63D8DC64);
 
     RED_CHECK(!bmp_cache.get_cache(cache_id)[4]);
 }
@@ -356,9 +356,9 @@ RED_AUTO_TEST_CASE(TestBmpCachePersister2)
     BmpCachePersister::load_all_from_disk(bmp_cache, t, "fixtures/persistent_disk_bitmap_cache.hpp", to_verbose_flags(verbose));
 
     uint8_t cache_id = 2;
-    RED_CHECK((bmp_cache.get_cache(cache_id)[0].sig.sig_32[0] == 0x99E1C40C) && (bmp_cache.get_cache(cache_id)[0].sig.sig_32[1] == 0x17C187AF));
-    RED_CHECK((bmp_cache.get_cache(cache_id)[1].sig.sig_32[0] == 0x03E8896E) && (bmp_cache.get_cache(cache_id)[1].sig.sig_32[1] == 0x5C267FC8));
-    RED_CHECK((bmp_cache.get_cache(cache_id)[2].sig.sig_32[0] == 0x63D8DC64) && (bmp_cache.get_cache(cache_id)[2].sig.sig_32[1] == 0x0A888EF6));
+    RED_CHECK_EQUAL(bmp_cache.get_cache(cache_id)[0].sig.hash, 0x99E1C40C);
+    RED_CHECK_EQUAL(bmp_cache.get_cache(cache_id)[1].sig.hash, 0x03E8896E);
+    RED_CHECK_EQUAL(bmp_cache.get_cache(cache_id)[2].sig.hash, 0x63D8DC64);
 
     RED_CHECK(!bmp_cache.get_cache(cache_id)[3]);
 }

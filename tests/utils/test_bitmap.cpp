@@ -3559,14 +3559,9 @@ RED_AUTO_TEST_CASE(TestBitmapCompress)
         Bitmap bmp2(bpp, bpp, &palette332, 192, 18, compressed, sizeof(compressed), true);
 //        bmp2.dump_decompress(bpp, compressed, sizeof(compressed));
 
-        uint8_t sha1[20] = {};
-        uint8_t expected_sha1[20] = {
-            0x82, 0xe1, 0xbb, 0x1b, 0x11, 0x11, 0x85, 0xb8, 0x92, 0x04, 0xc3, 0x2d, 0x31, 0x5d, 0x1c, 0xe9,
-            0xeb, 0x1c, 0xa9, 0x49
-        };
-        bmp2.compute_sha1(sha1);
+        auto const hash = bmp2.get_hash();
 //        hexdump_d(sha1, sizeof(sha1));
-        RED_CHECK(0 == memcmp(expected_sha1, sha1, 20));
+        RED_CHECK_EQUAL(hash, 8807412648133434373);
 //        printf("------- Decompressed ---------\n");
 //        for (size_t i = 0; i < bmp2.bmp_size() ; i++){
 //            if (i % 192 == 0) printf("\n");

@@ -785,15 +785,9 @@ class RDPBmpCache {
 
 
         if (this->persistent) {
-            union {
-                uint8_t  sig_8[20];
-                uint32_t sig_32[2];
-            } sig;
-            this->bmp.compute_sha1(sig.sig_8);
-            uint32_t * Key1 = sig.sig_32;
-            uint32_t * Key2 = Key1 + 1;
-            stream.out_uint32_le(*Key1);
-            stream.out_uint32_le(*Key2);
+            uint64_t hash = this->bmp.get_hash();
+            stream.out_uint32_le(hash >> 32);
+            stream.out_uint32_le(hash);
             //if (this->verbose & 512) {
             //    LOG(LOG_INFO, "id=%u Key1=%08X Key2=%08X", this->id, *Key1, *Key2);
             //    LOG(LOG_INFO, "Persistent key");
@@ -839,15 +833,9 @@ class RDPBmpCache {
         stream.out_uint8(TS_CACHE_BITMAP_UNCOMPRESSED_REV2);
 
         if (this->persistent) {
-            union {
-                uint8_t  sig_8[20];
-                uint32_t sig_32[2];
-            } sig;
-            this->bmp.compute_sha1(sig.sig_8);
-            uint32_t * Key1 = sig.sig_32;
-            uint32_t * Key2 = Key1 + 1;
-            stream.out_uint32_le(*Key1);
-            stream.out_uint32_le(*Key2);
+            uint64_t hash = this->bmp.get_hash();
+            stream.out_uint32_le(hash >> 32);
+            stream.out_uint32_le(hash);
             //if (this->verbose & 512) {
             //    LOG(LOG_INFO, "Key1=%08X Key2=%08X", *Key1, *Key2);
             //    LOG(LOG_INFO, "Persistent key");
