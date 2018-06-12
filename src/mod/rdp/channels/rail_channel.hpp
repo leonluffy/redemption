@@ -962,7 +962,11 @@ public:
                     {"exe_or_file", serpdu.ExeOrFile()},
                     });
 
-                this->report_message.log5(info);
+                ArcsightLogInfo arc_sight;
+                arc_sight.ApplicationProtocol = "rdp";
+                arc_sight.name = "CLIENT_EXECUTE_REMOTEAPP";
+                arc_sight.filePath = serpdu.ExeOrFile();
+                this->report_message.log6(info, arc_sight);
             }
         }
 

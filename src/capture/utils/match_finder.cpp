@@ -213,7 +213,10 @@ void MatchFinder::report(
         {"pattern", message},
     });
 
-    report_message.log5(info);
+    ArcsightLogInfo arc_info;
+    arc_info.name = pattern_detection_type;
+    arc_info.message = message;
+    report_message.log6(info, arc_info);
 
     report_message.report(
         (is_pattern_kill ? "FINDPATTERN_KILL" : "FINDPATTERN_NOTIFY"),

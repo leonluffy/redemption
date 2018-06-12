@@ -790,7 +790,11 @@ public:
         // set almost null cursor, this is the little dot cursor
         drawable.set_pointer(Pointer(DotPointer{}));
 
-        this->report_message.log5("type=\"SESSION_ESTABLISHED_SUCCESSFULLY\"");
+        ArcsightLogInfo arc_info;
+        arc_info.ApplicationProtocol = "vnc";
+        arc_info.name = "SESSION_ESTABLISHED";
+        arc_info.WallixBastionStatus = "SUCCESS";
+        this->report_message.log6("type=\"SESSION_ESTABLISHED_SUCCESSFULLY\"", arc_info);
 
         Rect const screen_rect(0, 0, this->width, this->height);
 
@@ -3344,7 +3348,12 @@ public:
             {"duration", extra},
             });
 
-        this->report_message.log5(info);
+        ArcsightLogInfo arc_info;
+        arc_info.ApplicationProtocol = "vnc";
+        arc_info.name = "SESSION_DISCONNECTION";
+        std::string duration_msg("duration:");
+        arc_info.message = duration_msg + extra;
+        this->report_message.log6(info, arc_info);
     }
 
     Dimension get_dim() const override

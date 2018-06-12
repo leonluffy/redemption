@@ -119,6 +119,15 @@ public:
         }
     }
 
+    void log6(const std::string & info, const ArcsightLogInfo & arc_info) override {
+        if (this->acl_serial && this->session_log_is_open) {
+            this->acl_serial->log6(info, arc_info);
+        }
+        else {
+            this->buffered_log_params.push_back({info});
+        }
+    }
+
     void update_inactivity_timeout() override
     {
         if (this->acl_serial){
@@ -146,7 +155,10 @@ public:
             this->session_log_is_open = true;
 
             for (LogParam const & log_param : this->buffered_log_params) {
-                this->acl_serial->log5(log_param.info);
+                ArcsightLogInfo arc_info;
+                arc_info.name = "NEW_REMOTE_MOD";
+
+                this->acl_serial->log6(log_param.info, arc_info);
             }
             this->buffered_log_params.clear();
             this->buffered_log_params.shrink_to_fit();

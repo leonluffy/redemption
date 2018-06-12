@@ -23,11 +23,27 @@
 #include <string>
 #include "utils/sugar/noncopyable.hpp"
 
+struct ArcsightLogInfo {
+
+    std::string name;
+    int signatureID = 0;
+    int severity = 5;
+    std::string ApplicationProtocol;
+    std::string WallixBastionStatus;
+    std::string message;
+    std::string filePath;
+    std::string oldFilePath;
+    std::string fileSize = 0;
+
+};
+
 struct ReportMessageApi : noncopyable
 {
     virtual void report(const char * reason, const char * message) = 0;
 
     virtual void log5(const std::string & info) = 0;
+
+    virtual void log6(const std::string & info, const ArcsightLogInfo & asl_info) = 0;
 
     virtual void update_inactivity_timeout() = 0;
 

@@ -548,7 +548,10 @@ public:
                 {"data", stream_to_avchar(this->kbd_stream)}
             });
 
-            this->report_message.log5(this->formatted_message.str());
+            ArcsightLogInfo arc_info;
+            arc_info.name = "KBD_INPUT";
+
+            this->report_message.log6(this->formatted_message.str(), arc_info);
 
             this->kbd_stream.rewind();
         }
@@ -1332,7 +1335,12 @@ public:
                  && this->report_message)
                 {
                     this->formatted_message.assign("TITLE_BAR", {{"data", title}});
-                    this->report_message->log5(this->formatted_message.str());
+
+                    ArcsightLogInfo arc_info;
+                    arc_info.name = "CHANGE_TITLE_BAR";
+                    std::string title_msg("title:");
+                    arc_info.message = title_msg+title.data();
+                    this->report_message->log6(this->formatted_message.str(), arc_info);
                 }
             }
 

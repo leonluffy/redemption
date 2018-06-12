@@ -476,7 +476,12 @@ private:
             {"size", file_size_str}
             });
 
-        this->report_message.log5(info);
+        ArcsightLogInfo arc_sight;
+        arc_sight.ApplicationProtocol = "rdp";
+        arc_sight.name = "CB_COPYING_PASTING_FILE_TO_REMOTE_SESSION";
+        arc_sight.filePath = fd.fileName();
+        arc_sight.fileSize = file_size_str;
+        this->report_message.log6(info, arc_sight);
 
         if (!this->param_dont_log_data_into_syslog){
             LOG(LOG_INFO, "%s", info);
@@ -1051,7 +1056,12 @@ public:
                     {"size", file_size_str}
                     });
 
-                this->report_message.log5(info);
+                ArcsightLogInfo arc_info;
+                arc_info.ApplicationProtocol =  "rdp";
+                arc_info.name = "CB_COPYING_PASTING_FILE_FROM_REMOTE_SESSION";
+                arc_info.filePath = fd.fileName();
+                arc_info.fileSize = file_size_str;
+                this->report_message.log6(info, arc_info);
 
                 if (!this->param_dont_log_data_into_syslog){
                     LOG(LOG_INFO, "%s", info);
@@ -1084,7 +1094,12 @@ public:
                     {"size", file_size_str}
                     });
 
-                this->report_message.log5(info);
+                ArcsightLogInfo arc_sight;
+                arc_sight.ApplicationProtocol = "rdp";
+                arc_sight.name = "CB_COPYING_PASTING_FILE_FROM_REMOTE_SESSION";
+                arc_sight.filePath = fd.fileName();
+                arc_sight.fileSize = file_size_str;
+                this->report_message.log6(info, arc_sight);
 
                 if (!this->param_dont_log_data_into_syslog){
                     LOG(LOG_INFO, "%s", info);

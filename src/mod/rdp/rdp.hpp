@@ -2193,7 +2193,12 @@ public:
                     {"duration", duration},
                     });
 
-                this->report_message.log5(info);
+                ArcsightLogInfo arc_sight;
+                arc_sight.ApplicationProtocol = "rdp";
+                arc_sight.name = "SESSION_DISCONNECTION";
+                std::string duration_msg("duration:");
+                arc_sight.message = duration_msg+duration;
+                this->report_message.log6(info, arc_sight);
 
                 if (bool(this->verbose & RDPVerbose::sesprobe)) {
                     LOG(LOG_INFO, "%s", info);
@@ -2393,7 +2398,11 @@ public:
                             this->connection_finalization_state = UP_AND_RUNNING;
 
                             if (!this->deactivation_reactivation_in_progress) {
-                                this->report_message.log5("type=\"SESSION_ESTABLISHED_SUCCESSFULLY\"");
+                                ArcsightLogInfo arc_info;
+                                arc_info.ApplicationProtocol =  "rdp";
+                                arc_info.name = "SESSION_ESTABLISHED";
+                                arc_info.WallixBastionStatus = "SUCCESS";
+                                this->report_message.log6("type=\"SESSION_ESTABLISHED_SUCCESSFULLY\"", arc_info);
                             }
 
                             // Synchronize sent to indicate server the state of sticky keys (x-locks)
@@ -5485,7 +5494,12 @@ public:
                 {"duration", extra},
                 });
 
-            this->report_message.log5(info);
+            ArcsightLogInfo arc_info;
+            arc_info.ApplicationProtocol =  "rdp";
+            arc_info.name = "SESSION_DISCONNECTION";
+            std::string duration_msg("duration:");
+            arc_info.message = duration_msg+extra;
+            this->report_message.log6(info, arc_info);
 
             this->session_disconnection_logged = true;
         }

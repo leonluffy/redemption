@@ -32,6 +32,7 @@
 #include "core/RDP/nego.hpp"
 #include "core/channel_names.hpp"
 #include "core/server_notifier_api.hpp"
+#include "core/report_message_api.hpp"
 #include "mod/rdp/rdp_log.hpp"
 #include "mod/rdp/rdp_negociation_data.hpp"
 #include "utils/key_qvalue_pairs.hpp"
@@ -100,6 +101,8 @@ private:
         ReportMessageApi& report_message;
 
         void log5_server_cert(charp_or_string type, charp_or_string description);
+
+        void log6_server_cert(charp_or_string type, charp_or_string description, const ArcsightLogInfo & arc_info);
     };
 
 private:

@@ -31,6 +31,7 @@
 #include "acl/mm_api.hpp"
 #include "acl/module_manager.hpp" // TODO only for MODULE_*
 #include "configs/config.hpp"
+#include "main/version.hpp"
 #include "core/authid.hpp"
 #include "core/date_dir_from_filename.hpp"
 #include "core/set_server_redirection_target.hpp"
@@ -281,9 +282,10 @@ public:
     REDEMPTION_VERBOSE_FLAGS(private, verbose)
     {
         none,
-        variable = 0x2,
-        buffer   = 0x40,
-        state    = 0x10,
+        state        = 0x10,
+        variable     = 0x2,
+        buffer       = 0x40,
+        log_arcsight = 0x80
     };
 
 public:
@@ -391,6 +393,68 @@ public:
               , (this->session_type.empty() ? "Neutral" : this->session_type.c_str())
               , session_info.c_str()
               , info.c_str());
+        }
+    }
+
+    void log6(const std::string & info, const ArcsightLogInfo & asl_info) override
+    {
+        this->log_file.write_line(std::time(nullptr), info);
+
+        /* Log to SIEM (redirected syslog) */
+        if (this->ini.get<cfg::session_log::enable_session_log>()) {
+            auto target_ip = (isdigit(this->ini.get<cfg::context::target_host>()[0])
+                ? this->ini.get<cfg::context::target_host>()
+                : this->ini.get<cfg::context::ip_target>());
+
+            auto session_info = key_qvalue_pairs({
+                {"session_id", this->ini.get<cfg::context::session_id>()},
+                {"client_ip",  this->ini.get<cfg::globals::host>()},
+                {"target_ip",  target_ip},
+                {"user",       this->ini.get<cfg::globals::auth_user>()},
+                {"device",     this->ini.get<cfg::globals::target_device>()},
+                {"service",    this->ini.get<cfg::context::target_service>()},
+                {"account",    this->ini.get<cfg::globals::target_user>()},
+            });
+
+            LOG_SIEM(
+                LOG_INFO
+              , "[%s Session] %s %s"
+              , (this->session_type.empty() ? "Neutral" : this->session_type.c_str())
+              , session_info.c_str()
+              , info.c_str());
+
+            if (bool(this->verbose & Verbose::log_arcsight)) {
+                timeval now = tvtime();
+                time_t time_now = now.tv_sec;
+
+                std::string suser = this->ini.get<cfg::globals::auth_user>();
+                std::string duser = this->ini.get<cfg::globals::target_user>();
+                std::string session_id = this->ini.get<cfg::context::session_id>();
+                std::string host = this->ini.get<cfg::globals::host>();
+                std::string device = this->ini.get<cfg::globals::target_device>();
+
+                std::string extension = "app="+asl_info.ApplicationProtocol;
+                if (asl_info.ApplicationProtocol.size()) {
+                    extension += "app="+asl_info.ApplicationProtocol;
+                }
+                if (asl_info.WallixBastionStatus.size()) {
+                    extension += " WallixBastionStatus="+asl_info.WallixBastionStatus;
+                }
+                if (asl_info.message.size()) {
+                    extension += " msg=\""+asl_info.message+"\"";
+                }
+                if (asl_info.filePath.size()) {
+                    extension += " filePath="+asl_info.filePath;
+                }
+                if (asl_info.oldFilePath.size()) {
+                    extension += " oldFilePath="+asl_info.oldFilePath;
+                }
+                if (asl_info.fileSize.size()) {
+                    extension += " fsize="+asl_info.fileSize;
+                }
+
+                LOG_SIEM(LOG_INFO, "%s host message CEF:%s|%s|%s|%s|%d|%s|%d|suser=%s duser=%s WallixBastionSession_id=%s src=%s dst=%s device=%s %s", ctime(&time_now), "1", "Wallix", "Bastion", VERSION, asl_info.signatureID, asl_info.name.c_str(), asl_info.severity, suser.c_str(), duser.c_str(), session_id.c_str(), host.c_str(), target_ip.c_str(), device.c_str(), extension.c_str());
+            }
         }
     }
 

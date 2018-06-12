@@ -1581,8 +1581,11 @@ public:
                                 {"device_name", device_name},
                                 {"device_type", device_type_name}
                                 });
-
-                            this->report_message.log5(info);
+                            ArcsightLogInfo arc_sight;
+                            arc_sight.ApplicationProtocol = "rdp";
+                            arc_sight.name = "DRIVE_REDIRECTION_USE";
+                            arc_sight.message = "device_name:"+device_name+" device_type="+device_type_name;
+                            this->report_message.log6(info, arc_sight);
 
                             if (!this->param_dont_log_data_into_syslog) {
                                 LOG(LOG_INFO, "%s", info);
@@ -1717,8 +1720,11 @@ public:
                                         {"type", "DRIVE_REDIRECTION_READ"},
                                         {"file_name", target_info.file_path},
                                         });
-
-                                    this->report_message.log5(info);
+                                    ArcsightLogInfo arc_sight;
+                                    arc_sight.ApplicationProtocol = "rdp";
+                                    arc_sight.name = "DRIVE_REDIRECTION_READ";
+                                    arc_sight.filePath = target_info.file_path;
+                                    this->report_message.log6(info, arc_sight);
 
                                     if (!this->param_dont_log_data_into_syslog) {
                                         LOG(LOG_INFO, "%s", info);
@@ -1763,8 +1769,11 @@ public:
                                     {"type", "DRIVE_REDIRECTION_WRITE"},
                                     {"file_name", target_info.file_path},
                                     });
-
-                                this->report_message.log5(info);
+                                ArcsightLogInfo arc_sight;
+                                arc_sight.ApplicationProtocol = "rdp";
+                                arc_sight.name = "DRIVE_REDIRECTION_WRITE";
+                                arc_sight.filePath = target_info.file_path;
+                                this->report_message.log6(info, arc_sight);
 
                                 if (!this->param_dont_log_data_into_syslog) {
                                     LOG(LOG_INFO, "%s", info);
@@ -1820,7 +1829,11 @@ public:
                                     {"file_name", target_iter->file_path},
                                     });
 
-                                this->report_message.log5(info);
+                                ArcsightLogInfo arc_sight;
+                                arc_sight.ApplicationProtocol = "rdp";
+                                arc_sight.name = "DRIVE_REDIRECTION_DELETE";
+                                arc_sight.filePath = target_iter->file_path;
+                                this->report_message.log6(info, arc_sight);
 
                                 if (!this->param_dont_log_data_into_syslog) {
                                     LOG(LOG_INFO, "%s", info);
@@ -1847,7 +1860,12 @@ public:
                                     {"new_file_name", file_path},
                                     });
 
-                                this->report_message.log5(info);
+                                ArcsightLogInfo arc_sight;
+                                arc_sight.ApplicationProtocol = "rdp";
+                                arc_sight.name = "DRIVE_REDIRECTION_RENAME";
+                                arc_sight.oldFilePath = target_iter->file_path;
+                                arc_sight.filePath = file_path;
+                                this->report_message.log6(info, arc_sight);
 
                                 if (!this->param_dont_log_data_into_syslog) {
                                     LOG(LOG_INFO, "%s", info);
