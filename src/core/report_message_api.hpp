@@ -33,7 +33,7 @@ struct ArcsightLogInfo {
     std::string message;
     std::string filePath;
     std::string oldFilePath;
-    std::string fileSize = 0;
+    std::string fileSize;
 
 };
 

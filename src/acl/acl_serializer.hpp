@@ -433,30 +433,37 @@ public:
                 std::string host = this->ini.get<cfg::globals::host>();
                 std::string device = this->ini.get<cfg::globals::target_device>();
 
-                std::string extension = "app="+asl_info.ApplicationProtocol;
-                if (asl_info.ApplicationProtocol.size()) {
-                    extension += "app="+asl_info.ApplicationProtocol;
+                std::string extension;
+                if (asl_info.ApplicationProtocol.size() != 0) {
+                    extension += " app="+asl_info.ApplicationProtocol;
                 }
-                if (asl_info.WallixBastionStatus.size()) {
+                if (asl_info.WallixBastionStatus.size() != 0) {
                     extension += " WallixBastionStatus="+asl_info.WallixBastionStatus;
                 }
-                if (asl_info.message.size()) {
+                if (asl_info.message.size() != 0) {
                     extension += " msg=\""+asl_info.message+"\"";
                 }
-                if (asl_info.filePath.size()) {
-                    extension += " filePath="+asl_info.filePath;
-                }
-                if (asl_info.oldFilePath.size()) {
+                if (asl_info.oldFilePath.size() != 0) {
                     extension += " oldFilePath="+asl_info.oldFilePath;
                 }
-                if (asl_info.fileSize.size()) {
+                if (asl_info.filePath.size() != 0) {
+                    extension += " filePath="+asl_info.filePath;
+                }
+                if (asl_info.fileSize.size() != 0) {
                     extension += " fsize="+asl_info.fileSize;
                 }
 
-                LOG_SIEM(LOG_INFO, "%s host message CEF:%s|%s|%s|%s|%d|%s|%d|suser=%s duser=%s WallixBastionSession_id=%s src=%s dst=%s device=%s %s", ctime(&time_now), "1", "Wallix", "Bastion", VERSION, asl_info.signatureID, asl_info.name.c_str(), asl_info.severity, suser.c_str(), duser.c_str(), session_id.c_str(), host.c_str(), target_ip.c_str(), device.c_str(), extension.c_str());
+                std::string current_date(ctime(&time_now));
+                current_date = current_date.substr(0, current_date.length()-1);
+
+                LOG_SIEM(LOG_INFO, "%s host message CEF:%s|%s|%s|%s|%d|%s|%d|suser=%s duser=%s WallixBastionSession_id=%s src=%s dst=%s %s", current_date.c_str(), "1", "Wallix", "Bastion", VERSION, asl_info.signatureID, asl_info.name.c_str(), asl_info.severity, suser.c_str(), duser.c_str(), session_id.c_str(), host.c_str(), target_ip.c_str(), /*device.c_str(),*/ extension.c_str());
             }
         }
     }
+
+    
+
+
 
     void start_session_log()
     {
