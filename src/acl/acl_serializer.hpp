@@ -435,22 +435,22 @@ public:
 
                 std::string extension;
                 if (asl_info.ApplicationProtocol.size() != 0) {
-                    extension += " app="+asl_info.ApplicationProtocol;
+                    extension += " app="+this->arcsight_text_formating(asl_info.ApplicationProtocol);
                 }
                 if (asl_info.WallixBastionStatus.size() != 0) {
-                    extension += " WallixBastionStatus="+asl_info.WallixBastionStatus;
+                    extension += " WallixBastionStatus="+this->arcsight_text_formating(asl_info.WallixBastionStatus);
                 }
                 if (asl_info.message.size() != 0) {
-                    extension += " msg=\""+asl_info.message+"\"";
+                    extension += " msg=\""+this->arcsight_text_formating(asl_info.message)+"\"";
                 }
                 if (asl_info.oldFilePath.size() != 0) {
-                    extension += " oldFilePath="+asl_info.oldFilePath;
+                    extension += " oldFilePath="+this->arcsight_text_formating(asl_info.oldFilePath);
                 }
                 if (asl_info.filePath.size() != 0) {
-                    extension += " filePath="+asl_info.filePath;
+                    extension += " filePath="+this->arcsight_text_formating(asl_info.filePath);
                 }
                 if (asl_info.fileSize.size() != 0) {
-                    extension += " fsize="+asl_info.fileSize;
+                    extension += " fsize="+this->arcsight_text_formating(asl_info.fileSize);
                 }
 
                 std::string current_date(ctime(&time_now));
@@ -461,8 +461,24 @@ public:
         }
     }
 
-    
 
+    std::string arcsight_text_formating(const std::string & text) {
+        std::string temp(text);
+        size_t i = 0;
+        while (i < temp.length()) {
+            if (temp[i] == '\\' || temp[i] == '=' || temp[i] == '|') {
+                temp = temp.substr(0, i) + "\\" + temp.substr(i, temp.length());
+                i++;
+            }
+            if (temp[i] == ' ') {
+                temp = temp.substr(0, i) + "<space>" + temp.substr(i+1, temp.length());
+                i += 7;
+            }
+            i++;
+        }
+
+        return temp;
+    }
 
 
     void start_session_log()
