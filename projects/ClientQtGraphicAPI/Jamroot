@@ -219,6 +219,24 @@ exe client_rdp :
     <variant>debug:<library>dl <variant>san:<library>dl
 ;
 
+obj try_writev.o : src/try_writev.cpp :
+    <define>REDEMPTION_DECL_LOG_TEST
+    $(EXE_DEPENDENCIES)
+    <include>$(REDEMPTION_TEST_PATH)/includes # lcg/fixed random
+;
+
+
+exe writev :
+    try_writev.o
+    $(obj_list)
+    $(lib_list)
+:
+    $(EXE_DEPENDENCIES)
+    # disable moc warnings
+    <variant>debug:<library>dl <variant>san:<library>dl
+;
+
+
 #obj test_client.o : src/test_client_redemption.cpp :
 #    <define>REDEMPTION_DECL_LOG_TEST
 #    $(EXE_DEPENDENCIES)

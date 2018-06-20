@@ -454,12 +454,12 @@ public:
                 }
 
                 std::string current_date(ctime(&time_now));
-                std::string month_day(current_date.substr(4, 6));
-                std::string year(current_date.substr(20, 4));
-                std::string clock(current_date.substr(11, 8));
-                std::string formted_date(month_day+" "+year+" "+clock);
+                std::string mmm_dd(current_date.substr(4, 6));
+                std::string yyyy(current_date.substr(20, 4));
+                std::string hhmmss(current_date.substr(11, 8));
+                std::string formted_date(mmm_dd+" "+yyyy+" "+hhmmss);
 
-                LOG_SIEM(LOG_INFO, "%s host message CEF:%s|%s|%s|%s|%d|%s|%d|suser=%s duser=%s WallixBastionSession_id=%s src=%s dst=%s %s", formted_date.c_str(), "1", "Wallix", "Bastion", VERSION, asl_info.signatureID, asl_info.name.c_str(), asl_info.severity, suser.c_str(), duser.c_str(), session_id.c_str(), host.c_str(), target_ip.c_str(), /*device.c_str(),*/ extension.c_str());
+                LOG_SIEM(LOG_INFO, "%s host message CEF:%s|%s|%s|%s|%d|%s|%d|suser=%s duser=%s WallixBastionSession_id=%s WallixBastionSessionType=%s src=%s dst=%s %s", formted_date.c_str(), "1", "Wallix", "Bastion", VERSION, asl_info.signatureID, asl_info.name.c_str(), asl_info.severity, suser.c_str(), duser.c_str(), session_id.c_str(), (this->session_type.empty() ? "Neutral" : this->session_type.c_str()), host.c_str(), target_ip.c_str(), /*device.c_str(),*/ extension.c_str());
             }
         }
     }
