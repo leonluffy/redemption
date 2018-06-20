@@ -109,22 +109,18 @@ public:
     }
 
     // QUERY_SECURITY_PACKAGE_INFO QuerySecurityPackageInfo;
-    SEC_STATUS QuerySecurityPackageInfo(SecPkgInfo * pPackageInfo) override {
-        assert(pPackageInfo);
-        *pPackageInfo = KERBEROS_SecPkgInfo;
-        return SEC_E_OK;
+    SecPkgInfo QuerySecurityPackageInfo() override {
+        return KERBEROS_SecPkgInfo;
     }
 
     // QUERY_CONTEXT_ATTRIBUTES QueryContextAttributes;
-    SEC_STATUS QueryContextSizes(SecPkgContext_Sizes* ContextSizes) override {
-        if (!ContextSizes) {
-            return SEC_E_INSUFFICIENT_MEMORY;
-        }
-        ContextSizes->cbMaxToken = 4096;
-        ContextSizes->cbMaxSignature = 0;
-        ContextSizes->cbBlockSize = 0;
-        ContextSizes->cbSecurityTrailer = 16;
-        return SEC_E_OK;
+    SecPkgContext_Sizes QueryContextSizes() override {
+        SecPkgContext_Sizes ContextSizes;
+        ContextSizes.cbMaxToken = 4096;
+        ContextSizes.cbMaxSignature = 0;
+        ContextSizes.cbBlockSize = 0;
+        ContextSizes.cbSecurityTrailer = 16;
+        return ContextSizes;
     }
 
     // GSS_Acquire_cred
@@ -136,22 +132,13 @@ public:
         (void)fCredentialUse;
 
         if (pszPrincipal && pvLogonID) {
-            Array * spn = pvLogonID;
-            const char * p = pszPrincipal;
-            size_t length = 0;
-            if (p) {
-                length = strlen(p);
-            }
-            spn->init(length + 1);
-            spn->copy(reinterpret_cast<const uint8_t *>(pszPrincipal), length);
-            spn->get_data()[length] = 0;
+            size_t length = strlen(pszPrincipal);
+            pvLogonID->init(length + 1);
+            pvLogonID->copy(reinterpret_cast<const uint8_t *>(pszPrincipal), length);
+            pvLogonID->get_data()[length] = 0;
         }
         this->credentials = new Krb5Creds;
 
-        SEC_WINNT_AUTH_IDENTITY* identity = nullptr;
-        if (pAuthData != nullptr) {
-            identity = pAuthData;
-        }
         // set KRB5CCNAME cache name to specific with PID,
         // call kinit to get tgt with identity credentials
 
@@ -161,9 +148,9 @@ public:
         cache[255] = 0;
         setenv("KRB5CCNAME", cache, 1);
         LOG(LOG_INFO, "set KRB5CCNAME to %s", cache);
-        if (identity) {
-            int ret = this->credentials->get_credentials(identity->princname,
-                                                         identity->princpass, nullptr);
+        if (pAuthData) {
+            int ret = this->credentials->get_credentials(pAuthData->princname,
+                                                         pAuthData->princpass, nullptr);
             if (!ret) {
                 return SEC_E_OK;
             }
@@ -209,9 +196,6 @@ public:
         if (!this->krb_ctx) {
             // LOG(LOG_INFO, "Initialiaze Sec Ctx: NO CONTEXT");
             this->krb_ctx = new KERBEROSContext;
-            if (!this->krb_ctx) {
-                return SEC_E_INSUFFICIENT_MEMORY;
-            }
 
             // Target name (server name, ip ...)
             if (!this->get_service_name(pszTargetName, &krb_ctx->target_name)) {
@@ -310,8 +294,8 @@ public:
     // GSS_Accept_sec_context
     // ACCEPT_SECURITY_CONTEXT AcceptSecurityContext;
     SEC_STATUS AcceptSecurityContext(
-        SecBufferDesc * pInput, unsigned long fContextReq,
-        SecBufferDesc * pOutput
+        SecBufferDesc& input, unsigned long fContextReq,
+        SecBufferDesc& output
     ) override
     {
         (void)fContextReq;
@@ -321,9 +305,6 @@ public:
         if (!this->krb_ctx) {
             // LOG(LOG_INFO, "Initialiaze Sec Ctx: NO CONTEXT");
             this->krb_ctx = new KERBEROSContext;
-            if (!this->krb_ctx) {
-                return SEC_E_INSUFFICIENT_MEMORY;
-            }
         }
         // else {
         //     LOG(LOG_INFO, "Initialiaze Sec CTX: USE FORMER CONTEXT");
@@ -333,21 +314,15 @@ public:
         // Token Buffer
         gss_buffer_desc input_tok, output_tok;
         output_tok.length = 0;
-        if (pInput) {
-            PSecBuffer input_buffer = pInput->FindSecBuffer(SECBUFFER_TOKEN);
-            if (input_buffer) {
-                // LOG(LOG_INFO, "GOT INPUT BUFFER: length %d",
-                //     input_buffer->Buffer.size());
-                input_tok.length = input_buffer->Buffer.size();
-                input_tok.value = input_buffer->Buffer.get_data();
-            }
-            else {
-                // LOG(LOG_INFO, "NO INPUT BUFFER TOKEN");
-                input_tok.length = 0;
-            }
+        PSecBuffer input_buffer = input.FindSecBuffer(SECBUFFER_TOKEN);
+        if (input_buffer) {
+            // LOG(LOG_INFO, "GOT INPUT BUFFER: length %d",
+            //     input_buffer->Buffer.size());
+            input_tok.length = input_buffer->Buffer.size();
+            input_tok.value = input_buffer->Buffer.get_data();
         }
         else {
-            // LOG(LOG_INFO, "NO INPUT BUFFER DESC");
+            // LOG(LOG_INFO, "NO INPUT BUFFER TOKEN");
             input_tok.length = 0;
         }
 
@@ -394,7 +369,7 @@ public:
             return SEC_E_OUT_OF_SEQUENCE;
         }
 
-        PSecBuffer output_buffer = pOutput->FindSecBuffer(SECBUFFER_TOKEN);
+        PSecBuffer output_buffer = output.FindSecBuffer(SECBUFFER_TOKEN);
 
         // LOG(LOG_INFO, "output tok length : %d", output_tok.length);
         if (output_tok.length < 1) {
@@ -418,7 +393,7 @@ public:
 
     // GSS_Wrap
     // ENCRYPT_MESSAGE EncryptMessage;
-    SEC_STATUS EncryptMessage(PSecBufferDesc pMessage, unsigned long MessageSeqNo) override {
+    SEC_STATUS EncryptMessage(SecBufferDesc& Message, unsigned long MessageSeqNo) override {
         (void)MessageSeqNo;
         // OM_uint32 KRB5_CALLCONV
         // gss_wrap(
@@ -438,9 +413,9 @@ public:
         }
         PSecBuffer data_buffer = nullptr;
         gss_buffer_desc inbuf, outbuf;
-        for (unsigned long index = 0; index < pMessage->cBuffers; index++) {
-            if (pMessage->pBuffers[index].BufferType == SECBUFFER_DATA) {
-                data_buffer = &pMessage->pBuffers[index];
+        for (unsigned long index = 0; index < Message.cBuffers; index++) {
+            if (Message.pBuffers[index].BufferType == SECBUFFER_DATA) {
+                data_buffer = &Message.pBuffers[index];
             }
         }
         if (data_buffer) {
@@ -469,7 +444,7 @@ public:
 
     // GSS_Unwrap
     // DECRYPT_MESSAGE DecryptMessage;
-    SEC_STATUS DecryptMessage(PSecBufferDesc pMessage, unsigned long MessageSeqNo) override {
+    SEC_STATUS DecryptMessage(SecBufferDesc& Message, unsigned long MessageSeqNo) override {
         (void)MessageSeqNo;
 
         // OM_uint32 gss_unwrap
@@ -490,9 +465,9 @@ public:
         }
         PSecBuffer data_buffer = nullptr;
         gss_buffer_desc inbuf, outbuf;
-        for (unsigned long index = 0; index < pMessage->cBuffers; index++) {
-            if (pMessage->pBuffers[index].BufferType == SECBUFFER_DATA) {
-                data_buffer = &pMessage->pBuffers[index];
+        for (unsigned long index = 0; index < Message.cBuffers; index++) {
+            if (Message.pBuffers[index].BufferType == SECBUFFER_DATA) {
+                data_buffer = &Message.pBuffers[index];
             }
         }
         if (data_buffer) {

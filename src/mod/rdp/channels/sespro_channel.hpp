@@ -28,6 +28,7 @@
 #include "mod/rdp/channels/rdpdr_channel.hpp"
 #include "mod/rdp/rdp_api.hpp"
 #include "utils/genrandom.hpp"
+#include "utils/parse_server_message.hpp"
 #include "utils/stream.hpp"
 #include "utils/sugar/algostring.hpp"
 
@@ -578,6 +579,8 @@ public:
             this->session_probe_stop_launch_sequence_notifier = nullptr;
         }
 
+        this->session_probe_timer.reset();
+
         const bool disable_input_event     = false;
         const bool disable_graphics_update = false;
         const bool need_full_screen_update =
@@ -599,6 +602,8 @@ public:
             this->mod.rdp_input_invalidate(Rect(0, 0,
                 this->param_front_width, this->param_front_height));
         }
+
+        this->rdp.sespro_launch_process_ended();
     }
 
     void process_event_ready()
@@ -653,36 +658,6 @@ public:
         else {
             this->request_keep_alive();
         }
-    }
-
-    static bool parse_server_message(const char * svr_msg, std::string & order_ref, std::vector<std::string> & parameters_ref) {
-        order_ref.clear();
-        parameters_ref.clear();
-
-        const char * separator = strchr(svr_msg, '=');
-
-        if (separator) {
-            order_ref.assign(svr_msg, separator - svr_msg);
-
-            const char * params = (separator + 1);
-
-            /** TODO
-             * for (r : get_split(separator, this->server_message.c_str() + this->server_message.size(), '\ x01')) {
-             *     parameters.push_back({r.begin(), r.end()});
-             * }
-             */
-            while ((separator = ::strchr(params, '\x01')) != nullptr) {
-                parameters_ref.emplace_back(params, separator - params);
-
-                params = (separator + 1);
-            }
-            parameters_ref.emplace_back(params);
-        }
-        else {
-            order_ref.assign(svr_msg);
-        }
-
-        return order_ref.length();
     }
 
     template <class T>
@@ -757,7 +732,7 @@ public:
         // TODO vector<string_view>
         std::vector<std::string> parameters_;
         const bool parse_server_message_result =
-            parse_server_message(this->server_message.c_str(), order_, parameters_);
+            ::parse_server_message(this->server_message.c_str(), order_, parameters_);
         if (!parse_server_message_result) {
             LOG(LOG_WARNING,
                 "SessionProbeVirtualChannel::process_server_message: "
@@ -846,6 +821,8 @@ public:
                 this->file_system_virtual_channel.disable_session_probe_drive();
 
                 this->session_probe_timer.reset();
+
+                this->rdp.sespro_launch_process_ended();
 
                 if (this->param_session_probe_keepalive_timeout.count() > 0) {
                     send_client_message([](OutStream & out_s) {

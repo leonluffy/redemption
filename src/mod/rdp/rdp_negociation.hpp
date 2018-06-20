@@ -63,7 +63,7 @@ public:
         NEGO,
         BASIC_SETTINGS_EXCHANGE,
         CHANNEL_CONNECTION_ATTACH_USER,
-        CHANNEL_JOIN_CONFIRME,
+        CHANNEL_JOIN_CONFIRM,
         GET_LICENSE
     };
 
@@ -220,7 +220,7 @@ private:
     bool basic_settings_exchange(InStream & x224_data);
     void send_connectInitialPDUwithGccConferenceCreateRequest();
     bool channel_connection_attach_user(InStream & stream);
-    bool channel_join_confirme(InStream & x224_data);
+    bool channel_join_confirm(InStream & x224_data);
     bool get_license(InStream & stream);
 
     template<class... WriterData>
