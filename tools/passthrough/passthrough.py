@@ -14,6 +14,7 @@ import sys
 
 from logger import Logger
 
+from datetime   import datetime
 from struct     import unpack
 from struct     import pack
 from select     import select
@@ -195,27 +196,46 @@ class ACLPassthrough():
             interactive_data[u'target_password'] = MAGICASK
         else:
             interactive_data[u'target_password'] = rvalue(self.shared.get(u'password'))
+
         if not rvalue(self.shared.get(u'login')):
             interactive_data[u'target_login'] = MAGICASK
         else:
             interactive_data[u'target_login'] = rvalue(self.shared.get(u'login'))
+
         if not rvalue(self.shared.get(u'real_target_device')):
             interactive_data[u'target_host'] = MAGICASK
         else:
             interactive_data[u'target_host'] = rvalue(self.shared.get(u'real_target_device'))
+
         if interactive_data:
             _status, _error = self.interactive_target(interactive_data)
+
         kv = {}
         kv[u'login'] = self.shared.get(u'target_login')
         kv[u'proto_dest'] = "RDP"
         kv[u'target_port'] = "3389"
         kv[u'session_id'] = "0000"
+        # kv[u'is_rec'] = "False"
+        # kv[u'rec_path'] = "recording.mwrm"
+        # kv[u'device_id'] = "0000"
+        # kv[u'session_id'] = "SESSIONID-0000"
+        kv[u'session_log_path'] = datetime.now().strftime("session_log-%Y-%m-%d-%I:%M%p.log")
         kv[u'module'] = "RDP"
         kv[u'mode_console'] = u"allow"
         kv[u'target_password'] = self.shared.get(u'target_password')
         kv[u'target_login'] = self.shared.get(u'target_login')
         kv[u'target_host'] = self.shared.get(u'target_host')
         kv[u'target_device'] = self.shared.get(u'target_host')
+
+        kv[u'alternate_shell'] = "c:\\windows\\system32\\notepad.exe"
+        kv[u'shell_arguments'] = ""
+        kv[u'shell_working_directory'] = "c:\\windows"
+        kv[u'target_application'] = "c:\\windows"
+
+        # kv[u'use_native_remoteapp_capability'] = "True"
+        # kv[u'use_client_provided_remoteapp'] = "True"
+        # kv[u'use_client_provided_alternate_shell'] = "True"
+        # kv[u'mode_console'] = "allow"
 
         self.send_data(kv)
 
