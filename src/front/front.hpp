@@ -927,7 +927,9 @@ public:
 
         this->capture_bpp = ((ini.get<cfg::video::wrm_color_depth_selection_strategy>() == ColorDepthSelectionStrategy::depth16) ? 16 : 24);
         // TODO remove this after unifying capture interface
-        VideoParams video_params = video_params_from_ini(this->client_info.width, this->client_info.height, ini);
+        VideoParams video_params = video_params_from_ini(
+            this->client_info.width, this->client_info.height,
+            std::chrono::seconds::zero(), ini);
 
         const char * record_tmp_path = ini.get<cfg::video::record_tmp_path>().c_str();
         std::string record_path = ini.get<cfg::video::record_path>().to_string();
@@ -1090,6 +1092,10 @@ public:
 
         if (capture_wrm) {
             this->ini.set_acl<cfg::context::recording_started>(true);
+        }
+
+        if (capture_png && !this->ini.get<cfg::context::rt_ready>()) {
+            this->ini.set_acl<cfg::context::rt_ready>(true);
         }
 
         return true;
@@ -4417,13 +4423,13 @@ protected:
             uint16_t draw_pos_ref = 0;
             InStream variable_bytes(cmd.data, cmd.data_len);
 
+            this->draw(RDPOpaqueRect(cmd.bk, cmd.fore_color), clip, color_ctx);
+
             while (variable_bytes.in_remain()) {
                 uint8_t data = variable_bytes.in_uint8();
                 if (data <= 0xFD) {
                     FontChar const & fc = gly_cache.glyphs[cmd.cache_id][data].font_item;
-                    if (!fc) {
-                        assert(fc);
-                    }
+                    assert(fc);
 
                     if (has_delta_bytes) {
                         data = variable_bytes.in_uint8();
@@ -4436,7 +4442,7 @@ protected:
                     }
 
                     if (fc) {
-                        const int16_t x = cmd.bk.x + draw_pos_ref + fc.offset;
+                        const int16_t x = cmd.bk.x + draw_pos_ref;
                         const int16_t y = cmd.bk.y;
 
                         contiguous_sub_rect_f(CxCy{fc.width, fc.height}, SubCxCy{64, 64}, [&](Rect rect){
@@ -4444,9 +4450,9 @@ protected:
 
                             RDPBitmapData rdpbd;
                             rdpbd.dest_left      = rect.x + x;
-                            rdpbd.dest_top       = rect.y + y;
+                            rdpbd.dest_top       = rect.y + y + fc.offsety;
                             rdpbd.dest_right     = rect.cx + rect.x + x - 1;
-                            rdpbd.dest_bottom    = rect.cy + rect.y + y - 1;
+                            rdpbd.dest_bottom    = rect.cy + rect.y + y + fc.offsety - 1;
                             rdpbd.bits_per_pixel = 24;
                             rdpbd.flags          = NO_BITMAP_COMPRESSION_HDR | BITMAP_COMPRESSION;
                             rdpbd.bitmap_length  = rect.cx * rect.cy * 3;

@@ -540,6 +540,9 @@
 "#_advanced\n"
 "#experimental_fix_input_event_sync = 1\n\n"
 
+"#_advanced\n"
+"#experimental_fix_too_long_cookie = 1\n\n"
+
 "[mod_vnc]\n\n"
 
 "# Enable or disable the clipboard from client (client to server).\n"
@@ -750,9 +753,9 @@
 "#_advanced\n"
 "#h_qscale = 7\n\n"
 
-"#   0: disable\n"
-"#   1: v1\n"
-"#   2: v2\n"
+"#   0: Disabled. When replaying the session video, the content of the RDP viewer matches the size of the client's desktop\n"
+"#   1: When replaying the session video, the content of the RDP viewer is restricted to the greatest area covered by the application during session\n"
+"#   2: When replaying the session video, the content of the RDP viewer is fully covered by the size of the greatest application window during session\n"
 "#smart_video_cropping = 0\n\n"
 
 "[crypto]\n\n"

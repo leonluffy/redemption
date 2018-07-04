@@ -160,6 +160,7 @@ namespace cfg {
         struct bogus_ios_rdpdr_virtual_channel;
         struct enable_rdpdr_data_analysis;
         struct experimental_fix_input_event_sync;
+        struct experimental_fix_too_long_cookie;
     };
 
     struct mod_vnc {
@@ -201,7 +202,6 @@ namespace cfg {
         struct rt_display;
         struct wrm_color_depth_selection_strategy;
         struct wrm_compression_algorithm;
-        struct video_break_interval;
         struct bogus_vlc_frame_rate;
         struct l_bitrate;
         struct l_framerate;
@@ -270,7 +270,6 @@ namespace cfg {
     };
 
     struct context {
-        struct movie;
         struct opt_bitrate;
         struct opt_framerate;
         struct opt_qscale;
@@ -329,8 +328,8 @@ namespace cfg {
         struct disconnect_reason_ack;
         struct ip_target;
         struct recording_started;
+        struct rt_ready;
         struct perform_automatic_reconnection;
-        struct server_auto_reconnect_packet;
         struct auth_command;
         struct auth_notify;
         struct auth_notify_rail_exec_flags;

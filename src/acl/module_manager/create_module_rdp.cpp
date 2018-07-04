@@ -39,7 +39,7 @@
 void ModuleManager::create_mod_rdp(
     AuthApi& authentifier, ReportMessageApi& report_message,
     Inifile& ini, FrontAPI& front, ClientInfo const& client_info_, ClientExecute& client_execute,
-    Keymap2::KeyFlags key_flags)
+    Keymap2::KeyFlags key_flags, std::array<uint8_t, 28>& server_auto_reconnect_packet)
 {
     LOG(LOG_INFO, "ModuleManager::Creation of new mod 'RDP'");
 
@@ -83,8 +83,7 @@ void ModuleManager::create_mod_rdp(
       , key_flags
       , ini.get<cfg::font>()
       , ini.get<cfg::theme>()
-      // TODO move to member
-      , ini.get_ref<cfg::context::server_auto_reconnect_packet>()
+      , server_auto_reconnect_packet
       , ini.get_ref<cfg::context::close_box_extra_message>()
       , to_verbose_flags(ini.get<cfg::debug::mod_rdp>())
       //, RDPVerbose::basic_trace4 | RDPVerbose::basic_trace3 | RDPVerbose::basic_trace7 | RDPVerbose::basic_trace
@@ -251,6 +250,7 @@ void ModuleManager::create_mod_rdp(
     mod_rdp_params.enable_rdpdr_data_analysis          = ini.get<cfg::mod_rdp::enable_rdpdr_data_analysis>();
 
     mod_rdp_params.experimental_fix_input_event_sync   = ini.get<cfg::mod_rdp::experimental_fix_input_event_sync>();
+    mod_rdp_params.experimental_fix_too_long_cookie    = ini.get<cfg::mod_rdp::experimental_fix_too_long_cookie>();
 
     try {
         const char * const name = "RDP Target";

@@ -87,6 +87,7 @@
 #include "core/front_api.hpp"
 #include "core/report_message_api.hpp"
 #include "core/server_notifier_api.hpp"
+#include "core/RDP/rdp_metrics.hpp"
 
 #include "mod/internal/client_execute.hpp"
 #include "mod/mod_api.hpp"
@@ -384,6 +385,7 @@ protected:
     const bool                        enable_rdpdr_data_analysis;
 
     const bool                        experimental_fix_input_event_sync;
+    const bool                        experimental_fix_too_long_cookie;
 
     std::string session_probe_target_informations;
 
@@ -687,17 +689,8 @@ protected:
 
     ModRdpVariables vars;
 
-    long int total_main_amount_data_rcv_from_client;
-    long int total_cliprdr_amount_data_rcv_from_client;
-    long int total_rail_amount_data_rcv_from_client;
-    long int total_rdpdr_amount_data_rcv_from_client;
-    long int total_drdynvc_amount_data_rcv_from_client;
+    RDPMetrics metrics;
 
-    long int total_main_amount_data_rcv_from_server;
-    long int total_cliprdr_amount_data_rcv_from_server;
-    long int total_rail_amount_data_rcv_from_server;
-    long int total_rdpdr_amount_data_rcv_from_server;
-    long int total_drdynvc_amount_data_rcv_from_server;
 
 public:
     using Verbose = RDPVerbose;
@@ -804,6 +797,7 @@ public:
         , bogus_ios_rdpdr_virtual_channel(mod_rdp_params.bogus_ios_rdpdr_virtual_channel)
         , enable_rdpdr_data_analysis(mod_rdp_params.enable_rdpdr_data_analysis)
         , experimental_fix_input_event_sync(mod_rdp_params.experimental_fix_input_event_sync)
+        , experimental_fix_too_long_cookie(mod_rdp_params.experimental_fix_too_long_cookie)
         , session_probe_extra_system_processes(mod_rdp_params.session_probe_extra_system_processes)
         , session_probe_outbound_connection_monitoring_rules(mod_rdp_params.session_probe_outbound_connection_monitoring_rules)
         , session_probe_process_monitoring_rules(mod_rdp_params.session_probe_process_monitoring_rules)
@@ -848,16 +842,13 @@ public:
         , client_window_list_caps(info.window_list_caps)
         , client_use_bmp_cache_2(info.use_bmp_cache_2)
         , vars(vars)
-        , total_main_amount_data_rcv_from_client(0)
-        , total_cliprdr_amount_data_rcv_from_client(0)
-        , total_rail_amount_data_rcv_from_client(0)
-        , total_rdpdr_amount_data_rcv_from_client(0)
-        , total_drdynvc_amount_data_rcv_from_client(0)
-        , total_main_amount_data_rcv_from_server(0)
-        , total_cliprdr_amount_data_rcv_from_server(0)
-        , total_rail_amount_data_rcv_from_server(0)
-        , total_rdpdr_amount_data_rcv_from_server(0)
-        , total_drdynvc_amount_data_rcv_from_server(0)
+
+        // TODO replace nullptr with log metrics file path
+        , metrics( nullptr
+                 , redir_info.session_id
+                 , mod_rdp_params.target_user
+                 , mod_rdp_params.target_host
+                 , vars.get<cfg::globals::auth_user>().c_str())
     {
         if (bool(this->verbose & RDPVerbose::basic_trace)) {
             if (!enable_transparent_mode) {
@@ -950,13 +941,28 @@ public:
                             "Falled back to using AlternateShell based launcher.");
                 }
 
+                char clipboard_based_launcher_cookie[32];
+                {
+                    SslSha1 sha1;
+                    sha1.update(byte_ptr_cast(this->session_probe_target_informations.c_str()),
+                        this->session_probe_target_informations.length());
+
+                    uint8_t sig[SslSha1::DIGEST_LENGTH];
+                    sha1.final(sig);
+
+                    snprintf(clipboard_based_launcher_cookie, sizeof(clipboard_based_launcher_cookie),
+                        "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+                        sig[0], sig[1], sig[2], sig[3], sig[4], sig[5], sig[6], sig[7], sig[8], sig[9]);
+                }
+
                 session_probe_arguments = get_session_probe_arguments(
                     std::move(session_probe_arguments),
                     get_session_probe_arguments::Exe{exe_var_str},
                     get_session_probe_arguments::Title{""},
                     get_session_probe_arguments::Cookie{
                         this->session_probe_use_clipboard_based_launcher
-                            ? "" : this->session_probe_target_informations.c_str()},
+                            ? "" : ((this->experimental_fix_too_long_cookie &&
+                                     (this->session_probe_target_informations.length() > 20)) ? clipboard_based_launcher_cookie : this->session_probe_target_informations.c_str())},
                     get_session_probe_arguments::Cbspl{
                         this->session_probe_use_clipboard_based_launcher ? "CD %TMP%&" : ""}
                 );
@@ -1144,17 +1150,23 @@ public:
                 );
         }
 
-        LOG(LOG_INFO, "RDP mod built");
+        LOG(LOG_INFO, "RDP mod built 1");
 
         this->negociation_result.front_width = info.width;
         this->negociation_result.front_height = info.height;
+
+        LOG(LOG_INFO, "RDP mod built 2");
 
         if (mod_rdp_params.enable_session_probe) {
             this->file_system_drive_manager.EnableSessionProbeDrive(
                 mod_rdp_params.proxy_managed_drive_prefix, mod_rdp_params.verbose);
         }
 
+        LOG(LOG_INFO, "RDP mod built 3");
+
         this->init_negociate_event_(info, timeobj, mod_rdp_params, program, directory);
+
+        LOG(LOG_INFO, "RDP mod built 4");
     }   // mod_rdp
 
     ~mod_rdp() override {
@@ -1590,6 +1602,8 @@ public:
 
             this->send_input(time, RDP_INPUT_SCANCODE, device_flags, param1, param2);
 
+            this->metrics.total_keys_pressed++;
+
             if (this->remote_programs_session_manager) {
                 this->remote_programs_session_manager->input_scancode(param1, param2, device_flags);
             }
@@ -1599,6 +1613,7 @@ public:
     void rdp_input_unicode(uint16_t unicode, uint16_t flag) override {
         if (UP_AND_RUNNING == this->connection_finalization_state) {
             this->send_input(0, RDP_INPUT_UNICODE, flag, unicode, 0);
+            this->metrics.total_keys_pressed++;
         }
     }
 
@@ -1617,6 +1632,14 @@ public:
         if ((UP_AND_RUNNING == this->connection_finalization_state) &&
             !this->input_event_disabled) {
             this->send_input(0, RDP_INPUT_MOUSE, device_flags, x, y);
+
+            if (device_flags & MOUSE_FLAG_DOWN) {
+                if (device_flags & MOUSE_FLAG_BUTTON2) {
+                    this->metrics.total_right_clicks++;
+                } else if (device_flags & MOUSE_FLAG_BUTTON1) {
+                    this->metrics.total_left_clicks++;
+                }
+            }
 
             if (this->remote_programs_session_manager) {
                 this->remote_programs_session_manager->input_mouse(device_flags, x, y);
@@ -1651,19 +1674,19 @@ public:
 
         switch (front_channel_name) {
             case channel_names::cliprdr:
-                this->total_cliprdr_amount_data_rcv_from_client += length;
+                this->metrics.total_cliprdr_amount_data_rcv_from_client += length;
                 this->send_to_mod_cliprdr_channel(mod_channel, chunk, length, flags);
                 break;
             case channel_names::rail:
-                this->total_rail_amount_data_rcv_from_client += length;
+                this->metrics.total_rail_amount_data_rcv_from_client += length;
                 this->send_to_mod_rail_channel(mod_channel, chunk, length, flags);
                 break;
             case channel_names::rdpdr:
-                this->total_rdpdr_amount_data_rcv_from_client += length;
+                this->metrics.total_rdpdr_amount_data_rcv_from_client += length;
                 this->send_to_mod_rdpdr_channel(mod_channel, chunk, length, flags);
                 break;
             case channel_names::drdynvc:
-                this->total_drdynvc_amount_data_rcv_from_client += length;
+                this->metrics.total_drdynvc_amount_data_rcv_from_client += length;
                 this->send_to_mod_drdynvc_channel(mod_channel, chunk, length, flags);
                 break;
             default:
@@ -1671,28 +1694,9 @@ public:
         }
     }
 
-    // this->total_main_amount_data_rcv_from_client += length;
-    // this->total_main_amount_data_rcv_from_server += length;
-    void log_metrics(const char * premary_user) override {
+    void log_metrics() override {
         if (bool(this->verbose & RDPVerbose::export_metrics)) {
-            LOG(LOG_INFO, "Session_id=%u user=\"%s\" account=\"%s\" target_host=\"%s\" Client data received by channels - main:%ld cliprdr:%ld rail:%ld rdpdr:%ld drdynvc:%ld",
-                this->redir_info.session_id, premary_user, this->logon_info.username(),
-                this->target_host/*"user_account", "0.0.0.0"*/,
-                this->total_main_amount_data_rcv_from_client,
-                this->total_cliprdr_amount_data_rcv_from_client,
-                this->total_rail_amount_data_rcv_from_client,
-                this->total_rdpdr_amount_data_rcv_from_client,
-                this->total_drdynvc_amount_data_rcv_from_client);
-
-
-            LOG(LOG_INFO, "Session_id=%u user=\"%s\" account=\"%s\" target_host=\"%s\" Server data received by channels - main:%ld cliprdr:%ld rail:%ld rdpdr:%ld drdynvc:%ld",
-                this->redir_info.session_id, premary_user, this->logon_info.username(),
-                this->target_host/*"user_account", "0.0.0.0"*/,
-                this->total_main_amount_data_rcv_from_server,
-                this->total_cliprdr_amount_data_rcv_from_server,
-                this->total_rail_amount_data_rcv_from_server,
-                this->total_rdpdr_amount_data_rcv_from_server,
-                this->total_drdynvc_amount_data_rcv_from_server);
+            this->metrics.log();
         }
     }
 
@@ -1700,7 +1704,6 @@ private:
     void send_to_mod_cliprdr_channel(const CHANNELS::ChannelDef * /*cliprdr_channel*/,
                                      InStream & chunk, size_t length, uint32_t flags) {
         ClipboardVirtualChannel& channel = this->get_clipboard_virtual_channel();
-
 
         if (bool(this->verbose & RDPVerbose::cliprdr)) {
             InStream clone = chunk.clone();
@@ -1987,7 +1990,7 @@ public:
     void connected_fast_path(gdi::GraphicApi & drawable, array_view_u8 array)
     {
         InStream stream(array);
-        this->total_main_amount_data_rcv_from_server += stream.in_remain();
+        this->metrics.total_main_amount_data_rcv_from_server += stream.in_remain();
 
         FastPath::ServerUpdatePDU_Recv su(stream, this->decrypt, array.data());
         if (this->enable_transparent_mode) {
@@ -2139,6 +2142,7 @@ public:
             case FastPath::UpdateType::POINTER:
                 if (bool(this->verbose & RDPVerbose::graphics_pointer)) {
                     LOG(LOG_INFO, "Process pointer new (Fast)");
+
                 }
                 this->process_new_pointer_pdu(stream, drawable);
                 break;
@@ -2161,7 +2165,7 @@ public:
 
         X224::DT_TPDU_Recv x224(stream);
 
-        this->total_main_amount_data_rcv_from_server += stream.in_remain();
+        this->metrics.total_main_amount_data_rcv_from_server += stream.in_remain();
 
         const int mcs_type = MCS::peekPerEncodedMCSType(x224.payload);
 
@@ -2245,19 +2249,19 @@ public:
             }
             // Clipboard is a Clipboard PDU
             else if (mod_channel.name == channel_names::cliprdr) {
-                this->total_cliprdr_amount_data_rcv_from_server += length;
+                this->metrics.total_cliprdr_amount_data_rcv_from_server += length;
                 this->process_cliprdr_event(mod_channel, sec.payload, length, flags, chunk_size);
             }
             else if (mod_channel.name == channel_names::rail) {
-                this->total_rail_amount_data_rcv_from_server += length;
+                this->metrics.total_rail_amount_data_rcv_from_server += length;
                 this->process_rail_event(mod_channel, sec.payload, length, flags, chunk_size);
             }
             else if (mod_channel.name == channel_names::rdpdr) {
-                this->total_rdpdr_amount_data_rcv_from_server += length;
+                this->metrics.total_rdpdr_amount_data_rcv_from_server += length;
                 this->process_rdpdr_event(mod_channel, sec.payload, length, flags, chunk_size);
             }
             else if (mod_channel.name == channel_names::drdynvc) {
-                this->total_drdynvc_amount_data_rcv_from_server += length;
+                this->metrics.total_drdynvc_amount_data_rcv_from_server += length;
                 this->process_drdynvc_event(mod_channel, sec.payload, length, flags, chunk_size);
             }
             else {
@@ -5052,7 +5056,7 @@ public:
     }
 
     void set_last_tram_len(size_t tram_length) override {
-        this->total_main_amount_data_rcv_from_client += tram_length;
+        this->metrics.total_main_amount_data_rcv_from_client += tram_length;
     }
 
     // [referenced from 2.2.9.1.2.1.7 Fast-Path Color Pointer Update (TS_FP_COLORPOINTERATTRIBUTE) ]
@@ -5237,6 +5241,9 @@ public:
             LOG(LOG_INFO, "mod_rdp::process_new_pointer_pdu");
         }
 
+//         InStream stream_to_log = stream.clone();
+//           ::hexdump(stream.get_data(), stream.in_remain());
+
         unsigned data_bpp  = stream.in_uint16_le(); /* data bpp */
         unsigned pointer_idx = stream.in_uint16_le();
         if (bool(this->verbose & RDPVerbose::graphics_pointer)) {
@@ -5265,15 +5272,28 @@ public:
             throw Error(ERR_RDP_PROCESS_NEW_POINTER_LEN_NOT_OK);
         }
 
+        LOG(LOG_INFO, "mod_rdp::process_new_pointer_pdu data_bpp=%u pointer_idx=%u hotspot_x=%u hotspot_y=%u width=%u height=%u mlen=%u dlen=%u square=%u", data_bpp, pointer_idx, hotspot_x, hotspot_y, width, height, mlen, dlen, height*width);
         const uint8_t * data = stream.in_uint8p(dlen);
         const uint8_t * mask = stream.in_uint8p(mlen);
 
         Pointer cursor({width, height}, {hotspot_x, hotspot_y},{data, dlen}, {mask, mlen}, data_bpp, this->orders.global_palette, this->clean_up_32_bpp_cursor, this->bogus_linux_cursor);
         this->cursors[pointer_idx] = cursor;
 
+
+
         drawable.set_pointer(cursor);
         if (bool(this->verbose & RDPVerbose::graphics_pointer)) {
             LOG(LOG_INFO, "mod_rdp::process_new_pointer_pdu done");
+            LOG(LOG_INFO, "mod_rdp::process_new_pointer_pdu done cursormask");
+            const uint8_t * cursormask = cursor.get_monochrome_and_mask().data();
+            ::hexdump(cursormask, mlen);
+            LOG(LOG_INFO, "mod_rdp::process_new_pointer_pdu done cursordata");
+            const uint8_t * cursordata = cursor.get_24bits_xor_mask().data();
+            ::hexdump(cursordata, dlen);
+            LOG(LOG_INFO, "mod_rdp::process_new_pointer_pdu done vnccursor");
+            ARGB32Pointer vnccursor(cursor);
+            const auto av_alpha_q = vnccursor.get_alpha_q();
+            ::hexdump(av_alpha_q.data(), cursor.get_dimensions().width * cursor.get_dimensions().height);
         }
     }   // process_new_pointer_pdu
 
@@ -5753,7 +5773,6 @@ private:
         // this->send_to_front_channel(
         //     channel_names::rdpdr, stream.get_current(), length, chunk_size, flags);
         // return;
-
 
         DynamicChannelVirtualChannel& channel = this->get_dynamic_channel_virtual_channel();
 

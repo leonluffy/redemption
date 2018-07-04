@@ -1,3 +1,39 @@
+redemption (1.2.45%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
+
+  * Fix mode of meta file.
+
+ -- cgrosjean <cgrosjean at wallix.com>  Thu, 28 Jun 2018 12:30:25 +0200
+
+redemption (1.2.43%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
+
+  * fix build
+
+ -- cgrosjean <cgrosjean at wallix.com>  Wed, 27 Jun 2018 18:36:44 +0200
+
+redemption (1.2.41%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
+
+  * Fix Glyph drawing issue (16907)
+
+ -- cgrosjean <cgrosjean at wallix.com>  Wed, 27 Jun 2018 18:25:30 +0200
+
+redemption (1.2.39%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
+
+  * Fix proxy crash when using a long string as cookie of application session.
+
+ -- cgrosjean <cgrosjean at wallix.com>  Wed, 27 Jun 2018 15:51:31 +0200
+
+redemption (1.2.37%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
+
+  * Add comments to configuration interface.
+
+ -- cgrosjean <cgrosjean at wallix.com>  Tue, 26 Jun 2018 15:00:50 +0200
+
+redemption (1.2.35%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
+
+  * Remove green screen as beginning of video fragments.
+
+ -- cgrosjean <cgrosjean at wallix.com>  Wed, 20 Jun 2018 12:12:40 +0200
+
 redemption (1.2.33%TARGET_NAME%) %PKG_DISTRIBUTION%; urgency=low
 
   * Fix proxy crashs when connect to invalid target from Selector.

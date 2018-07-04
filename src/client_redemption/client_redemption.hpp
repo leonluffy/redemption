@@ -231,7 +231,6 @@ public:
         , clientChannelRemoteAppManager(this->verbose, this, this->impl_graphic, this->impl_mouse_keyboard)
         , local_IP("unknow_local_IP")
     {
-
         if (this->impl_clipboard) {
             this->impl_clipboard->set_client(this);
         } else {
@@ -326,8 +325,7 @@ public:
          try {
             this->replay_mod.reset(new ReplayMod( session_reactor
                                                 , *this
-                                                , movie_dir.c_str() //(this->REPLAY_DIR + "/").c_str()
-                                                , movie_name.c_str()
+                                                , (movie_dir + movie_name).c_str() //(this->REPLAY_DIR + "/").c_str()
                                                 , 0             //this->info.width
                                                 , 0             //this->info.height
                                                 , this->_error
@@ -502,6 +500,7 @@ public:
                     mod_rdp_params.allow_channels                  = &allow_channels;
                     mod_rdp_params.deny_channels = nullptr;
                     mod_rdp_params.enable_rdpdr_data_analysis = false;
+                    mod_rdp_params.bogus_linux_cursor = BogusLinuxCursor::enable;
 
                     this->unique_mod.reset(new mod_rdp( *this->socket
                                                 , session_reactor
@@ -1054,7 +1053,8 @@ public:
 
     void draw(const RDP::RAIL::NewOrExistingWindow            & cmd) override {
         if (bool(this->verbose & RDPVerbose::rail_order)) {
-            LOG(LOG_INFO, "RDP::RAIL::NewOrExistingWindow");
+            cmd.log(LOG_INFO);
+//             LOG(LOG_INFO, "RDP::RAIL::NewOrExistingWindow");
         }
 
         this->clientChannelRemoteAppManager.draw(cmd);
