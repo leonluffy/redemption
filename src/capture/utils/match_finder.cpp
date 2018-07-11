@@ -223,5 +223,5 @@ void MatchFinder::report(
         message);
 }
 
-}
+} // namespace utils
 

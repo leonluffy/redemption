@@ -1661,7 +1661,7 @@ public:
                     rdpdr::RDPDR_DTYP_FILESYSTEM,   // DeviceType
                     managed_drive.device_id,
                     managed_drive.name.c_str(),     // PreferredDosName
-                    reinterpret_cast<uint8_t const *>(managed_drive.name.c_str()),
+                    byte_ptr_cast(managed_drive.name.c_str()),
                     managed_drive.name.length() + 1
                 );
 
@@ -1683,13 +1683,13 @@ public:
 
     struct DriveName
     {
-        DriveName()
+        explicit DriveName()
         {
             this->name_[0] = 0;
             this->upper_name_[0] = 0;
         }
 
-        DriveName(array_view_const_char name, bool reserved = false) noexcept
+        explicit DriveName(array_view_const_char name, bool reserved = false) noexcept
         : read_only_(false)
         {
             if (name.size() && name[0] == '*') {

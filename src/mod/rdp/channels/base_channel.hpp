@@ -26,7 +26,10 @@
 #include "mod/rdp/rdp_log.hpp"
 #include "core/report_message_api.hpp"
 
-typedef int_fast32_t data_size_type;
+#include <memory>
+
+
+using data_size_type = int_fast32_t;
 
 class BaseVirtualChannel
 {
@@ -49,7 +52,9 @@ public:
         data_size_type  exchanged_data_limit;
         RDPVerbose verbose;
 
-        Params(ReportMessageApi & report_message) : report_message(report_message) {}
+        explicit Params(ReportMessageApi & report_message)
+          : report_message(report_message)
+        {}
     };
 
 protected:

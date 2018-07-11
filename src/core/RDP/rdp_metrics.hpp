@@ -20,12 +20,14 @@
 
 #pragma once
 
-#include <stdio.h>
-#include <string.h>
+#include "utils/log.hpp"
+
+#include <cstdio>
+#include <cstring>
+
 #include <fcntl.h>
 #include <sys/uio.h>
 
-#include "utils/log.hpp"
 
 struct RDPMetrics {
 
@@ -54,7 +56,7 @@ struct RDPMetrics {
     int total_keys_pressed = 0;
 
 
-
+    
     RDPMetrics( const char * filename
               , const uint32_t session_id
               , const char * account
@@ -65,14 +67,24 @@ struct RDPMetrics {
       , account(account)
       , target_host(target_host)
       , primary_user(primary_user)
-      {
-          if (this->filename) {
-            this->fd = ::open(this->filename, O_WRONLY);
+    {
+        if (this->filename) {
+        this->fd = ::open(this->filename, O_WRONLY);
 
-            if (this->fd < 0) {
-                LOG(LOG_ERR, "Log Metrics error: can't open \"%s\"", this->filename);
-            }
-          }
+        if (this->fd < 0) {
+            LOG(LOG_ERR, "Log Metrics error: can't open \"%s\"", this->filename);
+        }
+        }
+    }
+
+    void set_new_file_path(const char * filename) {
+        fcntl(this->fd, F_SETFD, FD_CLOEXEC);
+        this->filename = filename;
+        this->fd = ::open(this->filename, O_WRONLY);
+    }
+
+    ~RDPMetrics() {
+        fcntl(this->fd, F_SETFD, FD_CLOEXEC);
     }
 
 

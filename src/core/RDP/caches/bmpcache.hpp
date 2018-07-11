@@ -57,14 +57,11 @@ private:
         #ifndef NDEBUG
         Bitmap bmp;
         #endif
-        uint_fast32_t stamp;
-        uint8_t sha1[SslSha1::DIGEST_LENGTH];
-        bool is_valid;
+        uint_fast32_t stamp{0};
+        uint8_t sha1[SslSha1::DIGEST_LENGTH]{};
+        bool is_valid{false};
 
-        cache_lite_element()
-        : stamp(0)
-        , sha1()
-        , is_valid(false) {}
+        explicit cache_lite_element() = default;
 
         explicit cache_lite_element(const uint8_t (& sha1_)[SslSha1::DIGEST_LENGTH])
         : stamp(0)
@@ -89,23 +86,20 @@ private:
     struct cache_element
     {
         Bitmap bmp;
-        uint_fast32_t stamp;
+        uint_fast32_t stamp{0};
         union {
             uint8_t  sig_8[8];
             uint32_t sig_32[2];
         } sig;
         uint8_t sha1[SslSha1::DIGEST_LENGTH];
-        bool cached;
+        bool cached{false};
 
-        cache_element()
-        : stamp(0)
-        , cached(false)
-        {}
+        explicit cache_element() = default;
 
         explicit cache_element(Bitmap const & bmp)
         : bmp(bmp)
         , stamp(0)
-        , cached(false)
+
         {}
 
         cache_element(cache_element const &) = delete;
@@ -123,19 +117,18 @@ private:
     };
 
     class storage_value_set {
-        size_t elem_size;
+        size_t elem_size{0};
         std::unique_ptr<uint8_t[]> data;
         std::unique_ptr<void*[]> free_list;
-        void* * free_list_cur;
+        void* * free_list_cur{nullptr};
 
         storage_value_set(storage_value_set const &);
         storage_value_set& operator=(storage_value_set const &);
 
     public:
         storage_value_set()
-        : elem_size(0)
-        , free_list_cur(nullptr)
-        {}
+
+        = default;
 
         template<class T>
         void update() {
@@ -175,12 +168,12 @@ private:
     public:
         storage_value_set & storage;
 
-        typedef typename std::allocator<T>::pointer pointer;
-        typedef typename std::allocator<T>::size_type size_type;
+        using pointer = typename std::allocator<T>::pointer;
+        using size_type = typename std::allocator<T>::size_type;
 
         template<class U>
         struct rebind {
-            typedef aligned_set_allocator<U> other;
+            using other = aligned_set_allocator<U>;
         };
 
         explicit aligned_set_allocator(storage_value_set & storage)
@@ -220,9 +213,8 @@ private:
         {}
 
         bool operator<(value_set const & other) const {
-            typedef std::pair<const uint8_t *, const uint8_t *> iterator_pair;
             const uint8_t * e = this->elem.sha1 + sizeof(this->elem.sha1);
-            iterator_pair p = std::mismatch(this->elem.sha1 + 0, e, other.elem.sha1 + 0);
+            auto p = std::mismatch(this->elem.sha1 + 0, e, other.elem.sha1 + 0);
             return p.first == e ? false : *p.first < *p.second;
         }
     };
@@ -232,14 +224,14 @@ private:
         T * first;
         T * last;
 
-        typedef aligned_set_allocator<value_set<T> > set_allocator;
-        typedef std::less<value_set<T> > set_compare;
-        typedef std::set<value_set<T>, set_compare, set_allocator> set_type;
+        using set_allocator = aligned_set_allocator<value_set<T> >;
+        using set_compare = std::less<value_set<T> >;
+        using set_type = std::set<value_set<T>, set_compare, set_allocator>;
 
         set_type sorted_elements;
 
     public:
-        cache_range(T * first, size_t sz, storage_value_set & storage)
+        explicit cache_range(T * first, size_t sz, storage_value_set & storage)
         : first(first)
         , last(first + sz)
         , sorted_elements(set_compare(), set_allocator{storage})
@@ -362,8 +354,6 @@ public:
         size_t entries() const {
             return this->size();
         }
-
-//        typedef T Element;
     };
 
 
@@ -377,7 +367,7 @@ public:
     const uint8_t number_of_cache;
     const bool    use_waiting_list;
 
-    typedef Cache<cache_element> cache_;
+    using cache_ = Cache<cache_element>;
 
 private:
     const size_t size_elements;
@@ -403,16 +393,17 @@ public:
         persistent = 512,
     };
 
-    BmpCache(Owner owner,
-             const uint8_t bpp,
-             uint8_t number_of_cache,
-             bool use_waiting_list,
-             CacheOption c0 = CacheOption(),
-             CacheOption c1 = CacheOption(),
-             CacheOption c2 = CacheOption(),
-             CacheOption c3 = CacheOption(),
-             CacheOption c4 = CacheOption(),
-             Verbose verbose = {})
+    explicit BmpCache(
+        Owner owner,
+        const uint8_t bpp,
+        uint8_t number_of_cache,
+        bool use_waiting_list,
+        CacheOption c0 = CacheOption(),
+        CacheOption c1 = CacheOption(),
+        CacheOption c2 = CacheOption(),
+        CacheOption c3 = CacheOption(),
+        CacheOption c4 = CacheOption(),
+        Verbose verbose = {})
     : owner(owner)
     , bpp(bpp)
     , number_of_cache(number_of_cache)
@@ -493,11 +484,11 @@ public:
         const size_t coef = this->use_waiting_list ? 3 : 2; /*+ compressed*/
         const size_t add_mem = (this->bpp == 8 ? sizeof(BGRPalette) : 0) + 32 /*arbitrary*/;
 
-        for (unsigned i_cache = 0; i_cache < MAXIMUM_NUMBER_OF_CACHES; ++i_cache) {
-            if (this->caches[i_cache].size()) {
+        for (auto& cache : this->caches) {
+            if (cache.size()) {
                 for (aux_::BmpMemAlloc::MemoryDef & mem: mems) {
-                    if (this->caches[i_cache].bmp_size() + add_mem <= mem.sz) {
-                        mem.cel += this->caches[i_cache].size() * coef;
+                    if (cache.bmp_size() + add_mem <= mem.sz) {
+                        mem.cel += cache.size() * coef;
                         break;
                     }
                 }

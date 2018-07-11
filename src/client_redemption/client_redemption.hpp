@@ -286,7 +286,7 @@ public:
         }
     }
 
-    ~ClientRedemption() {}
+    ~ClientRedemption() = default;
 
     virtual void update_keylayout() override {
         if (this->impl_mouse_keyboard) {
@@ -303,7 +303,7 @@ public:
         }
     }
 
-    const CHANNELS::ChannelDefArray & get_channel_list(void) const override {
+    const CHANNELS::ChannelDefArray & get_channel_list() const override {
         return this->cl;
     }
 
@@ -344,7 +344,7 @@ public:
             LOG(LOG_ERR, "new ReplayMod error %s", err.errmsg());
         }
 
-        if (this->replay_mod.get() == nullptr) {
+        if (this->replay_mod == nullptr) {
             if (impl_graphic) {
                 this->impl_graphic->dropScreen();
             }
@@ -934,7 +934,7 @@ public:
     }
 
     void instant_play_client(std::chrono::microseconds time) override {
-        this->replay_mod.get()->instant_play_client(time);
+        this->replay_mod->instant_play_client(time);
     }
 
     void disconnexionReleased() override{
@@ -995,7 +995,7 @@ public:
         this->clientChannelCLIPRDRManager.send_FormatListPDU();
     }
 
-    void send_to_channel( const CHANNELS::ChannelDef & channel, uint8_t const * data, size_t , size_t chunk_size, int flags) override {
+    void send_to_channel( const CHANNELS::ChannelDef & channel, uint8_t const * data, size_t  /*unused*/, size_t chunk_size, int flags) override {
 
         const CHANNELS::ChannelDef * mod_channel = this->cl.get_by_name(channel.name);
         if (!mod_channel) {
@@ -1021,7 +1021,7 @@ public:
             case CHANID_WABDIAG:
             {
                 int len = chunk.in_uint32_le();
-                std::string msg(reinterpret_cast<char const *>(chunk.get_current()), len);
+                std::string msg(char_ptr_cast(chunk.get_current()), len);
 
                 if        (msg == std::string("ConfirmationPixelColor=White")) {
                     this->wab_diag_question = true;
@@ -1068,14 +1068,14 @@ public:
         this->clientChannelRemoteAppManager.draw(cmd);
     }
 
-    void draw(const RDP::RAIL::WindowIcon            & ) override {
+    void draw(const RDP::RAIL::WindowIcon            &  /*unused*/) override {
         if (bool(this->verbose & RDPVerbose::rail_order)) {
             LOG(LOG_INFO, "RDP::RAIL::WindowIcon");
         }
 //         cmd.log(LOG_INFO);
     }
 
-    void draw(const RDP::RAIL::CachedIcon            & ) override {
+    void draw(const RDP::RAIL::CachedIcon            &  /*unused*/) override {
         if (bool(this->verbose & RDPVerbose::rail_order)) {
             LOG(LOG_INFO, "RDP::RAIL::CachedIcon");
         }
@@ -1409,7 +1409,7 @@ private:
     using no_log = std::false_type;
     using with_log = std::true_type;
 
-    void draw_impl(no_log, RDP::FrameMarker const& order)
+    void draw_impl(no_log /*unused*/, RDP::FrameMarker const& order)
     {
         if (bool(this->verbose & RDPVerbose::graphics)) {
             LOG(LOG_INFO, "--------- FRONT ------------------------");

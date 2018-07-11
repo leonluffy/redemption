@@ -404,9 +404,7 @@ public:
 
                     return ctx.exec_at("Windows (down)"_c);
                 }
-                else {
-                    return ctx.exec_at("Send format list"_c);
-                }
+                return ctx.exec_at("Send format list"_c);
             }),
 
             "Send format list"_f
@@ -476,14 +474,13 @@ public:
                     self.state = State::WAIT;
                     return ctx.set_delay(self.to_microseconds(self.short_delay, self.delay_coefficient)).at(0).ready();
                 }
-                else {
-                    return ctx.set_delay(
-                            self.to_microseconds(
-                                    (decltype(wait_for_short_delay)::value ? self.short_delay : self.long_delay),
-                                    self.delay_coefficient
-                                )
-                        ).next();
-                }
+
+                return ctx.set_delay(
+                    self.to_microseconds(
+                        (decltype(wait_for_short_delay)::value ? self.short_delay : self.long_delay),
+                        self.delay_coefficient
+                    )
+                ).next();
             };
         };
 
@@ -547,17 +544,16 @@ public:
 
             return true;
         }
-        else {
-            if (this->state != State::START) {
-                return (this->state < State::WAIT);
-            }
 
-            this->state = State::RUN;
-
-            make_run_sequencer();
-
-            return false;
+        if (this->state != State::START) {
+            return (this->state < State::WAIT);
         }
+
+        this->state = State::RUN;
+
+        make_run_sequencer();
+
+        return false;
     }
 
     // Returns false to prevent message to be sent to server.
@@ -613,7 +609,7 @@ public:
         this->cliprdr_channel = reinterpret_cast<ClipboardVirtualChannel*>(channel);
     }
 
-    void set_remote_programs_virtual_channel(BaseVirtualChannel*) override {}
+    void set_remote_programs_virtual_channel(BaseVirtualChannel* /*channel*/) override {}
 
     void set_session_probe_virtual_channel(
             BaseVirtualChannel* channel) override {
@@ -716,7 +712,7 @@ private:
                                       | CHANNELS::CHANNEL_FLAG_SHOW_PROTOCOL);
     }
 
-    void rdp_send_scancode(long param1, long param2, long device_flags, long time, Keymap2 *) {
+    void rdp_send_scancode(long param1, long param2, long device_flags, long time, Keymap2 * /*unused*/) {
         this->mod.send_input(time, RDP_INPUT_SCANCODE, device_flags, param1, param2);
     }
 

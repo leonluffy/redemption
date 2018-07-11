@@ -178,7 +178,7 @@ class PatternSearcher
     Utf8KbdData utf8_kbd_data;
 
 public:
-    PatternSearcher(utils::MatchFinder::ConfigureRegexes conf_regex, char const * filters, int verbose = 0) {
+    explicit PatternSearcher(utils::MatchFinder::ConfigureRegexes conf_regex, char const * filters, int verbose = 0) {
         utils::MatchFinder::configure_regexes(conf_regex, filters, this->regexes_filter, verbose, true);
         auto const count_regex = this->regexes_filter.size();
         if (count_regex) {
@@ -291,7 +291,7 @@ class PatternKbd final : public gdi::KbdInputApi
     PatternSearcher pattern_notify;
 
 public:
-    PatternKbd(
+    explicit PatternKbd(
         ReportMessageApi * report_message,
         char const * str_pattern_kill, char const * str_pattern_notify,
         int verbose = 0)
@@ -435,7 +435,7 @@ public:
         if (this->kbd_stream.get_offset()) {
             LOG(LOG_INFO, R"x(type="KBD input" data="%.*s")x",
                 int(this->kbd_stream.get_offset()),
-                reinterpret_cast<char const *>(this->kbd_stream.get_data()));
+                char_ptr_cast(this->kbd_stream.get_data()));
             this->kbd_stream.rewind();
         }
     }
@@ -576,7 +576,7 @@ class PatternsChecker : noncopyable
     ReportMessageApi & report_message;
 
 public:
-    PatternsChecker(ReportMessageApi & report_message, PatternParams const & params)
+    explicit PatternsChecker(ReportMessageApi & report_message, PatternParams const & params)
     : report_message(report_message)
     {
         utils::MatchFinder::configure_regexes(utils::MatchFinder::ConfigureRegexes::OCR,
@@ -635,7 +635,7 @@ protected:
 protected:
     gdi::ImageFrameApi & image_frame_api;
 
-    PngCapture(
+    explicit PngCapture(
         const CaptureParams & capture_params, const PngParams & png_params,
         RDPDrawable & drawable,
         gdi::ImageFrameApi & imageFrameApi, MutableImageDataView const & image_view)
@@ -666,7 +666,7 @@ public:
         imageFrameApi, imageFrameApi.get_mutable_image_view())
     {}
 
-    void dump(void)
+    void dump()
     {
         auto const image_view = this->image_frame_api.get_mutable_image_view();
         if (this->zoom_factor == 100) {
@@ -740,7 +740,7 @@ class PngCaptureRT : public PngCapture
     SmartVideoCropping smart_video_cropping;
 
 public:
-    PngCaptureRT(
+    explicit PngCaptureRT(
         const CaptureParams & capture_params, const PngParams & png_params,
         RDPDrawable & drawable, gdi::ImageFrameApi & imageFrameApi)
     : PngCapture(capture_params, png_params, drawable, imageFrameApi)
@@ -784,9 +784,9 @@ public:
         return interval - duration % interval;
     }
 
-    void visibility_rects_event(Rect const & rect_) override {
-        if ((this->smart_video_cropping != SmartVideoCropping::disable) && !rect_.isempty()) {
-            Rect rect = rect_.intersect(
+    void visibility_rects_event(Rect rect) override {
+        if ((this->smart_video_cropping != SmartVideoCropping::disable) && !rect.isempty()) {
+            rect = rect.intersect(
                 {0, 0, this->drawable.width(), this->drawable.height()});
 
 
@@ -1039,7 +1039,7 @@ class SessionMeta final : public gdi::KbdInputApi, public gdi::CaptureApi, publi
     const bool key_markers_hidden_state;
 
 public:
-    SessionMeta(const timeval & now, Transport & trans, bool key_markers_hidden_state)
+    explicit SessionMeta(const timeval & now, Transport & trans, bool key_markers_hidden_state)
     : kbd_stream{this->kbd_buffer + session_meta_kbd_prefix().size(), kbd_buffer_usable_char}
     , last_time(now.tv_sec)
     , trans(trans)
@@ -1225,7 +1225,7 @@ class SessionLogAgent : public gdi::CaptureProbeApi
     SessionMeta & session_meta;
 
 public:
-    SessionLogAgent(SessionMeta & session_meta)
+    explicit SessionLogAgent(SessionMeta & session_meta)
     : session_meta(session_meta)
     {}
 
@@ -1248,7 +1248,7 @@ public:
     SessionLogAgent session_log_agent;
     bool enable_agent;
 
-    MetaCaptureImpl(CaptureParams const& capture_params, MetaParams const & meta_params)
+    explicit MetaCaptureImpl(CaptureParams const& capture_params, MetaParams const & meta_params)
     : meta_trans(unique_fd{[&](){
         std::string record_path;
         record_path += capture_params.record_tmp_path;
@@ -1303,7 +1303,7 @@ class TitleCaptureImpl : public gdi::CaptureApi, public gdi::CaptureProbeApi
     ReportMessageApi * report_message;
 
 public:
-    TitleCaptureImpl(
+    explicit TitleCaptureImpl(
         const timeval & now,
         RDPDrawable & drawable,
         OcrParams ocr_params,
@@ -1352,9 +1352,8 @@ public:
 
             return this->usec_ocr_interval;
         }
-        else {
-            return this->usec_ocr_interval - diff;
-        }
+
+        return this->usec_ocr_interval - diff;
     }
 
     void session_update(timeval const & /*now*/, array_view_const_char message) override {
@@ -1588,15 +1587,15 @@ Capture::Capture(
     if (capture_kbd) {
         if (kbd_log_params.syslog_keyboard_log) {
             this->syslog_kbd_capture_obj.reset(new SyslogKbd(capture_params.now));
-            this->kbds.push_back(*this->syslog_kbd_capture_obj.get());
-            this->caps.push_back(*this->syslog_kbd_capture_obj.get());
+            this->kbds.push_back(*this->syslog_kbd_capture_obj);
+            this->caps.push_back(*this->syslog_kbd_capture_obj);
         }
 
         if (kbd_log_params.session_log_enabled) {
             this->session_log_kbd_capture_obj.reset(new SessionLogKbd(
                 *capture_params.report_message));
-            this->kbds.push_back(*this->session_log_kbd_capture_obj.get());
-            this->probes.push_back(*this->session_log_kbd_capture_obj.get());
+            this->kbds.push_back(*this->session_log_kbd_capture_obj);
+            this->probes.push_back(*this->session_log_kbd_capture_obj);
         }
 
         this->pattern_kbd_capture_obj.reset(new PatternKbd(
@@ -1606,7 +1605,7 @@ Capture::Capture(
             pattern_params.verbose));
 
         if (this->pattern_kbd_capture_obj->contains_pattern()) {
-            this->kbds.push_back(*this->pattern_kbd_capture_obj.get());
+            this->kbds.push_back(*this->pattern_kbd_capture_obj);
         }
         else {
             this->pattern_kbd_capture_obj.reset();
@@ -1706,9 +1705,9 @@ Capture::Microseconds Capture::periodic_snapshot(
     return time;
 }
 
-void Capture::visibility_rects_event(Rect const & rect_) {
+void Capture::visibility_rects_event(Rect rect) {
     for (gdi::CaptureApi & cap : this->caps) {
-        cap.visibility_rects_event(rect_);
+        cap.visibility_rects_event(rect);
     }
 
     if ((this->smart_video_cropping == SmartVideoCropping::disable) ||
@@ -1724,7 +1723,7 @@ void Capture::visibility_rects_event(Rect const & rect_) {
 
     assert((image_frame_rect.cx <= drawable_width) && (image_frame_rect.cy <= drawable_height));
 
-    Rect const rect = Rect(0, 0, drawable_width, drawable_height).intersect(rect_);
+    rect = Rect(0, 0, drawable_width, drawable_height).intersect(rect);
 
     if (image_frame_rect.contains(rect)) {
         return;

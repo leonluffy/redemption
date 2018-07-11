@@ -141,7 +141,7 @@ namespace
         LOG(LOG_INFO, "connection to %s succeeded : socket %d", target, sck);
         return unique_fd{sck};
     }
-}
+} // namespace
 
 int resolve_ipv4_address(const char* ip, in_addr & s4_sin_addr)
 {
@@ -250,7 +250,7 @@ struct LineBuffer
     int begin_line;
     int eol;
 
-    LineBuffer(int fd)
+    explicit LineBuffer(int fd)
     : end_buffer(0)
     , fd(fd)
     , begin_line(0)

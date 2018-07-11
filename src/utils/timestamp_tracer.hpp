@@ -22,6 +22,9 @@
 
 #include "gdi/image_frame_api.hpp"
 
+#include <cstring>
+#include <ctime>
+
 
 class TimestampTracer {
     enum {
@@ -51,7 +54,7 @@ class TimestampTracer {
     unsigned int rowsize;
 
 public:
-    TimestampTracer(const MutableImageDataView & image_view)
+    explicit TimestampTracer(const MutableImageDataView & image_view)
     : previous_timestamp_length(0)
     , width(image_view.width())
     , height(image_view.height())
@@ -65,8 +68,8 @@ public:
 private:
     int _posch_12x7(char ch) {
         return char_width * char_height *
-        (isdigit(ch)  ? ch - '0'
-        : isupper(ch) ? ch - 'A' + 14
+        ( ('0' <= ch && ch <= '9') ? ch - '0'
+        : ('A' <= ch && ch <= 'Z') ? ch - 'A' + 14
         : ch == '-'   ? 10
         : ch == ':'   ? 11
         : ch == 0x07  ? 13
