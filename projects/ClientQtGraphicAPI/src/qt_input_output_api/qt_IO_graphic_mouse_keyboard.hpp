@@ -22,9 +22,8 @@
 
 #pragma once
 
+#include "core/RDP/RDPDrawable.hpp"
 #include "utils/log.hpp"
-
-
 
 #include "keymaps/qt_scancode_keymap.hpp"
 
@@ -58,43 +57,29 @@
 #undef REDEMPTION_QT_INCLUDE_WIDGET
 
 
+void update_cache(Rect clip, RDPDrawable& drawable, QPainter& painter);
 
 class QtIOGraphicMouseKeyboard : public ClientOutputGraphicAPI, public ClientInputMouseKeyboardAPI
 {
-
-public:
-    int                  mod_bpp;
-    QtForm            * form;
-    QtScreen           * screen;
-    QPixmap             cache;
-    ProgressBarWindow  * bar;
+    QtForm             * form = nullptr;
+    QtScreen           * screen = nullptr;
+    QPixmap              cache;
+    ProgressBarWindow  * bar = nullptr;
     QPainter             painter;
     QImage cursor_image;
     std::map<uint32_t, RemoteAppQtScreen *> remote_app_screen_map;
     //     QPixmap            * trans_cache;
+    RDPDrawable drawable;
     Qt_ScanCode_KeyMap   qtRDPKeymap;
 
     std::vector<QPixmap> balises;
 
-
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //------------------------
-    //      CONSTRUCTOR
-    //------------------------
-
+public:
     QtIOGraphicMouseKeyboard()
       : ClientOutputGraphicAPI(QApplication::desktop()->width(), QApplication::desktop()->height())
-      , ClientInputMouseKeyboardAPI()
-      , mod_bpp(24)
-      , form(nullptr)
-      , screen(nullptr)
-     // , cache(nullptr)
-      , bar(nullptr)
-//       , trans_cache(nullptr)
-      , qtRDPKeymap()
+      // QImage: each scanline of data in the image must be 32-bit aligned.
+      , drawable(this->screen_max_width, this->screen_max_height)
     {}
-
 
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -149,24 +134,23 @@ public:
         }
 
         this->cache = QPixmap(w, h);
+        this->drawable.resize(align4(w), h);
 
         LOG(LOG_INFO, "reset_cache this->cache.width()=%d this->cache.height()=%d", this->cache.width(), this->cache.height());
 
         if (!(this->cache.isNull())) {
-            this->painter.begin(&(this->cache));
+            this->painter.begin(&this->cache);
         }
 
         this->painter.fillRect(0, 0, w, h, Qt::black);
     }
 
     void create_screen() override {
-        QPixmap * map = &(this->cache);
-        this->screen = new RDPQtScreen(this->config, this->drawn_client, this, map);
+        this->screen = new RDPQtScreen(this->config, this->drawn_client, this, &this->cache);
     }
 
     void create_screen(std::string const & movie_dir, std::string const & movie_path) override {
-        QPixmap * map = &(this->cache);
-        this->screen = new ReplayQtScreen(this->config, this->drawn_client, this, movie_dir, movie_path, map, this->client->get_movie_time_length(this->client->get_mwrm_filename()), 0);
+        this->screen = new ReplayQtScreen(this->config, this->drawn_client, this, movie_dir, movie_path, &this->cache, this->client->get_movie_time_length(this->client->get_mwrm_filename()), 0);
     }
 
     QWidget * get_static_qwidget() {
@@ -229,7 +213,7 @@ public:
     void create_remote_app_screen(uint32_t id, int w, int h, int x, int y) override {
         LOG(LOG_INFO, "create_remote_app_screen 1");
         this->remote_app_screen_map.insert(std::pair<uint32_t, RemoteAppQtScreen *>(id, nullptr));
-        this->remote_app_screen_map[id] = new RemoteAppQtScreen(this->config, this->drawn_client, this, w, h, x, y, &(this->cache));
+        this->remote_app_screen_map[id] = new RemoteAppQtScreen(this->config, this->drawn_client, this, w, h, x, y, &this->cache);
         LOG(LOG_INFO, "create_remote_app_screen 2");
     }
 
@@ -422,7 +406,7 @@ private:
                 }
                 this->dropScreen();
                 this->reset_cache(width, height);
-                this->screen = new RDPQtScreen(this->config, this->drawn_client, this, &(this->cache));
+                this->screen = new RDPQtScreen(this->config, this->drawn_client, this, &this->cache);
                 this->screen->show();
                     break;
 
@@ -434,7 +418,7 @@ private:
                 this->client->vnc_conf.height = height;
                 this->dropScreen();
                 this->reset_cache(width, height);
-                this->screen = new RDPQtScreen(this->config, this->drawn_client, this, &(this->cache));
+                this->screen = new RDPQtScreen(this->config, this->drawn_client, this, &this->cache);
                 this->screen->show();
                     break;
 
@@ -455,7 +439,7 @@ private:
                     this->reset_cache(width, height);
 
                     if (!this->is_pre_loading) {
-                        this->screen = new ReplayQtScreen(this->config, this->drawn_client, this, this->client->_movie_dir, this->client->_movie_name, &(this->cache), this->client->get_movie_time_length(this->client->get_mwrm_filename()), current_time_movie);
+                        this->screen = new ReplayQtScreen(this->config, this->drawn_client, this, this->client->_movie_dir, this->client->_movie_name, &this->cache, this->client->get_movie_time_length(this->client->get_mwrm_filename()), current_time_movie);
 
                         this->screen->show();
                     }
@@ -568,889 +552,134 @@ private:
 //     }
 
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //-----------------------
-    //   GRAPHIC FUNCTIONS
-    //-----------------------
-
-    struct Op_0x11 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-             return ~(src | dst);                          // | 0x11 | ROP: 0x001100A6 (NOTSRCERASE) |
-        }                                                  // |      | RPN: DSon                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x22 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-             return (~src & dst);                          // | 0x22 | ROP: 0x00220326               |
-        }                                                  // |      | RPN: DSna                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x33 {
-        uchar op(const uchar src, const uchar) const {     // +------+-------------------------------+
-             return (~src);                                // | 0x33 | ROP: 0x00330008 (NOTSRCCOPY)  |
-        }                                                  // |      | RPN: Sn                       |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x44 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return (src & ~dst);                           // | 0x44 | ROP: 0x00440328 (SRCERASE)    |
-        }                                                  // |      | RPN: SDna                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x55 {
-        uchar op(const uchar, const uchar dst) const {     // +------+-------------------------------+
-             return (~dst);                                // | 0x55 | ROP: 0x00550009 (DSTINVERT)   |
-        }                                                  // |      | RPN: Dn                       |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x66 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return (src ^ dst);                            // | 0x66 | ROP: 0x00660046 (SRCINVERT)   |
-        }                                                  // |      | RPN: DSx                      |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x77 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-             return ~(src & dst);                          // | 0x77 | ROP: 0x007700E6               |
-        }                                                  // |      | RPN: DSan                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x88 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return (src & dst);                            // | 0x88 | ROP: 0x008800C6 (SRCAND)      |
-        }                                                  // |      | RPN: DSa                      |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0x99 {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return ~(src ^ dst);                           // | 0x99 | ROP: 0x00990066               |
-        }                                                  // |      | RPN: DSxn                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0xBB {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return (~src | dst);                           // | 0xBB | ROP: 0x00BB0226 (MERGEPAINT)  |
-        }                                                  // |      | RPN: DSno                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0xDD {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return (src | ~dst);                           // | 0xDD | ROP: 0x00DD0228               |
-        }                                                  // |      | RPN: SDno                     |
-    };                                                     // +------+-------------------------------+
-
-    struct Op_0xEE {
-        uchar op(const uchar src, const uchar dst) const { // +------+-------------------------------+
-            return (src | dst);                            // | 0xEE | ROP: 0x00EE0086 (SRCPAINT)    |
-        }                                                  // |      | RPN: DSo                      |
-    };                                                     // +------+-------------------------------+
-
-
-    QColor u32_to_qcolor(RDPColor color, gdi::ColorCtx color_ctx) {
-
-        if (uint8_t(this->config->info.bpp) != color_ctx.depth().to_bpp()) {
-            BGRColor d = color_decode(color, color_ctx);
-            color      = color_encode(d, uint8_t(this->config->info.bpp));
-        }
-
-        BGRColor bgr = color_decode(color, this->config->info.bpp, this->client->mod_palette);
-
-        return {bgr.red(), bgr.green(), bgr.blue()};
-    }
-
-    template<class Op>
-    void draw_memblt_op(const Rect & drect, const Bitmap & bitmap) {
-
-//         LOG(LOG_INFO, "draw_memblt_op bitmap.cx()=%u this->cache.width()=%d drect.x=%u drect.cx=%u", bitmap.cx(), this->cache.width(), drect.x, drect.cx);
-//         LOG(LOG_INFO, "draw_memblt_op bitmap.cy()=%u this->cache.height()=%d drect.y=%u drect.cy=%u", bitmap.cy(), this->cache.height(), drect.y, drect.cy);
-//         const uint16_t mincx = std::min<int16_t>(bitmap.cx(), /*std::min<int16_t>(this->cache.width() - drect.x,*/ drect.cx/*)*/);
-//         const uint16_t mincy = std::min<int16_t>(bitmap.cy(), /*std::min<int16_t>(this->cache.height() - drect.y,*/ drect.cy/*)*/);
-//
-//         LOG(LOG_INFO, "draw_memblt_op mincx=%u mincy=%u", mincx, mincy);
-//
-//         if (mincx <= 0 || mincy <= 0) {
-//             return;
-//         }
-//         if (this->screen) {
-//             QImage::Format format(this->bpp_to_QFormat(bitmap.bpp(), false)); //bpp
-//
-//             LOG(LOG_INFO,"draw_memblt_op mincx=%u mincy=%u bitmap.line_size=%zu x=%d y=%d bpp=%u", mincx, mincy, bitmap.line_size(), drect.x, drect.y, bitmap.bpp());
-//             QImage srcBitmap(bitmap.data(), mincx, mincy, bitmap.line_size(), format);
-//             if (bitmap.bpp() == 24) {
-//                 srcBitmap = srcBitmap.rgbSwapped();
-//             }
-//             if (bitmap.bpp() != this->config->info.bpp) {
-//                 srcBitmap = srcBitmap.convertToFormat(this->bpp_to_QFormat(this->config->info.bpp, false));
-//             }
-//             srcBitmap = srcBitmap.mirrored(false, true);
-//             const uchar * srcData = srcBitmap.constBits();
-//
-//             QImage dstBitmap(this->cache.toImage().copy(drect.x, drect.y, mincx, mincy));
-//             dstBitmap = dstBitmap.convertToFormat(srcBitmap.format());
-//             const uchar * dstData = dstBitmap.constBits();
-//
-//             //bitmap.line_size() * mincy;
-//             int data_len = (bitmap.bpp() * dstBitmap.width() * dstBitmap.height());
-//             LOG(LOG_INFO, "memblt data_len = %d dstBitmap.width()=%d dstBitmap.height()=%d", data_len, dstBitmap.width(),  dstBitmap.height());
-//             if (data_len <= 0) {
-//                 LOG(LOG_INFO, "memblt data_len null");
-//                 return;
-//             }
-//
-//
-//             std::unique_ptr<uchar[]> data = std::make_unique<uchar[]>(data_len);
-//
-//             Op op;
-//             for (int i = 0; i < data_len; i++) {
-//                 LOG(LOG_INFO, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 1 i=%d", i);
-//                 uchar dst_res = dstData[i];
-//                 LOG(LOG_INFO, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 2 i =%d", i);
-//                 uchar src_res = srcData[i];
-//                 LOG(LOG_INFO, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 3 i =%d", i);
-//                 uchar res = op.op(src_res, dst_res);
-//                 LOG(LOG_INFO, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 4 i =%d", i);
-//                 data[i] = res;
-//                 LOG(LOG_INFO, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 5 i =%d", i);
-//             }
-//
-//             QImage image(data.get(), mincx, mincy, srcBitmap.format());
-//             QRect trect(drect.x, drect.y, mincx, mincy);
-
-//             if (this->client->connected || this->client->is_replaying) {
-//                 this->painter.drawImage(trect, image);
-//                 //this->painter.fillRect(trect, Qt::red);
-//             }
-//         }
-    }
-
-    void draw_MemBlt(const Rect & drect, const Bitmap & bitmap, bool invert, int srcx, int srcy) {
-        const int16_t mincx = bitmap.cx();
-        const int16_t mincy = bitmap.cy();
-
-        if (mincx <= 0 || mincy <= 0) {
-            return;
-        }
-
-        const unsigned char * row = bitmap.data();
-
-        QImage qbitmap(row, mincx, mincy, this->bpp_to_QFormat(bitmap.bpp(), false));
-        qbitmap = qbitmap.mirrored(false, true);
-        qbitmap = qbitmap.copy(srcx, srcy, drect.cx, drect.cy);
-
-        if (invert) {
-            qbitmap.invertPixels();
-        }
-
-        if (bitmap.bpp() == 24) {
-            qbitmap = qbitmap.rgbSwapped();
-        }
-
-        const QRect trect(drect.x, drect.y, drect.cx, drect.cy);
+private:
+    template<class... Ts>
+    void draw_impl(Rect clip, Ts&&... xs)
+    {
         if (this->client->connected || this->client->is_replaying) {
-
-             this->painter.drawImage(trect, qbitmap);
-        }
-    }
-
-
-    void draw_RDPScrBlt(int srcx, int srcy, const Rect & drect, bool invert) {
-        QImage qbitmap(this->cache.toImage().copy(srcx, srcy, drect.cx, drect.cy));
-        if (invert) {
-            qbitmap.invertPixels();
-        }
-        const QRect trect(drect.x, drect.y, drect.cx, drect.cy);
-        if (this->client->connected || this->client->is_replaying) {
-            this->painter.drawImage(trect, qbitmap);
-        }
-    }
-
-
-    QImage::Format bpp_to_QFormat(int bpp, bool alpha) {
-        QImage::Format format(QImage::Format_RGB16);
-
-        if (alpha) {
-
-            switch (bpp) {
-                case 15: format = QImage::Format_ARGB4444_Premultiplied; break;
-                case 16: format = QImage::Format_ARGB4444_Premultiplied; break;
-                case 24: format = QImage::Format_ARGB8565_Premultiplied; break;
-                case 32: format = QImage::Format_ARGB32_Premultiplied;   break;
-                default : break;
-            }
-        } else {
-
-            switch (bpp) {
-                case 15: format = QImage::Format_RGB555; break;
-                case 16: format = QImage::Format_RGB16;  break;
-                case 24: format = QImage::Format_RGB888; break;
-                case 32: format = QImage::Format_RGB32;  break;
-                default : break;
-            }
-        }
-
-        return format;
-    }
-
-    void draw_RDPPatBlt(const Rect & rect, const QColor color, const QPainter::CompositionMode mode, const Qt::BrushStyle style) {
-        QBrush brush(color, style);
-        if (this->client->connected || this->client->is_replaying) {
-            this->painter.setBrush(brush);
-            this->painter.setCompositionMode(mode);
-            this->painter.drawRect(rect.x, rect.y, rect.cx, rect.cy);
-            this->painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
-            this->painter.setBrush(Qt::SolidPattern);
-        }
-    }
-
-    void draw_RDPPatBlt(const Rect & rect, const QPainter::CompositionMode mode) {
-        if (this->client->connected || this->client->is_replaying) {
-            this->painter.setCompositionMode(mode);
-            this->painter.drawRect(rect.x, rect.y, rect.cx, rect.cy);
-            this->painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
-        }
-    }
-
-    void draw_frame(int frame_index) override {
-        if (this->client->is_replaying) {
-            this->painter.drawPixmap(QPoint(0, 0), this->balises[frame_index], QRect(0, 0, this->cache.width(), this->cache.height()));
-        }
-    }
-
-
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //-----------------------------
-    //       DRAW FUNCTIONS
-    //-----------------------------
-
-    //using ClientRedemptionAPI::draw;
-
-    void draw(const RDPPatBlt & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-
-        const Rect rect = clip.intersect(this->cache.width(), this->cache.height()).intersect(cmd.rect);
-        // this->setClip(rect.x, rect.y, rect.cx, rect.cy);
-
-        QColor backColor = this->u32_to_qcolor(cmd.back_color, color_ctx);
-        QColor foreColor = this->u32_to_qcolor(cmd.fore_color, color_ctx);
-
-        if (cmd.brush.style == 0x03 && (cmd.rop == 0xF0 || cmd.rop == 0x5A)) { // external
-
-            switch (cmd.rop) {
-
-                // +------+-------------------------------+
-                // | 0x5A | ROP: 0x005A0049 (PATINVERT)   |
-                // |      | RPN: DPx                      |
-                // +------+-------------------------------+
-                case 0x5A:
-                    {
-                        QBrush brush(backColor, Qt::Dense4Pattern);
-                        if (this->client->connected || this->client->is_replaying) {
-                            this->painter.setBrush(brush);
-                            this->painter.setCompositionMode(QPainter::RasterOp_SourceXorDestination);
-                            this->painter.drawRect(rect.x, rect.y, rect.cx, rect.cy);
-                            this->painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
-                            this->painter.setBrush(Qt::SolidPattern);
-                        }
-                    }
-                    break;
-
-                // +------+-------------------------------+
-                // | 0xF0 | ROP: 0x00F00021 (PATCOPY)     |
-                // |      | RPN: P                        |
-                // +------+-------------------------------+
-                case 0xF0:
-                    {
-                        if (this->client->connected || this->client->is_replaying) {
-                            QBrush brush(foreColor, Qt::Dense4Pattern);
-                            this->painter.setPen(Qt::NoPen);
-                            this->painter.fillRect(rect.x, rect.y, rect.cx, rect.cy, backColor);
-                            this->painter.setBrush(brush);
-                            this->painter.drawRect(rect.x, rect.y, rect.cx, rect.cy);
-                            this->painter.setBrush(Qt::SolidPattern);
-                        }
-                    }
-                    break;
-                default: LOG(LOG_WARNING, "RDPPatBlt brush_style = 0x03 rop = %x", cmd.rop);
-                    break;
-            }
-
-        } else {
-            switch (cmd.rop) {
-
-                case 0x00: // blackness
-                    if (this->client->connected || this->client->is_replaying) {
-                        this->painter.fillRect(rect.x, rect.y, rect.cx, rect.cy, Qt::black);
-                    }
-                    break;
-                    // +------+-------------------------------+
-                    // | 0x05 | ROP: 0x000500A9               |
-                    // |      | RPN: DPon                     |
-                    // +------+-------------------------------+
-
-                    // +------+-------------------------------+
-                    // | 0x0F | ROP: 0x000F0001               |
-                    // |      | RPN: Pn                       |
-                    // +------+-------------------------------+
-                case 0x0F:
-                    this->draw_RDPPatBlt(rect, QPainter::RasterOp_NotSource);
-                    break;
-                    // +------+-------------------------------+
-                    // | 0x50 | ROP: 0x00500325               |
-                    // |      | RPN: PDna                     |
-                    // +------+-------------------------------+
-                case 0x50:
-                    this->draw_RDPPatBlt(rect, QPainter::RasterOp_NotSourceAndNotDestination);
-                    break;
-                    // +------+-------------------------------+
-                    // | 0x55 | ROP: 0x00550009 (DSTINVERT)   |
-                    // |      | RPN: Dn                       |
-                    // +------+-------------------------------+
-                /*case 0x55:
-                    this->draw_RDPPatBlt(rect, QPainter::RasterOp_NotDestination);
-
-                    break;*/
-                    // +------+-------------------------------+
-                    // | 0x5A | ROP: 0x005A0049 (PATINVERT)   |
-                    // |      | RPN: DPx                      |
-                    // +------+-------------------------------+
-                case 0x5A:
-                    this->draw_RDPPatBlt(rect, QPainter::RasterOp_SourceXorDestination);
-                    break;
-                    // +------+-------------------------------+
-                    // | 0x5F | ROP: 0x005F00E9               |
-                    // |      | RPN: DPan                     |
-                    // +------+-------------------------------+
-
-                    // +------+-------------------------------+
-                    // | 0xA0 | ROP: 0x00A000C9               |
-                    // |      | RPN: DPa                      |
-                    // +------+-------------------------------+
-                case 0xA0:
-                    this->draw_RDPPatBlt(rect, QPainter::RasterOp_SourceAndDestination);
-                    break;
-                    // +------+-------------------------------+
-                    // | 0xA5 | ROP: 0x00A50065               |
-                    // |      | RPN: PDxn                     |
-                    // +------+-------------------------------+
-                /*case 0xA5:
-                    // this->draw_RDPPatBlt(rect, QPainter::RasterOp_NotSourceXorNotDestination);
-                    break;*/
-                    // +------+-------------------------------+
-                    // | 0xAA | ROP: 0x00AA0029               |
-                    // |      | RPN: D                        |
-                    // +------+-------------------------------+
-                case 0xAA: // change nothing
-                    break;
-                    // +------+-------------------------------+
-                    // | 0xAF | ROP: 0x00AF0229               |
-                    // |      | RPN: DPno                     |
-                    // +------+-------------------------------+
-                /*case 0xAF:
-                    //this->draw_RDPPatBlt(rect, QPainter::RasterOp_NotSourceOrDestination);
-                    break;*/
-                    // +------+-------------------------------+
-                    // | 0xF0 | ROP: 0x00F00021 (PATCOPY)     |
-                    // |      | RPN: P                        |
-                    // +------+-------------------------------+
-                case 0xF0:
-                    if (this->client->connected || this->client->is_replaying) {
-                        this->painter.setPen(Qt::NoPen);
-                        this->painter.fillRect(rect.x, rect.y, rect.cx, rect.cy, backColor);
-                        this->painter.drawRect(rect.x, rect.y, rect.cx, rect.cy);
-                    }
-                    break;
-                    // +------+-------------------------------+
-                    // | 0xF5 | ROP: 0x00F50225               |
-                    // |      | RPN: PDno                     |
-                    // +------+-------------------------------+
-                //case 0xF5:
-                    //this->draw_RDPPatBlt(rect, QPainter::RasterOp_SourceOrNotDestination);
-                    //break;
-                    // +------+-------------------------------+
-                    // | 0xFA | ROP: 0x00FA0089               |
-                    // |      | RPN: DPo                      |
-                    // +------+-------------------------------+
-                case 0xFA:
-                    this->draw_RDPPatBlt(rect, QPainter::RasterOp_SourceOrDestination);
-                    break;
-
-                case 0xFF: // whiteness
-                    if (this->client->connected || this->client->is_replaying) {
-                        this->painter.fillRect(rect.x, rect.y, rect.cx, rect.cy, Qt::white);
-                    }
-                    break;
-                default: LOG(LOG_WARNING, "RDPPatBlt rop = %x", cmd.rop);
-                    break;
+            clip = clip.intersect(drawable.get());
+            if (clip.cy && clip.cx) {
+                this->drawable.draw(xs...);
+                update_cache(clip, this->drawable, this->painter);
             }
         }
     }
 
-
-    void draw(const RDPOpaqueRect & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-
-        if (this->client->connected || this->client->is_replaying) {
-            QColor qcolor(this->u32_to_qcolor(cmd.color, color_ctx));
-            Rect rect(cmd.rect.intersect(clip));
-            // this->setClip(rect.x, rect.y, rect.cx, rect.cy);
-
-            this->painter.fillRect(rect.x, rect.y, rect.cx, rect.cy, qcolor);
-        }
+public:
+    void draw(const RDPPatBlt & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
 
-    void draw(const RDPBitmapData & bitmap_data, const Bitmap & bmp) override {
+    void draw(const RDPOpaqueRect & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
+    }
+
+
+    void draw(const RDPBitmapData & bitmap_data, const Bitmap & bmp) override
+    {
         if (!bmp.is_valid()){
             return;
         }
 
-        Rect rectBmp( bitmap_data.dest_left, bitmap_data.dest_top,
-                                (bitmap_data.dest_right - bitmap_data.dest_left + 1),
-                                (bitmap_data.dest_bottom - bitmap_data.dest_top + 1));
-        const Rect clipRect(0, 0, this->cache.width(), this->cache.height());
-        const Rect drect = rectBmp.intersect(clipRect);
+        const Rect dest( bitmap_data.dest_left, bitmap_data.dest_top
+                       , bitmap_data.dest_right - bitmap_data.dest_left + 1
+                       , bitmap_data.dest_bottom - bitmap_data.dest_top + 1);
 
-        const int16_t mincx = std::min<int16_t>(bmp.cx(), std::min<int16_t>(this->cache.width() - drect.x, drect.cx));
-        const int16_t mincy = std::min<int16_t>(bmp.cy(), std::min<int16_t>(this->cache.height() - drect.y, drect.cy));;
-
-        if (mincx <= 0 || mincy <= 0) {
-            return;
-        }
-
-        QImage::Format format(this->bpp_to_QFormat(bmp.bpp(), false)); //bpp
-        QImage qbitmap(bmp.data(), mincx, mincy, bmp.line_size(), format);
-
-        if (bmp.bpp() == 24) {
-            qbitmap = qbitmap.rgbSwapped();
-        }
-
-        if (bmp.bpp() != this->config->info.bpp) {
-            qbitmap = qbitmap.convertToFormat(this->bpp_to_QFormat(this->config->info.bpp, false));
-            //LOG(LOG_INFO, "RDPBitmapData convertToFormat");
-        }
-
-        qbitmap = qbitmap.mirrored(false, true);
-        QRect trect(drect.x, drect.y, mincx, mincy);
-        if (this->client->connected || this->client->is_replaying) {
-            // this->setClip(trect.x(), trect.y(), trect.width(), trect.height());
-            this->painter.drawImage(trect, qbitmap);
-        }
+        this->draw_impl(dest, bitmap_data, bmp);
     }
 
 
-    void draw(const RDPLineTo & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-        (void) clip;
-
-        // TODO clipping
-        if (this->client->connected || this->client->is_replaying) {
-            this->screen->setPenColor(this->u32_to_qcolor(cmd.back_color, color_ctx));
-            // this->setClip(clip.x, clip.y, clip.cx, clip.cy);
-            this->painter.drawLine(cmd.startx, cmd.starty, cmd.endx, cmd.endy);
-        }
+    void draw(const RDPLineTo & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
 
-    void draw(const RDPScrBlt & cmd, Rect clip) override {
-
-        //std::cout << "RDPScrBlt" << std::endl;
-
-        const Rect drect = clip.intersect(this->cache.width(), this->cache.height()).intersect(cmd.rect);
-        if (drect.isempty()) {
-            return;
-        }
-        // // this->setClip(drect.x, drect.y, drect.cx, drect.cy);
-
-        int srcx(drect.x + cmd.srcx - cmd.rect.x);
-        int srcy(drect.y + cmd.srcy - cmd.rect.y);
-
-        switch (cmd.rop) {
-
-            case 0x00:
-                if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(drect.x, drect.y, drect.cx, drect.cy, Qt::black);
-                }
-                break;
-
-            case 0x55: this->draw_RDPScrBlt(srcx, srcy, drect, true);
-                break;
-
-            case 0xAA: // nothing to change
-                break;
-
-            case 0xCC: this->draw_RDPScrBlt(srcx, srcy, drect, false);
-                break;
-
-            case 0xFF:
-                if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(drect.x, drect.y, drect.cx, drect.cy, Qt::white);
-                }
-                break;
-            default: LOG(LOG_WARNING, "DEFAULT: RDPScrBlt rop = %x", cmd.rop);
-                break;
-        }
+    void draw(const RDPScrBlt & cmd, Rect clip) override
+    {
+        this->draw_impl(clip, cmd, clip);
     }
 
 
-    void draw(const RDPMemBlt & cmd, Rect clip, const Bitmap & bitmap) override {
-        //std::cout << "RDPMemBlt (" << std::hex << static_cast<int>(cmd.rop) << ")" <<  std::dec <<  std::endl;
-        const Rect drect = clip.intersect(cmd.rect);
-        if (drect.isempty()){
-            return ;
-        }
-
-//         if (this->cache.width() <= 0 || this->cache.height() <=  0) {
-//             return;
-//         }
-
-        // // this->setClip(drect.x, drect.y, drect.cx, drect.cy);
-
-        switch (cmd.rop) {
-
-            case 0x00:
-                if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(drect.x, drect.y, drect.cx, drect.cy, Qt::black);
-                }
-                break;
-
-            case 0x22: this->draw_memblt_op<Op_0x22>(drect, bitmap);
-                break;
-
-            case 0x33: this->draw_MemBlt(drect, bitmap, true, cmd.srcx + (drect.x - cmd.rect.x), cmd.srcy + (drect.y - cmd.rect.y));
-                break;
-
-            case 0x55: this->draw_memblt_op<Op_0x55>(drect, bitmap);
-                break;
-
-            case 0x66: this->draw_memblt_op<Op_0x66>(drect, bitmap);
-                break;
-
-            case 0x99: this->draw_memblt_op<Op_0x99>(drect, bitmap);
-                break;
-
-            case 0xAA:  // nothing to change
-                break;
-
-            case 0xBB: this->draw_memblt_op<Op_0xBB>(drect, bitmap);
-                break;
-
-            case 0xCC: this->draw_MemBlt(drect, bitmap, false, cmd.srcx + (drect.x - cmd.rect.x), cmd.srcy + (drect.y - cmd.rect.y));
-                break;
-
-            case 0xEE: this->draw_memblt_op<Op_0xEE>(drect, bitmap);
-                break;
-
-            case 0x88: this->draw_memblt_op<Op_0x88>(drect, bitmap);
-                break;
-
-            case 0xFF:
-                if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(drect.x, drect.y, drect.cx, drect.cy, Qt::white);
-                }
-                break;
-
-            default: LOG(LOG_WARNING, "DEFAULT: RDPMemBlt rop = %x", cmd.rop);
-                break;
-        }
-
+    void draw(const RDPMemBlt & cmd, Rect clip, const Bitmap & bitmap) override
+    {
+        this->draw_impl(clip, cmd, clip, bitmap);
     }
 
 
-    void draw(const RDPMem3Blt & cmd, Rect clip, gdi::ColorCtx color_ctx, const Bitmap & bitmap) override {
-//         LOG(LOG_INFO, "RDPMem3Blt    !!!!!!!!!!!!!!!!!");
-        const Rect drect = clip.intersect(cmd.rect);
-        if (drect.isempty()){
-            return ;
-        }
-
-        switch (cmd.rop) {
-            case 0xB8:
-            {
-                const uint16_t mincx = std::min<int16_t>(bitmap.cx(), std::min<int16_t>(this->screen->_width - drect.x, drect.cx));
-                const uint16_t mincy = std::min<int16_t>(bitmap.cy(), std::min<int16_t>(this->screen->_height - drect.y, drect.cy))-2;
-
-                if (mincx <= 0 || mincy <= 0) {
-                    LOG(LOG_INFO, "RDPMem3Blt    null");
-                    return;
-                }
-
-                const QColor fore(this->u32_to_qcolor(cmd.fore_color, color_ctx));
-                const uint8_t r(fore.red());
-                const uint8_t g(fore.green());
-                const uint8_t b(fore.blue());
-
-                const QImage::Format format(this->bpp_to_QFormat(bitmap.bpp(), true));
-
-                if (this->client->connected || this->client->is_replaying) {
-
-                    QImage srcBitmap(bitmap.data(), mincx, mincy, bitmap.line_size(), format);
-                    srcBitmap = srcBitmap.convertToFormat(QImage::Format_RGB888);
-                    srcBitmap = srcBitmap.mirrored(false, true);
-                    if (bitmap.bpp() == 24) {
-                        srcBitmap = srcBitmap.rgbSwapped();
-                    }
-                    const uchar * srcData = srcBitmap.bits();
-
-                    QImage dstBitmap(this->cache.toImage().copy(drect.x, drect.y, mincx, mincy));
-                    dstBitmap = dstBitmap.convertToFormat(QImage::Format_RGB888);
-                    const uchar * dstData = dstBitmap.bits();
-
-                    const int data_size(3*dstBitmap.width()*dstBitmap.height());
-                    std::unique_ptr<uchar[]> data = std::make_unique<uchar[]>(data_size);
-
-                    for (int k = 0 ; k < data_size-2; k += 3) {
-                            data[k  ] = ((dstData[k  ] ^ r) & srcData[k  ]) ^ r;
-                            data[k+1] = ((dstData[k+1] ^ g) & srcData[k+1]) ^ g;
-                            data[k+2] = ((dstData[k+2] ^ b) & srcData[k+2]) ^ b;
-                    }
-
-                    QImage image(data.get(), mincx, mincy, srcBitmap.format());
-                    if (image.depth() != this->config->info.bpp) {
-                        image = image.convertToFormat(this->bpp_to_QFormat(this->config->info.bpp, false));
-                    }
-                    QRect trect(drect.x, drect.y, mincx, mincy-1);
-
-                    this->painter.drawImage(trect, image);
-                }
-            }
-            break;
-
-            default: LOG(LOG_WARNING, "DEFAULT: RDPMem3Blt rop = %x", cmd.rop);
-            break;
-        }
+    void draw(const RDPMem3Blt & cmd, Rect clip, gdi::ColorCtx color_ctx, const Bitmap & bitmap) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx, bitmap);
     }
 
 
-    void draw(const RDPDestBlt & cmd, Rect clip) override {
-
-        const Rect drect = clip.intersect(this->cache.width(), this->cache.height()).intersect(cmd.rect);
-        // // this->setClip(drect.x, drect.y, drect.cx, drect.cy);
-
-        switch (cmd.rop) {
-            case 0x00: // blackness
-                if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(drect.x, drect.y, drect.cx, drect.cy, Qt::black);
-                }
-                break;
-            case 0x55:                                         // inversion
-                this->draw_RDPScrBlt(drect.x, drect.y, drect, true);
-                break;
-            case 0xAA: // change nothing
-                break;
-            case 0xFF: // whiteness
-                if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(drect.x, drect.y, drect.cx, drect.cy, Qt::white);
-                }
-                break;
-            default: LOG(LOG_WARNING, "DEFAULT: RDPDestBlt rop = %x", cmd.rop);
-                break;
-        }
+    void draw(const RDPDestBlt & cmd, Rect clip) override
+    {
+        this->draw_impl(clip, cmd, clip);
     }
 
-    void draw(const RDPMultiDstBlt & cmd, Rect clip) override {
-        (void) cmd;
-        (void) clip;
-
-        LOG(LOG_WARNING, "DEFAULT: RDPMultiDstBlt");
+    void draw(const RDPMultiDstBlt & cmd, Rect clip) override
+    {
+        this->draw_impl(clip, cmd, clip);
     }
 
-    void draw(const RDPMultiOpaqueRect & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-        (void) cmd;
-        (void) clip;
-        (void) color_ctx;
-
-        LOG(LOG_WARNING, "DEFAULT: RDPMultiOpaqueRect");
+    void draw(const RDPMultiOpaqueRect & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDP::RDPMultiPatBlt & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-        (void) color_ctx;
-        (void) cmd;
-        (void) clip;
-        LOG(LOG_WARNING, "DEFAULT: RDPMultiPatBlt");
+    void draw(const RDP::RDPMultiPatBlt & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDP::RDPMultiScrBlt & cmd, Rect clip) override {
-        (void) cmd;
-        (void) clip;
-
-        LOG(LOG_WARNING, "DEFAULT: RDPMultiScrBlt");
+    void draw(const RDP::RDPMultiScrBlt & cmd, Rect clip) override
+    {
+        this->draw_impl(clip, cmd, clip);
     }
 
-    void draw(const RDPGlyphIndex & cmd, Rect clip, gdi::ColorCtx color_ctx, const GlyphCache & gly_cache) override {
-
-        Rect screen_rect = clip.intersect(this->cache.width(), this->cache.height());
-        if (screen_rect.isempty()){
-            return ;
-        }
-        // this->setClip(screen_rect.x, screen_rect.y, screen_rect.cx, screen_rect.cy);
-
-        Rect const clipped_glyph_fragment_rect = cmd.bk.intersect(screen_rect);
-        if (clipped_glyph_fragment_rect.isempty()) {
-            return;
-        }
-
-        // set a background color
-        {
-            Rect ajusted = cmd.f_op_redundant ? cmd.bk : cmd.op;
-            if ((ajusted.cx > 1) && (ajusted.cy > 1)) {
-                ajusted.cy--;
-                ajusted = ajusted.intersect(screen_rect);
-                 if (this->client->connected || this->client->is_replaying) {
-                    this->painter.fillRect(ajusted.x, ajusted.y, ajusted.cx, ajusted.cy, this->u32_to_qcolor(cmd.fore_color, color_ctx));
-                 }
-            }
-        }
-
-        bool has_delta_bytes = (!cmd.ui_charinc && !(cmd.fl_accel & 0x20));
-
-        const QColor color = this->u32_to_qcolor(cmd.back_color, color_ctx);
-        const int16_t offset_y = /*cmd.bk.cy - (*/cmd.glyph_y - cmd.bk.y/* + 1)*/;
-        const int16_t offset_x = cmd.glyph_x - cmd.bk.x;
-
-        uint16_t draw_pos = 0;
-
-        InStream variable_bytes(cmd.data, cmd.data_len);
-
-        //uint8_t const * fragment_begin_position = variable_bytes.get_current();
-
-        while (variable_bytes.in_remain()) {
-            uint8_t data = variable_bytes.in_uint8();
-
-            if (data <= 0xFD) {
-                FontChar const & fc = gly_cache.glyphs[cmd.cache_id][data].font_item;
-                if (!fc)
-                {
-                    LOG( LOG_INFO
-                        , "RDPDrawable::draw_VariableBytes: Unknown glyph, cacheId=%u cacheIndex=%u"
-                        , cmd.cache_id, data);
-                    assert(fc);
-                }
-
-                if (has_delta_bytes)
-                {
-                    data = variable_bytes.in_uint8();
-                    if (data == 0x80)
-                    {
-                        draw_pos += variable_bytes.in_uint16_le();
-                    }
-                    else
-                    {
-                        draw_pos += data;
-                    }
-                }
-
-                if (fc)
-                {
-                    const int16_t x = draw_pos + cmd.bk.x + offset_x;
-                    const int16_t y = offset_y + cmd.bk.y;
-                    if (Rect(0,0,0,0) != clip.intersect(Rect(x, y, fc.incby, fc.height))){
-
-                        const uint8_t * fc_data            = fc.data.get();
-                        for (int yy = 0 ; yy < fc.height; yy++)
-                        {
-                            uint8_t   fc_bit_mask        = 128;
-                            for (int xx = 0 ; xx < fc.width; xx++)
-                            {
-                                if (!fc_bit_mask)
-                                {
-                                    fc_data++;
-                                    fc_bit_mask = 128;
-                                }
-                                if (clip.contains_pt(x + fc.offsetx + xx, y + fc.offsety + yy)
-                                && (fc_bit_mask & *fc_data))
-                                {
-                                    if (this->client->connected || this->client->is_replaying) {
-                                        this->painter.fillRect(x + fc.offsetx + xx, y + fc.offsety + yy, 1, 1, color);
-                                    }
-                                }
-                                fc_bit_mask >>= 1;
-                            }
-                            fc_data++;
-                        }
-                    }
-                } else {
-                    LOG(LOG_WARNING, "DEFAULT: RDPGlyphIndex glyph_cache unknow FontChar");
-                }
-
-                if (cmd.ui_charinc) {
-                    draw_pos += cmd.ui_charinc;
-                }
-
-            } else {
-                LOG(LOG_WARNING, "DEFAULT: RDPGlyphIndex glyph_cache 0xFD");
-            }
-
-
-        }
-        //this->draw_VariableBytes(cmd.data, cmd.data_len, has_delta_bytes,
-            //draw_pos, offset_y, color, cmd.bk.x + offset_x, cmd.bk.y,
-            //clipped_glyph_fragment_rect, cmd.cache_id, gly_cache);
+    void draw(const RDPGlyphIndex & cmd, Rect clip, gdi::ColorCtx color_ctx, const GlyphCache & gly_cache) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx, gly_cache);
     }
 
-    void draw(const RDPPolygonSC & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-        (void) cmd;
-        (void) clip;
-        (void) color_ctx;
-        LOG(LOG_WARNING, "DEFAULT: RDPPolygonSC");
-
-        /*RDPPolygonSC new_cmd24 = cmd;
-        new_cmd24.BrushColor  = color_decode_opaquerect(cmd.BrushColor,  this->mod_bpp, this->mod_palette);*/
-        //this->gd.draw(new_cmd24, clip);
+    void draw(const RDPPolygonSC & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDPPolygonCB & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-
-        (void) cmd;
-        (void) clip;
-        (void) color_ctx;
-        LOG(LOG_WARNING, "DEFAULT: RDPPolygonCB");
-
-        /*RDPPolygonCB new_cmd24 = cmd;
-        new_cmd24.foreColor  = color_decode_opaquerect(cmd.foreColor,  this->mod_bpp, this->mod_palette);
-        new_cmd24.backColor  = color_decode_opaquerect(cmd.backColor,  this->mod_bpp, this->mod_palette);*/
-        //this->gd.draw(new_cmd24, clip);
+    void draw(const RDPPolygonCB & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDPPolyline & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-        (void) clip;
-        (void) cmd;
-        (void) color_ctx;
-        LOG(LOG_WARNING, "DEFAULT: RDPPolyline");
-        /*RDPPolyline new_cmd24 = cmd;
-        new_cmd24.PenColor  = color_decode_opaquerect(cmd.PenColor,  this->mod_bpp, this->mod_palette);*/
-        //this->gd.draw(new_cmd24, clip);
+    void draw(const RDPPolyline & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDPEllipseSC & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-
-        (void) cmd;
-        (void) clip;
-        (void) color_ctx;
-        LOG(LOG_WARNING, "DEFAULT: RDPEllipseSC");
-
-        /*RDPEllipseSC new_cmd24 = cmd;
-        new_cmd24.color = color_decode_opaquerect(cmd.color, this->mod_bpp, this->mod_palette);*/
-        //this->gd.draw(new_cmd24, clip);
+    void draw(const RDPEllipseSC & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDPEllipseCB & cmd, Rect clip, gdi::ColorCtx color_ctx) override {
-
-        (void) cmd;
-        (void) clip;
-        (void) color_ctx;
-        LOG(LOG_WARNING, "DEFAULT: RDPEllipseCB");
-    /*
-        RDPEllipseCB new_cmd24 = cmd;
-        new_cmd24.fore_color = color_decode_opaquerect(cmd.fore_color, this->mod_bpp, this->mod_palette);
-        new_cmd24.back_color = color_decode_opaquerect(cmd.back_color, this->mod_bpp, this->mod_palette);*/
-        //this->gd.draw(new_cmd24, clip);
+    void draw(const RDPEllipseCB & cmd, Rect clip, gdi::ColorCtx color_ctx) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx);
     }
 
-    void draw(const RDP::FrameMarker & order) override {
+    void draw(RDPNineGrid const & cmd, Rect clip, gdi::ColorCtx color_ctx, Bitmap const & bmp) override
+    {
+        this->draw_impl(clip, cmd, clip, color_ctx, bmp);
+    }
+
+    void draw(const RDP::FrameMarker & order) override
+    {
         (void) order;
-        LOG(LOG_INFO, "DEFAULT: FrameMarker");
-    }
-
-    void draw(RDPNineGrid const & /*cmd*/, Rect /*clip*/, gdi::ColorCtx /*color_ctx*/, Bitmap const & /*bmp*/) override {
-        LOG(LOG_INFO, "DEFAULT: RDPNineGrid");
+        // LOG(LOG_INFO, "DEFAULT: FrameMarker");
     }
 
     using ClientOutputGraphicAPI::draw;
@@ -1502,6 +731,8 @@ private:
 
             return conn_res;
         }
+
+        return false;
     }
 
     void closeFromScreen() override {

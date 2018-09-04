@@ -248,7 +248,6 @@ struct GraphicApi : private noncopyable
     virtual void set_palette(BGRPalette   const & /*unused*/) {}
 
     virtual void draw(RDP::FrameMarker    const & cmd) = 0;
-    virtual void draw(RDPNineGrid const & , Rect , ColorCtx , Bitmap const & ) = 0;
     virtual void draw(RDPDestBlt          const & cmd, Rect clip) = 0;
     virtual void draw(RDPMultiDstBlt      const & cmd, Rect clip) = 0;
     virtual void draw(RDPScrBlt           const & cmd, Rect clip) = 0;
@@ -267,6 +266,7 @@ struct GraphicApi : private noncopyable
     virtual void draw(RDPEllipseSC        const & cmd, Rect clip, ColorCtx color_ctx) = 0;
     virtual void draw(RDPEllipseCB        const & cmd, Rect clip, ColorCtx color_ctx) = 0;
     virtual void draw(RDPMem3Blt          const & cmd, Rect clip, ColorCtx color_ctx, Bitmap const & bmp) = 0;
+    virtual void draw(RDPNineGrid         const & cmd, Rect clip, ColorCtx color_ctx, Bitmap const & bmp) = 0;
     virtual void draw(RDPGlyphIndex       const & cmd, Rect clip, ColorCtx color_ctx, GlyphCache const & gly_cache) = 0;
 
     // NOTE maybe in an other interface

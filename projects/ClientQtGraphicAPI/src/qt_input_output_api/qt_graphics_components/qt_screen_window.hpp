@@ -178,7 +178,7 @@ public:
 
     void slotRepainMatch() {
 //         QPainter match_painter(&(this->_match_pixmap));
-//         match_painter.drawPixmap(QPoint(0, 0), *(this->_cache), QRect(0, 0, this->_width, this->_height));
+//         match_painter.drawPixmap(QPoint(0, 0), *this->_cache, QRect(0, 0, this->_width, this->_height));
         //match_painter.drawPixmap(QPoint(0, 0), this->_trans_cache, QRect(0, 0, this->_width, this->_height));
         this->repaint();
     }
@@ -267,7 +267,7 @@ public:
         pen.setWidth(1);
         pen.setBrush(this->_penColor);
         painter.setPen(pen);
-        painter.drawPixmap(QPoint(0, 0), *(this->_cache), QRect(this->x_pixmap_shift, this->y_pixmap_shift, this->_width, this->_height));
+        painter.drawPixmap(QPoint(0, 0), *this->_cache, QRect(this->x_pixmap_shift, this->y_pixmap_shift, this->_width, this->_height));
         painter.end();
     }
 
@@ -350,8 +350,8 @@ public:
         pen.setWidth(1);
         pen.setBrush(this->_penColor);
         painter.setPen(pen);
-        painter.drawPixmap(QPoint(0, 0), *(this->_cache), QRect(0, 0, this->_width, this->_height));
-        //painter.drawPixmap(QPoint(this->clip.x(), this->clip.y()), *(this->_cache), this->clip/*QRect(0, 0, this->_width, this->_height)*/);
+        painter.drawPixmap(QPoint(0, 0), *this->_cache, QRect(0, 0, this->_width, this->_height));
+        //painter.drawPixmap(QPoint(this->clip.x(), this->clip.y()), *this->_cache, this->clip/*QRect(0, 0, this->_width, this->_height)*/);
         painter.end();
     }
 
@@ -565,7 +565,7 @@ public:
         pen.setWidth(1);
         pen.setBrush(this->_penColor);
         painter.setPen(pen);
-        painter.drawPixmap(QPoint(0, 0), *(this->_cache), QRect(0, 0, this->_width, this->_height));
+        painter.drawPixmap(QPoint(0, 0), *this->_cache, QRect(0, 0, this->_width, this->_height));
         painter.drawPixmap(QPoint(52, this->_height+4), this->readding_bar, QRect(0, 0, this->reading_bar_len+10, READING_BAR_H));
         painter.end();
     }

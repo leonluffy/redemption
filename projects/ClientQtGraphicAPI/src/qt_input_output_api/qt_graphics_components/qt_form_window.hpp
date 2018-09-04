@@ -379,7 +379,7 @@ public:
     virtual void targetPicked(int ) {}
     virtual void drop_account() {}
     virtual void check_password_box() {}
-    virtual void delete_account(int index) {}
+    virtual void delete_account(int index) { (void)index; }
     virtual ~FormTabAPI() = default;
 };
 
@@ -658,13 +658,16 @@ public:
         this->setAttribute(Qt::WA_DeleteOnClose);
         this->setMinimumHeight(160);
 
-        for (size_t i = 0; i < config->_accountData.size(); i++) {
-            if (config->_accountData[i].protocol ==  protocol_type) {
-
-                this->icons[i] = new QtIconAccount(main_tab, config->_accountData[i], this);
-                LOG(LOG_INFO, "elem account %zu title=%s index=%d", i, config->_accountData[i].title, config->_accountData[i].index);
+        size_t i = 0;
+        for (auto const& accountData : config->_accountDatas) {
+            if (accountData.protocol ==  protocol_type) {
+                this->icons[i] = new QtIconAccount(main_tab, accountData, this);
+                LOG(LOG_INFO, "elem account %zu title=%s index=%d", i, accountData.title, accountData.index);
                 this->icons[i]->draw_account();
                 this->lay.addRow(this->icons[i]);
+            }
+            if (++i > std::size(this->icons)) {
+                break;
             }
         }
 
@@ -760,11 +763,11 @@ public:
 
             QStringList stringList;
 
-            for (int i = 0; i < this->config->_accountNB; i++) {
-                if (this->config->_accountData[i].protocol == this->protocol_type) {
-                    std::string title(this->config->_accountData[i].title);
-                    this->line_edit_panel._IPCombobox.addItem(QString(title.c_str()), i+1);
-                    stringList << title.c_str();
+            size_t i = 0;
+            for (auto const& accountData : config->_accountDatas) {
+                if (accountData.protocol == this->protocol_type) {
+                    this->line_edit_panel._IPCombobox.addItem(QString(accountData.title.c_str()), int(++i));
+                    stringList << accountData.title.c_str();
                 }
             }
             //this->_completer = new QCompleter(stringList, this);
@@ -945,24 +948,23 @@ public:
 
         } else {
             index--;
-            this->set_IPField(this->config->_accountData[index].IP);
-            this->set_userNameField(this->config->_accountData[index].name);
-            this->set_PWDField(this->config->_accountData[index].pwd);
-            this->set_portField(this->config->_accountData[index].port);
+            this->set_IPField(this->config->_accountDatas[index].IP);
+            this->set_userNameField(this->config->_accountDatas[index].name);
+            this->set_PWDField(this->config->_accountDatas[index].pwd);
+            this->set_portField(this->config->_accountDatas[index].port);
 
-            this->config->current_user_profil = this->config->_accountData[index].options_profil;
+            this->config->current_user_profil = this->config->_accountDatas[index].options_profil;
         }
     }
 
     void delete_account(int index) override {
-//         this->config->_accountData.size();
-        LOG(LOG_INFO, "this->config->_accountData.size() = %zu", this->config->_accountData.size());
-        this->config->_accountData.erase(this->config->_accountData.begin()+index);
-        for (size_t i = 0; i < this->config->_accountData.size(); i++) {
-            this->config->_accountData[i].index = i;
+//         this->config->_accountDatas.size();
+        LOG(LOG_INFO, "this->config->_accountDatas.size() = %zu", this->config->_accountDatas.size());
+        this->config->_accountDatas.erase(this->config->_accountDatas.begin()+index);
+        for (size_t i = 0; i < this->config->_accountDatas.size(); i++) {
+            this->config->_accountDatas[i].index = i;
         }
-        this->config->_accountNB = this->config->_accountData.size();
-        LOG(LOG_INFO, "this->config->_accountData.size() = %zu", this->config->_accountData.size());
+        LOG(LOG_INFO, "this->config->_accountDatas.size() = %zu", this->config->_accountDatas.size());
         this->formAccountConnectionPanel.set_account_panel();
        // this->show();
     }

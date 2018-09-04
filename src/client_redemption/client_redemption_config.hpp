@@ -93,9 +93,8 @@ public:
         int options_profil = 0;
         int index = -1;
         int protocol = NO_PROTOCOL;
-    };                                                      // _accountData[MAX_ACCOUNT_DATA];
-    std::vector<AccountData> _accountData;
-    int  _accountNB = 0;
+    };                                                      // _accountDatas[MAX_ACCOUNT_DATA];
+    std::vector<AccountData> _accountDatas;
     bool _save_password_account = false;
     int  _last_target_index = 0;
 
@@ -908,11 +907,9 @@ public:
     }
 
     void setAccountData() override {
-        this->_accountNB = 0;
         std::ifstream ifichier(this->USER_CONF_LOG, std::ios::in);
 
         if (ifichier) {
-            int accountNB(0);
             std::string line;
 
             while(std::getline(ifichier, line)) {
@@ -927,44 +924,36 @@ public:
                 } else
                 if (line.compare(0, pos, "title") == 0) {
                     AccountData new_account;
-                    this->_accountData.push_back(new_account);
-                    this->_accountData[accountNB].title = info;
+                    this->_accountDatas.push_back(new_account);
+                    this->_accountDatas.back().title = info;
                 } else
                 if (line.compare(0, pos, "IP") == 0) {
-                    this->_accountData[accountNB].IP = info;
+                    this->_accountDatas.back().IP = info;
                 } else
                 if (line.compare(0, pos, "name") == 0) {
-                    this->_accountData[accountNB].name = info;
+                    this->_accountDatas.back().name = info;
                 } else if (line.compare(0, pos, "protocol") == 0) {
-                    this->_accountData[accountNB].protocol = std::stoi(info);
+                    this->_accountDatas.back().protocol = std::stoi(info);
                 } else
                 if (line.compare(0, pos, "pwd") == 0) {
-                    this->_accountData[accountNB].pwd = info;
+                    this->_accountDatas.back().pwd = info;
                 } else
                 if (line.compare(0, pos, "options_profil") == 0) {
 
-                    this->_accountData[accountNB].options_profil = std::stoi(info);
-                    this->_accountData[accountNB].index = accountNB;
-
-                    accountNB++;
-                    if (accountNB == MAX_ACCOUNT_DATA) {
-                        this->_accountNB = MAX_ACCOUNT_DATA;
-                        accountNB = 0;
-                    }
+                    this->_accountDatas.back().options_profil = std::stoi(info);
+                    this->_accountDatas.back().index = this->_accountDatas.size() - 1u;
                 } else
                 if (line.compare(0, pos, "port") == 0) {
-                    this->_accountData[accountNB].port = std::stoi(info);
+                    this->_accountDatas.back().port = std::stoi(info);
                 }
             }
 
-            if (this->_accountNB < MAX_ACCOUNT_DATA) {
-                this->_accountNB = accountNB;
+            if (0 <= this->_last_target_index && unsigned(this->_last_target_index) < this->_accountDatas.size()) {
+                this->target_IP = this->_accountDatas[this->_last_target_index].IP;
+                this->user_name = this->_accountDatas[this->_last_target_index].name;
+                this->user_password = this->_accountDatas[this->_last_target_index].pwd;
+                this->port = this->_accountDatas[this->_last_target_index].port;
             }
-
-            this->target_IP = this->_accountData[this->_last_target_index].IP;
-            this->user_name = this->_accountData[this->_last_target_index].name;
-            this->user_password = this->_accountData[this->_last_target_index].pwd;
-            this->port = this->_accountData[this->_last_target_index].port;
         }
     }
 
@@ -976,33 +965,28 @@ public:
 
             std::string title(ip + " - " + name);
 
-            for (int i = 0; i < this->_accountNB; i++) {
-                if (this->_accountData[i].title == title) {
+            for (AccountData& accountData : this->_accountDatas) {
+                if (accountData.title == title) {
                     alreadySet = true;
-                    LOG(LOG_INFO, "this->_accountData[i].title = %s  title = %s", this->_accountData[i].title, title);
-                    this->_last_target_index = i;
-                    this->_accountData[i].pwd  = pwd;
-                    this->_accountData[i].port = port;
-                    this->_accountData[i].options_profil  = this->current_user_profil;
+                    LOG(LOG_INFO, "this->_accountDatas[i].title = %s  title = %s", accountData.title, title);
+                    this->_last_target_index = &accountData - this->_accountDatas.data();
+                    accountData.pwd  = pwd;
+                    accountData.port = port;
+                    accountData.options_profil  = this->current_user_profil;
                 }
             }
 
-            if (!alreadySet && (this->_accountNB < MAX_ACCOUNT_DATA)) {
+            if (!alreadySet) {
                 AccountData new_account;
-                this->_accountData.push_back(new_account);
-                this->_accountData[this->_accountNB].title = title;
-                this->_accountData[this->_accountNB].IP    = ip;
-                this->_accountData[this->_accountNB].name  = name;
-                this->_accountData[this->_accountNB].pwd   = pwd;
-                this->_accountData[this->_accountNB].port  = port;
-                this->_accountData[this->_accountNB].options_profil  = this->current_user_profil;
-                this->_accountData[this->_accountNB].protocol = this->mod_state;
-                this->_accountNB++;
-
-                if (this->_accountNB > MAX_ACCOUNT_DATA) {
-                    this->_accountNB = MAX_ACCOUNT_DATA;
-                }
-                this->_last_target_index = this->_accountNB;
+                this->_accountDatas.push_back(new_account);
+                this->_accountDatas.back().title = title;
+                this->_accountDatas.back().IP    = ip;
+                this->_accountDatas.back().name  = name;
+                this->_accountDatas.back().pwd   = pwd;
+                this->_accountDatas.back().port  = port;
+                this->_accountDatas.back().options_profil  = this->current_user_profil;
+                this->_accountDatas.back().protocol = this->mod_state;
+                this->_last_target_index = this->_accountDatas.size() - 1u;
             }
 
             std::ofstream ofichier(this->USER_CONF_LOG, std::ios::out | std::ios::trunc);
@@ -1016,18 +1000,18 @@ public:
                 ofichier << "last_target " <<  this->_last_target_index << "\n";
                 ofichier << "\n";
 
-                for (int i = 0; i < this->_accountNB; i++) {
-                    ofichier << "title " << this->_accountData[i].title << "\n";
-                    ofichier << "IP "    << this->_accountData[i].IP    << "\n";
-                    ofichier << "name "  << this->_accountData[i].name  << "\n";
-                    ofichier << "protocol "  << this->_accountData[i].protocol  << "\n";
+                for (AccountData const& accountData : this->_accountDatas) {
+                    ofichier << "title " << accountData.title << "\n";
+                    ofichier << "IP "    << accountData.IP    << "\n";
+                    ofichier << "name "  << accountData.name  << "\n";
+                    ofichier << "protocol "  << accountData.protocol  << "\n";
                     if (this->_save_password_account) {
-                        ofichier << "pwd " << this->_accountData[i].pwd << "\n";
+                        ofichier << "pwd " << accountData.pwd << "\n";
                     } else {
                         ofichier << "pwd " << "\n";
                     }
-                    ofichier << "port " << this->_accountData[i].port << "\n";
-                    ofichier << "options_profil " << this->_accountData[i].options_profil << "\n";
+                    ofichier << "port " << accountData.port << "\n";
+                    ofichier << "options_profil " << accountData.options_profil << "\n";
                     ofichier << "\n";
                 }
                 ofichier.close();

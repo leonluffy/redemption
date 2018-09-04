@@ -55,6 +55,7 @@ struct ImageFrameApi : private noncopyable
     virtual bool reset(unsigned int x, unsigned int y,
                unsigned int out_width, unsigned int out_height) = 0;
 
+    // TODO rename to get_rect
     virtual Rect get() const = 0;
 };
 

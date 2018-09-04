@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include "utils/log.hpp"
+#include "cxx/diagnostic.hpp"
 
 #if REDEMPTION_QT_VERSION == 4
 #   define REDEMPTION_QT_INCLUDE_WIDGET(name) <QtGui/name>

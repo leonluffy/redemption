@@ -208,6 +208,11 @@ obj front_Qt$(qtversion)_rdp.o : src/main_qt_client_redemption.cpp :
     <include>$(REDEMPTION_TEST_PATH)/includes # lcg/fixed random
 ;
 
+obj gd$(qtversion).o : src/qt_input_output_api/qt_IO_graphic_mouse_keyboard.cpp :
+    <define>REDEMPTION_DECL_LOG_TEST
+    $(EXE_DEPENDENCIES)
+;
+
 exe client_rdp :
     src/qt_input_output_api/qt_output_sound.hpp
     src/qt_input_output_api/qt_input_output_clipboard.hpp
@@ -217,6 +222,7 @@ exe client_rdp :
     src/qt_input_output_api/qt_graphics_components/qt_screen_window.hpp
     src/qt_input_output_api/qt_graphics_components/qt_form_window.hpp
     front_Qt$(qtversion)_rdp.o
+    gd$(qtversion).o
     $(obj_list)
     $(lib_list)
     libqtclient

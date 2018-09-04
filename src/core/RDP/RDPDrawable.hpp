@@ -802,8 +802,6 @@ public:
 
                 fragment_begin_position = variable_bytes.get_current();
             }
-
-
         }
     }
 
