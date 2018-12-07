@@ -881,7 +881,7 @@ public:
                     return rcvd;
 
                 case SSL_ERROR_WANT_READ:
-                    LOG(LOG_INFO, "recv_tls WANT READ");
+//                    LOG(LOG_INFO, "recv_tls WANT READ");
                     continue;
 
                 case SSL_ERROR_WANT_WRITE:

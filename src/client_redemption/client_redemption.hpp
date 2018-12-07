@@ -602,6 +602,7 @@ public:
     virtual bool connect() override {
 
         if (this->config.is_full_capturing || this->config.is_full_replaying) {
+            LOG(LOG_INFO, "Fixed Random!!!");
             this->gen = std::make_unique<FixedRandom>();
         } else {
             this->gen = std::make_unique<UdevRandom>();

@@ -20,8 +20,6 @@
 
 #include "client_redemption/client_config/client_redemption_config.hpp"
 
-
-
 ClientRedemptionConfig::ClientRedemptionConfig(SessionReactor& session_reactor, char const* argv[], int argc, RDPVerbose verbose, FrontAPI &front, const std::string &MAIN_DIR )
 : MAIN_DIR((MAIN_DIR.empty() || MAIN_DIR == "/")
     ? MAIN_DIR
@@ -795,7 +793,14 @@ void ClientRedemptionConfig::writeCustomKeyConfig()  {
             }
         }
 
-        ::write(fd.fd(), to_write.c_str(), to_write.length());
+        int res = ::write(fd.fd(), to_write.c_str(), to_write.length());
+        // TODO: partial write is unlikely but may occur sometimes and should be managed!
+        if (res < to_write.length()){
+            std::cerr << "Write of Custom key config to " << KEY_SETTING_PATH << " failed.";
+        }
+    }
+    else {
+        std::cerr << "Open of " << KEY_SETTING_PATH << " to write Key Settings failed.";
     }
 }
 
@@ -1077,55 +1082,15 @@ void ClientRedemptionConfig::writeAccoundData(const std::string& ip, const std::
                     "\n");
             }
 
-            ::write(file.fd(), to_write.c_str(), to_write.length());
+            int res = ::write(file.fd(), to_write.c_str(), to_write.length());
+            // TODO: partial write is unlikely but may occur sometimes and should be managed!
+            if (res < to_write.length()){
+                std::cerr << "Write of Custom key config to " << this->USER_CONF_LOG << " failed.";
+            }
+
         }
     }
 }
-
-
-
-//         this->qtRDPKeymap.clearCustomKeyCode();
-//         this->keyCustomDefinitions.clear();
-//
-//         std::ifstream iFileKeyData(this->MAIN_DIR + std::string(KEY_SETTING_PATH), std::ios::in);
-//         if(iFileKeyData) {
-//
-//             std::string ligne;
-//             std::string delimiter = " ";
-//
-//             while(getline(iFileKeyData, ligne)) {
-//
-//                 int pos(ligne.find(delimiter));
-//
-//                 if (strcmp(ligne.substr(0, pos).c_str(), "-") == 0) {
-//
-//                     ligne = ligne.substr(pos + delimiter.length(), ligne.length());
-//                     pos = ligne.find(delimiter);
-//
-//                     int qtKeyID  = std::stoi(ligne.substr(0, pos));
-//                     ligne = ligne.substr(pos + delimiter.length(), ligne.length());
-//                     pos = ligne.find(delimiter);
-//
-//                     int scanCode = std::stoi(ligne.substr(0, pos));
-//                     ligne = ligne.substr(pos + delimiter.length(), ligne.length());
-//                     pos = ligne.find(delimiter);
-//
-//                     int ASCII8   = std::stoi(ligne.substr(0, pos));
-//                     ligne = ligne.substr(pos + delimiter.length(), ligne.length());
-//                     pos = ligne.find(delimiter);
-//
-//                     int extended = std::stoi(ligne.substr(0, pos));
-//
-//                     this->qtRDPKeymap.setCustomKeyCode(qtKeyID, scanCode, ASCII8, extended);
-//                     this->keyCustomDefinitions.push_back({qtKeyID, scanCode, ASCII8, extended});
-//                 }
-//             }
-//
-//             iFileKeyData.close();
-//         }
-
-
-
 
 void ClientRedemptionConfig::set_remoteapp_cmd_line(const std::string & cmd)  {
     this->rDPRemoteAppConfig.full_cmd_line = cmd;
@@ -1167,7 +1132,11 @@ void ClientRedemptionConfig::deleteCurrentProtile()  {
         file_to_read.close();
 
         unique_fd file_to_read = unique_fd(this->USER_CONF_PATH.c_str(), O_WRONLY, S_IRWXU | S_IRWXG | S_IRWXO);
-            ::write(file_to_read.fd(), new_file_content.c_str(), new_file_content.length());
+        int res = ::write(file_to_read.fd(), new_file_content.c_str(), new_file_content.length());
+        if (res < new_file_content.length()){
+            std::cerr << "Deletion of current profile in " << this->USER_CONF_PATH << " failed.";
+        }
+
     }
 }
 
