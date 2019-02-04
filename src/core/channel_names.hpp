@@ -109,6 +109,10 @@ namespace channel_names
     DEF_NAME(rail);
     DEF_NAME(sespro);
     DEF_NAME(wabdiag);
+
+
+    DEF_NAME(remdesk);
+    DEF_NAME(encomsp);
 }
 #undef DEF_NAME
 

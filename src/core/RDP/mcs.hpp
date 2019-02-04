@@ -2419,6 +2419,7 @@ namespace MCS
                 uint8_t tag = first_byte >> 2;
                 if (tag != MCS::MCSPDU_SendDataRequest){
                     LOG(LOG_ERR, "SendDataRequest tag (%u) expected, got %u", MCS::MCSPDU_SendDataRequest, tag);
+{char*p=nullptr;*p=0;}
                     throw Error(ERR_MCS);
                 }
                 return MCS::MCSPDU_SendDataRequest;

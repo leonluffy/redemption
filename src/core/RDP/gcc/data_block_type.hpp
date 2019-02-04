@@ -50,6 +50,9 @@ enum DATA_BLOCK_TYPE {
     // The data block that follows contains Server Security Data (section 2.2.1.4.3).
     SC_SECURITY = 0x0C02,
     // The data block that follows contains Server Network Data (section 2.2.1.4.4).
-    SC_NET = 0x0C03
+    SC_NET = 0x0C03,
+
+
+    SC_MULTITRANSPORT = 0x0C04
 };
 

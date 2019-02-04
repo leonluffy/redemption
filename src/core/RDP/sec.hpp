@@ -683,8 +683,9 @@ enum {
             }())
             , payload(stream.get_current(), stream.in_remain() - 8)
         {
-            if (this->payload.get_capacity() != 64){
-                LOG(LOG_INFO, "Expecting SEC_EXCHANGE_PKT crypt length=64, got %zu", this->payload.get_capacity());
+//            if (this->payload.get_capacity() != 64){
+            if (this->payload.get_capacity() != (this->length - 8)){
+                LOG(LOG_INFO, "Expecting SEC_EXCHANGE_PKT crypt length=%u, got %zu", (this->length - 8), this->payload.get_capacity());
                 throw Error(ERR_SEC_EXPECTING_512_BITS_CLIENT_RANDOM);
             }
             // Skip payload and 8 bytes trailing padding

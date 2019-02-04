@@ -79,6 +79,26 @@ public:
         }
     }
 
+    static size_t ssl_xxxxxx_256(uint8_t * client_random,
+                           uint32_t in_len, const uint8_t * in,
+                           uint32_t mod_len, const uint8_t * mod,
+                           uint32_t exp_len, const uint8_t * exp)
+    {
+        uint8_t l_out[256] = {};
+        uint8_t l_in[256];  rmemcpy(l_in, in, in_len);
+        uint8_t l_mod[256]; rmemcpy(l_mod, mod, mod_len);
+        uint8_t l_exp[256]; rmemcpy(l_exp, exp, exp_len);
+
+        size_t outlen = mod_exp(l_out, 256, l_in, in_len, l_mod, mod_len, l_exp, exp_len);
+LOG(LOG_INFO, "> > > > > ssl_xxxxxx_256: outlen=%zu", outlen);
+        if (outlen <= 256) {
+            reverseit(l_out, outlen);
+            memcpy(client_random, l_out, 256);
+        }
+
+        return outlen;
+    }
+
 
     static void sec_make_40bit(uint8_t* key)
     {

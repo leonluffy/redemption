@@ -2976,6 +2976,11 @@ public:
                 this->channels.process_drdynvc_event(sec.payload, length, flags, chunk_size, this->front, this->stc, this->asynchronous_tasks);
             }
             else {
+mod_channel.log(num_channel_src);
+LOG(LOG_INFO, " ");
+LOG(LOG_INFO, " ");
+LOG(LOG_INFO, " ");
+
                 IF_ENABLE_METRICS(server_other_channel_data(length));
                 this->channels.process_unknown_channel_event(mod_channel, sec.payload, length, flags, chunk_size, this->front);
             }
@@ -5622,6 +5627,7 @@ public:
         if (bool(this->verbose & RDPVerbose::input)) {
             LOG(LOG_INFO, "mod_rdp::send_input_fastpath");
         }
+return;
 
         write_packets(
             this->stc.trans,

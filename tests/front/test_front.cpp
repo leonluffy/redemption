@@ -26,6 +26,8 @@
 // Comment the code block below to generate testing data.
 // Uncomment the code block below to generate testing data.
 
+#include "utils/hexdump.hpp"
+
 #include "acl/auth_api.hpp"
 #include "capture/cryptofile.hpp"
 #include "configs/config.hpp"
@@ -679,3 +681,76 @@ RED_AUTO_TEST_CASE(TestFront3)
     // front.dump_png("trace_w2008_");
 }
 */
+
+RED_AUTO_TEST_CASE(TestFront3)
+{
+    ClientInfo info;
+    info.keylayout = 0x04C;
+    info.console_session = 0;
+    info.brush_cache_code = 0;
+    info.screen_info.bpp = BitsPerPixel{24};
+    info.screen_info.width = 800;
+    info.screen_info.height = 600;
+    info.rdp5_performanceflags = PERF_DISABLE_WALLPAPER;
+
+    snprintf(info.hostname,sizeof(info.hostname),"test");
+
+    uint32_t verbose = 0xFFFFFFFF;
+
+    Inifile ini;
+    ini.set<cfg::debug::front>(verbose);
+    ini.set<cfg::client::persistent_disk_bitmap_cache>(false);
+    ini.set<cfg::client::cache_waiting_list>(true);
+    ini.set<cfg::mod_rdp::persistent_disk_bitmap_cache>(false);
+    ini.set<cfg::video::png_interval>(std::chrono::seconds{300});
+    ini.set<cfg::video::wrm_color_depth_selection_strategy>(ColorDepthSelectionStrategy::depth24);
+    ini.set<cfg::video::wrm_compression_algorithm>(WrmCompressionAlgorithm::no_compression);
+
+    ini.set<cfg::crypto::key0>(
+        "\x00\x01\x02\x03\x04\x05\x06\x07"
+        "\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F"
+        "\x10\x11\x12\x13\x14\x15\x16\x17"
+        "\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F"
+    );
+    ini.set<cfg::crypto::key1>(
+        "\x00\x01\x02\x03\x04\x05\x06\x07"
+        "\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F"
+        "\x10\x11\x12\x13\x14\x15\x16\x17"
+        "\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F"
+    );
+
+    time_t now = 1450864840;
+
+    // Comment the code block below to generate testing data.
+    #include "fixtures/trace_front_shadow.hpp"
+
+    FrontTransport front_trans(indata, sizeof(indata)-1);
+
+    LCGRandom gen1(0);
+    CryptoContext cctx;
+
+    const bool fastpath_support = false;
+    const bool mem3blt_support  = false;
+
+    ini.set<cfg::client::tls_support>(false);
+    ini.set<cfg::client::tls_fallback_legacy>(true);
+    ini.set<cfg::client::bogus_user_id>(false);
+    ini.set<cfg::client::rdp_compression>(RdpCompression::none);
+    ini.set<cfg::client::fast_path>(fastpath_support);
+    ini.set<cfg::globals::is_rec>(true);
+    ini.set<cfg::video::capture_flags>(CaptureFlags::wrm);
+    ini.set<cfg::globals::handshake_timeout>(std::chrono::seconds::zero());
+
+    SessionReactor session_reactor;
+    NullReportMessage report_message;
+    MyFront front(
+        session_reactor, front_trans, gen1, ini , cctx,
+        report_message, fastpath_support, mem3blt_support, now);
+    null_mod no_mod;
+
+    while (front.up_and_running == 0) {
+        front.incoming(no_mod, now);
+        RED_CHECK(session_reactor.timer_events_.is_empty());
+    }
+    RED_CHECK(session_reactor.front_events_.is_empty());
+}

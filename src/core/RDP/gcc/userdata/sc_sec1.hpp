@@ -342,7 +342,8 @@ namespace GCC { namespace UserData {
 
 struct SCSecurity {
     uint16_t userDataType{SC_SECURITY};
-    uint16_t length{236};
+    // uint16_t length{236};
+    uint16_t length{428};
 
     // TODO use enum class
     uint32_t encryptionMethod{0};
@@ -359,10 +360,11 @@ struct SCSecurity {
     uint32_t serverRandomLen{SEC_RANDOM_SIZE};
     uint8_t serverRandom[SEC_RANDOM_SIZE];
 
-    uint32_t serverCertLen{184};
+    // uint32_t serverCertLen{184};
+    uint32_t serverCertLen{376};
 
-    uint8_t pri_exp[64];
-    uint8_t pub_sig[64];
+    uint8_t pri_exp[512];
+    uint8_t pub_sig[512];
 
     enum { CERT_CHAIN_VERSION_1 = 0x00000001
          , CERT_CHAIN_VERSION_2 = 0x00000002
@@ -398,7 +400,8 @@ struct SCSecurity {
 
         // wPublicKeyBlobLen (2 bytes): A 16-bit, unsigned integer. The size in bytes
         //  of the PublicKeyBlob field.
-        uint16_t wPublicKeyBlobLen{92};
+        // uint16_t wPublicKeyBlobLen{92};
+        uint16_t wPublicKeyBlobLen{284};
 
         // PublicKeyBlob (variable): Variable-length server public key bytes, formatted
         //  using the Rivest-Shamir-Adleman (RSA) Public Key structure (section
@@ -417,16 +420,19 @@ struct SCSecurity {
             // keylen (4 bytes): A 32-bit, unsigned integer. The size in bytes of the
             //  modulus field. This value is directly related to the bitlen field and MUST
             //  be ((bitlen / 8) + 8) bytes.
-            uint32_t keylen{72};
+            // uint32_t keylen{72};
+            uint32_t keylen{264};
 
             // bitlen (4 bytes): A 32-bit, unsigned integer. The number of bits in the
             //  public key modulus.
-            uint32_t bitlen{512};
+            // uint32_t bitlen{512};
+            uint32_t bitlen{2048};
 
             // datalen (4 bytes): A 32-bit, unsigned integer. The maximum number of bytes
             //  that can be encoded using the public key.
             // This value is directly related to the bitlen field and MUST be ((bitlen / 8) - 1) bytes.
-            uint32_t datalen{63};
+            // uint32_t datalen{63};
+            uint32_t datalen{255};
 
             // pubExp (4 bytes): A 32-bit, unsigned integer. The public exponent of the
             //  public key.

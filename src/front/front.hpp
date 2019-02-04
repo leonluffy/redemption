@@ -756,10 +756,13 @@ public:
 
         switch (this->encryptionLevel) {
         case 1:
-        case 2:
             this->decrypt.encryptionMethod = 1; /* 40 bits */
             this->encrypt.encryptionMethod = 1; /* 40 bits */
         break;
+        case 2:
+        //     this->decrypt.encryptionMethod = 1; /* 40 bits */
+        //     this->encrypt.encryptionMethod = 1; /* 40 bits */
+        // break;
         default:
         case 3:
             this->decrypt.encryptionMethod = 2; /* 128 bits */
@@ -1320,7 +1323,7 @@ public:
 
                 {
                     uint8_t rdp_neg_type = 0;
-                    uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED;
+                    uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED | 0x02 | 0x04 | 0x08 | 0x10 ;
                     uint32_t rdp_neg_code = 0;
                     if (this->tls_client_active) {
                         LOG(LOG_INFO, "-----------------> Front::incoming: TLS Support Enabled");
@@ -1335,6 +1338,7 @@ public:
                         }
                     }
                     else {
+                        rdp_neg_type = X224::RDP_NEG_RSP;
                         LOG(LOG_INFO, "-----------------> Front::incoming: TLS Support not Enabled");
                     }
 
@@ -1555,10 +1559,12 @@ public:
                     [this](StreamSize<65536-1024>, OutStream & stream) {
                         {
                             GCC::UserData::SCCore sc_core;
-                            sc_core.version = 0x00080004;
-                            if (this->tls_client_active) {
+                            sc_core.version = /*0x00080004*/0x00080007;
+/*                            if (this->tls_client_active)*/ {
                                 sc_core.length = 12;
                                 sc_core.clientRequestedProtocols = this->clientRequestedProtocols;
+sc_core.length = 16;
+sc_core.earlyCapabilityFlags = 6;
                             }
                             if (bool(this->verbose & Verbose::basic_trace)) {
                                 sc_core.log("Front::incoming: Sending to client");
@@ -1603,40 +1609,127 @@ public:
 
                             references for RSA Keys: http://www.securiteam.com/windowsntfocus/5EP010KG0G.html
                             */
-                            uint8_t rsa_keys_pub_mod[64] = {
-                                0x67, 0xab, 0x0e, 0x6a, 0x9f, 0xd6, 0x2b, 0xa3,
-                                0x32, 0x2f, 0x41, 0xd1, 0xce, 0xee, 0x61, 0xc3,
-                                0x76, 0x0b, 0x26, 0x11, 0x70, 0x48, 0x8a, 0x8d,
-                                0x23, 0x81, 0x95, 0xa0, 0x39, 0xf7, 0x5b, 0xaa,
-                                0x3e, 0xf1, 0xed, 0xb8, 0xc4, 0xee, 0xce, 0x5f,
-                                0x6a, 0xf5, 0x43, 0xce, 0x5f, 0x60, 0xca, 0x6c,
-                                0x06, 0x75, 0xae, 0xc0, 0xd6, 0xa4, 0x0c, 0x92,
-                                0xa4, 0xc6, 0x75, 0xea, 0x64, 0xb2, 0x50, 0x5b
-                            };
-                            memcpy(this->pub_mod, rsa_keys_pub_mod, 64);
+                            // uint8_t rsa_keys_pub_mod[64] = {
+                            //     0x67, 0xab, 0x0e, 0x6a, 0x9f, 0xd6, 0x2b, 0xa3,
+                            //     0x32, 0x2f, 0x41, 0xd1, 0xce, 0xee, 0x61, 0xc3,
+                            //     0x76, 0x0b, 0x26, 0x11, 0x70, 0x48, 0x8a, 0x8d,
+                            //     0x23, 0x81, 0x95, 0xa0, 0x39, 0xf7, 0x5b, 0xaa,
+                            //     0x3e, 0xf1, 0xed, 0xb8, 0xc4, 0xee, 0xce, 0x5f,
+                            //     0x6a, 0xf5, 0x43, 0xce, 0x5f, 0x60, 0xca, 0x6c,
+                            //     0x06, 0x75, 0xae, 0xc0, 0xd6, 0xa4, 0x0c, 0x92,
+                            //     0xa4, 0xc6, 0x75, 0xea, 0x64, 0xb2, 0x50, 0x5b
+                            // };
+                            // memcpy(this->pub_mod, rsa_keys_pub_mod, 64);
+                            uint8_t rsa_keys_pub_mod[256] = {
+                                0xa3, 0x39, 0x07, 0x2c, 0x31, 0xbf, 0x72, 0xf6,
+                                0xa5, 0x5a, 0xdc, 0xfa, 0x4b, 0x6f, 0xfe, 0xf6,
+                                0xb7, 0xb8, 0xdb, 0x32, 0xfe, 0x6f, 0x86, 0x7e,
+                                0x8a, 0xdb, 0xd3, 0x8e, 0x48, 0xa6, 0xdf, 0x15,
+                                0x19, 0x7d, 0x43, 0xb7, 0xb5, 0x2f, 0xa2, 0xfb,
+                                0x12, 0x9f, 0xc0, 0x4c, 0x59, 0x44, 0xd0, 0x21,
+                                0xb6, 0xe2, 0xbe, 0x47, 0x8e, 0x59, 0x1e, 0x29,
+                                0xbf, 0x1c, 0xca, 0x13, 0x95, 0xc7, 0xf2, 0xa8,
 
-                            uint8_t rsa_keys_pri_exp[64] = {
-                                0x41, 0x93, 0x05, 0xB1, 0xF4, 0x38, 0xFC, 0x47,
-                                0x88, 0xC4, 0x7F, 0x83, 0x8C, 0xEC, 0x90, 0xDA,
-                                0x0C, 0x8A, 0xB5, 0xAE, 0x61, 0x32, 0x72, 0xF5,
-                                0x2B, 0xD1, 0x7B, 0x5F, 0x44, 0xC0, 0x7C, 0xBD,
-                                0x8A, 0x35, 0xFA, 0xAE, 0x30, 0xF6, 0xC4, 0x6B,
-                                0x55, 0xA7, 0x65, 0xEF, 0xF4, 0xB2, 0xAB, 0x18,
-                                0x4E, 0xAA, 0xE6, 0xDC, 0x71, 0x17, 0x3B, 0x4C,
-                                0xC2, 0x15, 0x4C, 0xF7, 0x81, 0xBB, 0xF0, 0x03
-                            };
-                            memcpy(sc_sec1.pri_exp, rsa_keys_pri_exp, 64);
-                            memcpy(this->pri_exp, sc_sec1.pri_exp, 64);
+                                0xb7, 0x7b, 0xf1, 0xcb, 0xa8, 0x92, 0xc2, 0x03,
+                                0x39, 0x3d, 0x4d, 0xbe, 0x8c, 0x62, 0x56, 0x69,
+                                0xc7, 0x30, 0x00, 0xc4, 0xbd, 0xea, 0xee, 0x59,
+                                0x6a, 0x9c, 0x35, 0x31, 0x11, 0x3b, 0xa3, 0xb2,
+                                0x05, 0x55, 0xb4, 0xc0, 0x8d, 0xc9, 0xde, 0x85,
+                                0x1f, 0xe4, 0xf2, 0x8c, 0x69, 0xa9, 0xf7, 0xd0,
+                                0x80, 0x6a, 0x7a, 0xa5, 0x17, 0x00, 0xd9, 0x89,
+                                0x64, 0xe6, 0x08, 0x1c, 0xd2, 0xe7, 0x84, 0x1e,
 
+                                0xb3, 0xe4, 0x91, 0x79, 0xc4, 0x3b, 0xca, 0xfb,
+                                0x9e, 0x1e, 0x4d, 0x7c, 0x02, 0x1e, 0x61, 0x06,
+                                0x8d, 0x29, 0xbb, 0x67, 0x8c, 0x89, 0xda, 0x57,
+                                0x6b, 0x2a, 0xf2, 0x98, 0x36, 0x71, 0x83, 0x2b,
+                                0x73, 0xf6, 0xf5, 0xfc, 0x63, 0x2a, 0xaa, 0x14,
+                                0x0a, 0xe7, 0x45, 0x7f, 0x95, 0x25, 0xbe, 0xa4,
+                                0x8f, 0x3e, 0xec, 0xce, 0x6b, 0xd2, 0x0f, 0xdc,
+                                0x5b, 0x90, 0x32, 0x53, 0x42, 0x12, 0xde, 0xdf,
+
+                                0x8a, 0xf0, 0xc1, 0x6d, 0x30, 0xa4, 0x24, 0x5a,
+                                0x51, 0x56, 0x36, 0xf6, 0x04, 0x66, 0x6b, 0x59,
+                                0x15, 0xcc, 0x44, 0xb6, 0x5a, 0xfe, 0x99, 0x85,
+                                0x93, 0xe8, 0x6d, 0x39, 0x8a, 0x20, 0xca, 0xe6,
+                                0xcb, 0x5c, 0x45, 0x5f, 0xa2, 0x33, 0x3c, 0x73,
+                                0x15, 0x3b, 0xd7, 0xf6, 0x1c, 0x10, 0x4c, 0x1b,
+                                0xf3, 0xc5, 0x21, 0xa2, 0x23, 0x02, 0x19, 0xc4,
+                                0x10, 0x82, 0x8c, 0x11, 0x17, 0x27, 0x80, 0xa0
+                            };
+                            memcpy(this->pub_mod, rsa_keys_pub_mod, 256);
+
+                            // uint8_t rsa_keys_pri_exp[64] = {
+                            //     0x41, 0x93, 0x05, 0xB1, 0xF4, 0x38, 0xFC, 0x47,
+                            //     0x88, 0xC4, 0x7F, 0x83, 0x8C, 0xEC, 0x90, 0xDA,
+                            //     0x0C, 0x8A, 0xB5, 0xAE, 0x61, 0x32, 0x72, 0xF5,
+                            //     0x2B, 0xD1, 0x7B, 0x5F, 0x44, 0xC0, 0x7C, 0xBD,
+                            //     0x8A, 0x35, 0xFA, 0xAE, 0x30, 0xF6, 0xC4, 0x6B,
+                            //     0x55, 0xA7, 0x65, 0xEF, 0xF4, 0xB2, 0xAB, 0x18,
+                            //     0x4E, 0xAA, 0xE6, 0xDC, 0x71, 0x17, 0x3B, 0x4C,
+                            //     0xC2, 0x15, 0x4C, 0xF7, 0x81, 0xBB, 0xF0, 0x03
+                            // };
+                            // memcpy(sc_sec1.pri_exp, rsa_keys_pri_exp, 64);
+                            // memcpy(this->pri_exp, sc_sec1.pri_exp, 64);
+                            uint8_t rsa_keys_pri_exp[256] = {
+                                0xc1, 0xe2, 0x52, 0xaf, 0x23, 0x65, 0x19, 0x29,
+                                0x61, 0x35, 0xba, 0x29, 0xe8, 0x79, 0x1e, 0xc8,
+                                0xcd, 0xbb, 0xd5, 0x09, 0xc9, 0xd1, 0xc2, 0x0e,
+                                0xc7, 0x60, 0x91, 0x32, 0x6d, 0xa3, 0xc6, 0x2b,
+                                0x5a, 0x96, 0x8c, 0x47, 0x3b, 0x15, 0x4f, 0x8c,
+                                0x1a, 0x1b, 0x1c, 0x17, 0x3f, 0x77, 0xc5, 0xe0,
+                                0xe7, 0xe1, 0xb1, 0xe0, 0xfa, 0xee, 0x53, 0xda,
+                                0x6b, 0xeb, 0x98, 0xc5, 0x1c, 0xa3, 0xc2, 0x25,
+
+                                0x31, 0xf3, 0x06, 0x94, 0x6a, 0xf9, 0x93, 0x8f,
+                                0x37, 0x9c, 0xbd, 0x93, 0x8b, 0xdd, 0x83, 0xbc,
+                                0x8c, 0x9f, 0xcd, 0x42, 0x07, 0xcf, 0xaa, 0x7b,
+                                0x03, 0x6c, 0xc1, 0x4c, 0xb5, 0xb1, 0x24, 0xa1,
+                                0x9b, 0xaf, 0x41, 0xb8, 0xd6, 0x0e, 0x78, 0x09,
+                                0x3e, 0xdc, 0xe7, 0xb6, 0x12, 0x88, 0xec, 0x5f,
+                                0x56, 0x03, 0x34, 0x37, 0x67, 0x80, 0xb7, 0xb2,
+                                0xbf, 0x3a, 0x17, 0x21, 0xb3, 0x20, 0x9e, 0x2a,
+
+                                0xaf, 0x7d, 0x4c, 0xcf, 0xbe, 0xd5, 0xa2, 0x24,
+                                0x0e, 0xb6, 0x50, 0xc2, 0x80, 0x54, 0x38, 0x98,
+                                0xe8, 0xca, 0x27, 0x08, 0x97, 0x63, 0x92, 0xcb,
+                                0x15, 0xe3, 0xdd, 0xb7, 0xd1, 0xc1, 0x4b, 0xb3,
+                                0x1e, 0x8f, 0x49, 0xf7, 0x7c, 0x2e, 0x51, 0xae,
+                                0xa3, 0xe3, 0x6b, 0x12, 0xce, 0x20, 0x32, 0x05,
+                                0x62, 0xca, 0xe1, 0xf3, 0x5f, 0xb4, 0x93, 0x23,
+                                0x51, 0x3c, 0x58, 0xfc, 0x8a, 0x74, 0x6a, 0x83,
+
+                                0x73, 0xbd, 0x32, 0x07, 0x25, 0x7a, 0x78, 0xc0,
+                                0x40, 0x8f, 0x4b, 0xec, 0x8a, 0x27, 0xc6, 0xad,
+                                0xf7, 0x12, 0x2b, 0x4a, 0xa5, 0xb0, 0xc5, 0x64,
+                                0xef, 0x3d, 0xe8, 0xfa, 0xb6, 0x88, 0x2d, 0xe9,
+                                0x89, 0x76, 0x7e, 0x97, 0xfa, 0x43, 0x50, 0xb5,
+                                0xda, 0x3a, 0x57, 0x53, 0x58, 0xb8, 0x77, 0xd0,
+                                0xbe, 0x53, 0x5a, 0xde, 0x12, 0x3a, 0x8d, 0x27,
+                                0x43, 0xbe, 0x4c, 0xe1, 0xa3, 0x76, 0xc6, 0x78
+                            };
+                            memcpy(sc_sec1.pri_exp, rsa_keys_pri_exp, 256);
+                            memcpy(this->pri_exp, sc_sec1.pri_exp, 256);
+
+                            // uint8_t rsa_keys_pub_sig[64] = {
+                            //     0x6a, 0x41, 0xb1, 0x43, 0xcf, 0x47, 0x6f, 0xf1,
+                            //     0xe6, 0xcc, 0xa1, 0x72, 0x97, 0xd9, 0xe1, 0x85,
+                            //     0x15, 0xb3, 0xc2, 0x39, 0xa0, 0xa6, 0x26, 0x1a,
+                            //     0xb6, 0x49, 0x01, 0xfa, 0xa6, 0xda, 0x60, 0xd7,
+                            //     0x45, 0xf7, 0x2c, 0xee, 0xe4, 0x8e, 0x64, 0x2e,
+                            //     0x37, 0x49, 0xf0, 0x4c, 0x94, 0x6f, 0x08, 0xf5,
+                            //     0x63, 0x4c, 0x56, 0x29, 0x55, 0x5a, 0x63, 0x41,
+                            //     0x2c, 0x20, 0x65, 0x95, 0x99, 0xb1, 0x15, 0x7c
+                            // };
                             uint8_t rsa_keys_pub_sig[64] = {
-                                0x6a, 0x41, 0xb1, 0x43, 0xcf, 0x47, 0x6f, 0xf1,
-                                0xe6, 0xcc, 0xa1, 0x72, 0x97, 0xd9, 0xe1, 0x85,
-                                0x15, 0xb3, 0xc2, 0x39, 0xa0, 0xa6, 0x26, 0x1a,
-                                0xb6, 0x49, 0x01, 0xfa, 0xa6, 0xda, 0x60, 0xd7,
-                                0x45, 0xf7, 0x2c, 0xee, 0xe4, 0x8e, 0x64, 0x2e,
-                                0x37, 0x49, 0xf0, 0x4c, 0x94, 0x6f, 0x08, 0xf5,
-                                0x63, 0x4c, 0x56, 0x29, 0x55, 0x5a, 0x63, 0x41,
-                                0x2c, 0x20, 0x65, 0x95, 0x99, 0xb1, 0x15, 0x7c
+                                    0xe5, 0xc2, 0x6d, 0x7b, 0x1e, 0xd2, 0xea, 0x24,
+                                    0xfa, 0xed, 0xa6, 0x9b, 0xd9, 0x19, 0x2d, 0xfe,
+                                    0x0a, 0xe5, 0x9a, 0xda, 0xef, 0xfa, 0x0e, 0xea,
+                                    0xf5, 0xcb, 0x41, 0x7f, 0xca, 0xa8, 0xa3, 0xac,
+                                    0x4a, 0x1f, 0x49, 0x93, 0x73, 0x8a, 0x30, 0x07,
+                                    0x1a, 0x26, 0xd0, 0xa1, 0xcc, 0xd9, 0x3f, 0xd0,
+                                    0xa8, 0xc6, 0xb3, 0x61, 0x69, 0xa2, 0x04, 0xcf,
+                                    0x17, 0x29, 0x43, 0x3f, 0xe1, 0x61, 0x65, 0x15
                             };
 
                             uint8_t rsa_keys_pub_exp[4] = { 0x01, 0x00, 0x01, 0x00 };
@@ -1649,8 +1742,10 @@ public:
                             sc_sec1.dwVersion = GCC::UserData::SCSecurity::CERT_CHAIN_VERSION_1;
                             sc_sec1.temporary = false;
                             memcpy(sc_sec1.proprietaryCertificate.RSAPK.pubExp, rsa_keys_pub_exp, SEC_EXPONENT_SIZE);
-                            memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus, this->pub_mod, 64);
-                            memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus + 64,
+                            // memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus, this->pub_mod, 64);
+                            memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus, this->pub_mod, 256);
+                            // memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus + 64,
+                            memcpy(sc_sec1.proprietaryCertificate.RSAPK.modulus + 256,
                                 "\x00\x00\x00\x00\x00\x00\x00\x00", SEC_PADDING_SIZE);
                             memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob, rsa_keys_pub_sig, 64);
                             memcpy(sc_sec1.proprietaryCertificate.wSignatureBlob + 64,
@@ -1659,13 +1754,85 @@ public:
                             if (bool(this->verbose & Verbose::basic_trace)) {
                                 sc_sec1.log("Front::incoming: Sending to client");
                             }
-                            sc_sec1.emit(stream);
+
+                           sc_sec1.emit(stream);
+
+// stream.out_copy_bytes(
+
+// Run (origin)
+//                                  "\x02\x0C\xAC\x01\x02"
+// "\x00\x00\x00\x02\x00\x00\x00\x20\x00\x00\x00\x78\x01\x00\x00\x1C"
+// "\x63\xFF\x35\x03\xCE\x07\x0A\x5D\x96\xC7\x3D\x38\xE6\x7F\x8B\x9D"
+// "\xCF\x5C\xF5\x61\x05\xDB\xFF\x78\xCB\xB9\x77\xA1\x7B\x5F\xE8\x01"
+// "\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x1C\x01\x52"
+// "\x53\x41\x31\x08\x01\x00\x00\x00\x08\x00\x00\xFF\x00\x00\x00\x01"
+// "\x00\x01\x00\x67\xD3\x4C\x6B\x8C\x50\x20\xDA\x0B\x86\xE7\x63\x42"
+// "\xC4\xDC\x09\x17\x61\x44\x3C\x91\xE4\x8C\xCD\xA4\x69\x18\xE9\xE5"
+// "\xAF\xEE\xB0\x96\x35\x74\xB7\xDB\x93\x9E\x85\x0C\xD6\x54\x43\x28"
+// "\x43\x3F\xC4\x00\xE0\xA1\xB0\x90\xF4\xB7\x54\x25\x9F\x91\x2E\x41"
+// "\x45\x64\xA4\x5D\x45\x49\x8F\xE0\x54\x1A\xA4\xE0\x59\x3C\x15\xA0"
+// "\x65\x7C\x34\x5A\x7D\x20\xBF\xEB\xB7\x6A\x54\x82\xFE\xEF\x0D\x04"
+// "\x3C\x69\xA2\x63\xF5\xD2\x97\x5C\xDC\xD7\x18\x83\x91\x91\x6F\xD2"
+// "\x9B\x86\xF3\x50\xF4\x84\x24\xBA\x52\xB7\x4A\x5D\x64\x65\xC4\x4E"
+// "\x71\xA9\x87\xE9\x6F\x54\x6F\xFD\x3B\x22\x46\xC3\xEA\x39\x1D\x18"
+// "\x60\xBF\x91\x2A\x34\xEB\x25\xF2\x16\x6E\xE9\x58\xE6\x2C\x43\xF1"
+// "\x5D\x4A\xFE\x98\x31\x14\x57\x00\xDE\xD7\x58\xB1\x5A\x75\xB5\x2B"
+// "\x72\xB6\xCC\x45\x2F\x8F\x24\xA7\x62\x99\x7A\xA0\xFD\x38\x95\xE0"
+// "\xA5\xD2\x56\xCD\x00\xDD\x1D\xBB\xEE\x01\x0F\x72\xE7\x6D\x3C\x66"
+// "\xD3\x2F\x5C\xE9\xF0\x91\xD7\x31\x3C\xB3\x6F\x13\x8E\xAF\x4D\x9A"
+// "\xCD\x8C\x21\x20\xA0\x09\x48\x36\x25\xDC\x0F\xDE\xAA\x7D\x96\x70"
+// "\xF6\xD4\x31\x53\x62\x09\xFD\x32\x15\x13\x57\x0B\xF9\xFD\x12\xF0"
+// "\xD6\x4B\xA2\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x48\x00\x7F"
+// "\x08\x32\x1B\x17\x1D\xD9\xB8\x16\x42\xCF\xC4\x96\x6F\x58\xD8\xB7"
+// "\x04\x50\xB5\x17\x27\x59\x25\x11\x97\x48\x78\xC5\xE9\x73\xC8\x19"
+// "\x8A\x1A\x7E\x77\x0F\x5F\x63\x9B\x9E\x23\x5C\xC7\x13\xB7\xD0\xBD"
+// "\xFF\x50\xB0\x2F\xFD\x17\x99\xAC\xAA\x9F\x17\x67\x6A\xC4\x78\x00"
+// "\x00\x00\x00\x00\x00\x00\x00"
+
+// SVR01
+//                                  "\x02\x0C\xAC\x01\x02"
+// "\x00\x00\x00\x02\x00\x00\x00\x20\x00\x00\x00\x78\x01\x00\x00\xC8"
+// "\x2D\x4C\x9E\x9A\xBF\x16\xDF\xB0\xF7\x68\x43\x50\xBB\x24\x6E\xAB"
+// "\x55\x73\xB3\xD8\x5F\x69\x20\x30\x3B\x51\xA5\xDB\x0D\x08\x5D\x01"
+// "\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x1C\x01\x52"
+// "\x53\x41\x31\x08\x01\x00\x00\x00\x08\x00\x00\xFF\x00\x00\x00\x01"
+// "\x00\x01\x00\xDB\x03\x67\x17\xB1\x35\xC8\x19\xA5\xC5\xD8\xFB\xA3"
+// "\x6E\xB4\x6C\xD1\x41\xEA\x37\x9A\x1A\x27\xDB\x76\x5E\xAB\xB0\x37"
+// "\xD6\x8C\xC2\x95\x1D\xC2\x7F\xE7\x65\x35\x8E\x1A\x94\x43\x5F\xDA"
+// "\x23\xD2\x92\x8B\x38\x3E\x72\x1D\x97\x1E\xB6\x28\xA3\xB9\xCA\x20"
+// "\x1B\x2D\x7B\x2F\x4E\xC2\x57\x17\x0A\x56\x63\x55\xA7\xBF\xC9\xA5"
+// "\x89\x68\xDD\xB1\x4A\x42\x31\x6E\xC7\x80\x80\x37\x9D\x1B\x7C\xCD"
+// "\x68\x45\xEC\xDA\xFB\xE7\x7A\x5F\x94\x87\x63\xA5\x80\x69\xB0\xB4"
+// "\x13\x74\x74\x2A\x4C\xCD\x61\x8F\xE8\xAC\xA5\x5F\x7F\xBA\xC4\x6C"
+// "\x02\x3F\x4C\x17\xF6\x5B\xC1\x14\x15\x9A\x5A\x26\xF7\x20\x4A\x9E"
+// "\x91\x17\x2E\x7A\xDB\x52\xC2\x01\xAB\xE0\x50\x46\xE9\x0D\xD3\xDC"
+// "\x59\xBC\xB9\x21\x64\x14\x1E\xE4\xD5\x1C\xCB\x4F\xBA\x39\x87\xA2"
+// "\x9B\x39\xC2\xF7\xCC\xDD\x98\x0F\x87\x82\xD7\xB8\xE6\xD5\xB4\xF0"
+// "\x8E\x3F\x3F\x36\xD6\x5C\xBE\x96\xE2\xF9\x3A\xD7\x26\x8F\xD4\xFC"
+// "\xCB\x9E\x8E\x75\x76\x69\xC3\x05\x63\xFD\xC4\x8E\x2B\xE6\x4B\x34"
+// "\x51\xB6\xDE\xAD\xE8\x96\x1B\xDD\x2F\x67\xE4\x40\x62\x2F\x84\x2E"
+// "\x3D\x2E\xEF\x1A\x00\x91\xB5\x04\x76\xB6\x4A\x8D\xFD\x00\xDE\x0F"
+// "\xBA\x86\xE8\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x48\x00\x8C"
+// "\x65\x63\x84\x1F\x86\x73\x8C\xB1\xF2\x68\x96\xBD\x67\x72\x2A\xA7"
+// "\xD2\xCC\xA2\x95\xC7\x76\x91\x5B\x09\x98\x45\x58\xAD\xA9\x18\x19"
+// "\x2E\x42\x0B\x73\x33\xB9\x07\xF5\x92\x1E\x0F\xA2\x69\xCE\xBB\x1C"
+// "\x1F\x72\xEF\x81\xE1\xA0\x10\xA5\x4C\x41\x06\xEE\x88\x79\x51\x00"
+// "\x00\x00\x00\x00\x00\x00\x00"
+
+// , 428);
                         }
+
+{
+    // SC_MCS_MSGCHANNE
+    stream.out_uint16_le(0x0C04);   // type
+    stream.out_uint16_le(6);        // length
+    stream.out_uint16_le(1010);     // MCSChannelID
+}
                     },
-                    [](StreamSize<256>, OutStream & gcc_header, std::size_t packed_size) {
+                    [](StreamSize<512>, OutStream & gcc_header, std::size_t packed_size) {
                         GCC::Create_Response_Send(gcc_header, packed_size);
                     },
-                    [](StreamSize<256>, OutStream & mcs_header, std::size_t packed_size) {
+                    [](StreamSize<512>, OutStream & mcs_header, std::size_t packed_size) {
                         MCS::CONNECT_RESPONSE_Send mcs_cr(mcs_header, packed_size, MCS::BER_ENCODING);
                     },
                     X224::write_x224_dt_tpdu_fn{}
@@ -1778,9 +1945,9 @@ public:
             }
             case CHANNEL_JOIN_CONFIRM_LOOP:
             {
-                if (this->channel_list_index < this->channel_list.size()) {
+                if (this->channel_list_index <= this->channel_list.size()) {
                     this->channel_join_request_transmission(new_x224_stream, [this](MCS::ChannelJoinRequest_Recv & mcs) {
-                        if (bool(this->verbose & Verbose::channel)) {
+/*                        if (bool(this->verbose & Verbose::channel))*/ {
                             LOG(LOG_INFO, "Front::incoming: cjrq[%zu] = %" PRIu16 " -> cjcf", this->channel_list_index, mcs.channelId);
                         }
 
@@ -1795,6 +1962,8 @@ public:
                     ++this->channel_list_index;
                     break;
                 }
+
+--this->channel_list_index;
 
                 if (bool(this->verbose & Verbose::basic_trace)) {
                     LOG(LOG_INFO, "Front::incoming: RDP Security Commencement");
@@ -1846,10 +2015,12 @@ public:
                     MCS::SendDataRequest_Recv mcs(x224.payload, MCS::PER_ENCODING);
                     SEC::SecExchangePacket_Recv sec(mcs.payload);
 
-                    uint8_t client_random[64] = {};
+//                    uint8_t client_random[64] = {};
+                    uint8_t client_random[256] = {};
                     {
                         ssllib ssl;
-                        ssl.ssl_xxxxxx(client_random, 64, sec.payload.get_data(), 64, this->pub_mod, 64, this->pri_exp);
+//                        ssl.ssl_xxxxxx(client_random, 64, sec.payload.get_data(), 64, this->pub_mod, 64, this->pri_exp);
+                        ssl.ssl_xxxxxx_256(client_random, 256, sec.payload.get_data(), 256, this->pub_mod, 256, this->pri_exp);
                     }
                     // beware order of parameters for key generation (decrypt/encrypt)
                     // is inversed between server and client
@@ -1919,6 +2090,7 @@ public:
                 if (sec.payload.in_remain()) {
                     LOG(LOG_ERR, "Front::incoming: process_logon all data should have been consumed %zu bytes trailing",
                         sec.payload.in_remain());
+hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
                 }
 
                 this->keymap.init_layout(this->client_info.keylayout);
@@ -3307,6 +3479,10 @@ private:
                 LOG(LOG_ERR, "Front::process_confirm_active: Read out of bound detected");
                 throw Error(ERR_MCS);
             }
+if (next != stream.get_current())
+{
+    hexdump_c(stream.get_current(), next - stream.get_current());
+}
             stream.in_skip_bytes(next - stream.get_current());
         }
         if (bool(this->verbose & Verbose::basic_trace)) {

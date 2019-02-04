@@ -1090,18 +1090,19 @@ struct InfoPacket {
         LOG(LOG_INFO, "InfoPacket::cbPassword %u", this->cbPassword);
         LOG(LOG_INFO, "InfoPacket::cbAlternateShell %u", this->cbAlternateShell);
         LOG(LOG_INFO, "InfoPacket::cbWorkingDir %u", this->cbWorkingDir);
-        LOG(LOG_INFO, "InfoPacket::Domain %s", this->Domain);
-        LOG(LOG_INFO, "InfoPacket::UserName %s", this->UserName);
+        LOG(LOG_INFO, "InfoPacket::Domain \"%s\"", this->Domain);
+        LOG(LOG_INFO, "InfoPacket::UserName \"%s\"", this->UserName);
         {
             array_view_const_char const av = ::get_printable_password({
                 char_ptr_cast(this->Password),
                 strlen(char_ptr_cast(this->Password))
             }, password_printing_mode);
             LOG(LOG_INFO, "InfoPacket::Password %.*s", int(av.size()), av.data());
+LOG(LOG_INFO, "InfoPacket::Password \"%s\"", this->Password);
         }
 
         if (show_alternate_shell) {
-            LOG(LOG_INFO, "InfoPacket::AlternateShell %s", this->AlternateShell);
+            LOG(LOG_INFO, "InfoPacket::AlternateShell \"%s\"", this->AlternateShell);
         }
         else {
             LOG(LOG_INFO, "InfoPacket::AlternateShell (%zu bytes)",

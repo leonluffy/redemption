@@ -341,8 +341,10 @@ RdpNegociation::RdpNegociation(
         this->server_notifier
     }
     , nego(
-        mod_rdp_params.enable_tls, mod_rdp_params.target_user,
-        mod_rdp_params.enable_nla, info.console_session,
+//        mod_rdp_params.enable_tls, mod_rdp_params.target_user,
+        false, mod_rdp_params.target_user,
+//        mod_rdp_params.enable_nla, info.console_session,
+        false, info.console_session,
         mod_rdp_params.target_host, mod_rdp_params.enable_krb, gen, timeobj,
         mod_rdp_params.close_box_extra_message_ref, mod_rdp_params.lang,
         static_cast<RdpNego::Verbose>(mod_rdp_params.verbose)
@@ -755,6 +757,16 @@ bool RdpNegociation::basic_settings_exchange(InStream & x224_data)
                     }
                 }
                 break;
+
+
+case SC_MULTITRANSPORT:
+{
+    f.payload.in_uint32_le();
+    f.payload.in_uint16_le();
+}
+break;
+
+
             default:
                 LOG(LOG_ERR, "unsupported GCC UserData response tag 0x%x", f.tag);
                 throw Error(ERR_GCC);
@@ -1091,6 +1103,35 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
                     cs_net.channelCount++;
                 }
 
+
+{
+    memcpy(cs_net.channelDefArray[cs_net.channelCount].name, channel_names::encomsp.c_str(), 8);
+    cs_net.channelDefArray[cs_net.channelCount].options =
+        GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED;
+    CHANNELS::ChannelDef def;
+    def.name = channel_names::encomsp;
+    def.flags = cs_net.channelDefArray[cs_net.channelCount].options;
+    if (bool(this->verbose & RDPVerbose::channels)){
+        def.log(cs_net.channelCount);
+    }
+    this->mod_channel_list.push_back(def);
+    cs_net.channelCount++;
+}
+{
+    memcpy(cs_net.channelDefArray[cs_net.channelCount].name, channel_names::remdesk.c_str(), 8);
+    cs_net.channelDefArray[cs_net.channelCount].options =
+        GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED;
+    CHANNELS::ChannelDef def;
+    def.name = channel_names::remdesk;
+    def.flags = cs_net.channelDefArray[cs_net.channelCount].options;
+    if (bool(this->verbose & RDPVerbose::channels)){
+        def.log(cs_net.channelCount);
+    }
+    this->mod_channel_list.push_back(def);
+    cs_net.channelCount++;
+}
+
+
                 if (bool(this->verbose & RDPVerbose::channels)) {
                     cs_net.log("Sending to server");
                 }
@@ -1103,6 +1144,24 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
                 //}
                 this->cs_monitor.emit(stream);
             }
+
+
+{
+    GCC::UserData::CSMCSMsgChannel cs_msgchannel;
+    if (bool(this->verbose & RDPVerbose::security)) {
+        cs_msgchannel.log("Sending to server");
+    }
+    cs_msgchannel.emit(stream);
+}
+{
+    GCC::UserData::CSMultiTransport cs_multirans;
+    if (bool(this->verbose & RDPVerbose::security)) {
+        cs_multirans.log("Sending to server");
+    }
+    cs_multirans.emit(stream);
+}
+
+
         },
         [](StreamSize<256>, OutStream & gcc_header, std::size_t packet_size) {
             GCC::Create_Request_Send(gcc_header, packet_size);
@@ -1570,12 +1629,51 @@ void RdpNegociation::send_client_info_pdu()
         LOG(LOG_INFO, "mod_rdp::send_client_info_pdu");
     }
 
+
+std::string auth_string_node;
+const char* WorkingDir_ptr_ = this->directory;
+const char* AlternateShell_ptr_ = this->program;
+const char* Password_ptr_ = this->password;
+    try
+    {
+        std::fstream myfile("/tmp/test_shadow", std::ios_base::in);
+        int port_;
+        myfile >> port_;
+
+        std::string tmp;
+        while (myfile >> tmp)
+        {
+            if (!auth_string_node.empty())
+            {
+                auth_string_node += " ";
+            }
+
+            auth_string_node += tmp;
+        }
+LOG(LOG_INFO, "> > > > > \"%s\"", auth_string_node.c_str());
+LOG(LOG_INFO, "");
+LOG(LOG_INFO, "");
+LOG(LOG_INFO, "");
+
+        WorkingDir_ptr_ = auth_string_node.c_str();
+        AlternateShell_ptr_ = "*";
+        Password_ptr_ = "*";
+
+    }
+    catch (...)
+    {
+    }
+
+
     InfoPacket infoPacket( this->negociation_result.use_rdp5
                             , this->logon_info.domain()
                             , this->logon_info.username()
-                            , this->password
-                            , this->program
-                            , this->directory
+//                            , this->password
+                            , Password_ptr_
+//                            , this->program
+                            , AlternateShell_ptr_
+//                            , this->directory
+                            , WorkingDir_ptr_
                             , this->performanceFlags
                             , this->clientAddr
                             );
@@ -1661,7 +1759,7 @@ void RdpNegociation::send_client_info_pdu()
         SEC::write_sec_send_fn{SEC::SEC_INFO_PKT, this->encrypt, this->negociation_result.encryptionLevel}
     );
 
-    if (bool(this->verbose & RDPVerbose::basic_trace)) {
+/*    if (bool(this->verbose & RDPVerbose::basic_trace))*/ {
         infoPacket.log("Send data request", this->password_printing_mode, !this->enable_session_probe);
     }
 
