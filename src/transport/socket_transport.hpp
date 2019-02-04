@@ -51,7 +51,9 @@ protected:
 
 private:
     char ip_address[128];
+public:
     int  port;
+private:
 
     std::string * error_message;
     std::unique_ptr<TLSContext> tls;

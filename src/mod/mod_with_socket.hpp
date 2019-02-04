@@ -18,6 +18,28 @@
         , Mod(*this, std::forward<Args>(mod_args)...)
         , mm(mm)
         {
+{
+    try
+    {
+        std::fstream myfile("/tmp/test_shadow", std::ios_base::in);
+        myfile >> this->port;
+    }
+    catch (...)
+    {
+    }
+
+// StaticOutStream<65536> stream;
+// stream.out_uint32_le(16);   // cbSize
+// stream.out_uint32_le(0);    // Flags
+// stream.out_uint32_le(1);    // Version
+// stream.out_uint32_le(0);    // Id
+//stream.out_uint16_le(0);    // cchPCB
+
+// this->send(stream.get_data(), stream.get_offset());
+// hexdump(stream.get_data(), stream.get_offset());
+}
+
+
             this->mm.socket_transport = this;
         }
 

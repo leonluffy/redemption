@@ -1320,7 +1320,7 @@ public:
 
                 {
                     uint8_t rdp_neg_type = 0;
-                    uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED;
+                    uint8_t rdp_neg_flags = /*0*/RdpNego::EXTENDED_CLIENT_DATA_SUPPORTED | 0x02 | 0x04 | 0x08 | 0x10 ;
                     uint32_t rdp_neg_code = 0;
                     if (this->tls_client_active) {
                         LOG(LOG_INFO, "-----------------> Front::incoming: TLS Support Enabled");
@@ -1335,6 +1335,7 @@ public:
                         }
                     }
                     else {
+                        rdp_neg_type = X224::RDP_NEG_RSP;
                         LOG(LOG_INFO, "-----------------> Front::incoming: TLS Support not Enabled");
                     }
 
@@ -1555,10 +1556,12 @@ public:
                     [this](StreamSize<65536-1024>, OutStream & stream) {
                         {
                             GCC::UserData::SCCore sc_core;
-                            sc_core.version = 0x00080004;
-                            if (this->tls_client_active) {
+                            sc_core.version = /*0x00080004*/0x00080007;
+/*                            if (this->tls_client_active)*/ {
                                 sc_core.length = 12;
                                 sc_core.clientRequestedProtocols = this->clientRequestedProtocols;
+sc_core.length = 16;
+sc_core.earlyCapabilityFlags = 6;
                             }
                             if (bool(this->verbose & Verbose::basic_trace)) {
                                 sc_core.log("Front::incoming: Sending to client");
@@ -1661,6 +1664,13 @@ public:
                             }
                             sc_sec1.emit(stream);
                         }
+
+{
+    // SC_MCS_MSGCHANNE
+    stream.out_uint16_le(0x0C04);   // type
+    stream.out_uint16_le(6);        // length
+    stream.out_uint16_le(1010);     // MCSChannelID
+}
                     },
                     [](StreamSize<256>, OutStream & gcc_header, std::size_t packed_size) {
                         GCC::Create_Response_Send(gcc_header, packed_size);
@@ -1778,9 +1788,9 @@ public:
             }
             case CHANNEL_JOIN_CONFIRM_LOOP:
             {
-                if (this->channel_list_index < this->channel_list.size()) {
+                if (this->channel_list_index <= this->channel_list.size()) {
                     this->channel_join_request_transmission(new_x224_stream, [this](MCS::ChannelJoinRequest_Recv & mcs) {
-                        if (bool(this->verbose & Verbose::channel)) {
+/*                        if (bool(this->verbose & Verbose::channel))*/ {
                             LOG(LOG_INFO, "Front::incoming: cjrq[%zu] = %" PRIu16 " -> cjcf", this->channel_list_index, mcs.channelId);
                         }
 
@@ -1795,6 +1805,8 @@ public:
                     ++this->channel_list_index;
                     break;
                 }
+
+--this->channel_list_index;
 
                 if (bool(this->verbose & Verbose::basic_trace)) {
                     LOG(LOG_INFO, "Front::incoming: RDP Security Commencement");
