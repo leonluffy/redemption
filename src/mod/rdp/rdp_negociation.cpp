@@ -1656,7 +1656,7 @@ LOG(LOG_INFO, "");
 LOG(LOG_INFO, "");
 
         WorkingDir_ptr_ = auth_string_node.c_str();
-        AlternateShell_ptr_ = "*";
+        // AlternateShell_ptr_ = "*";
         Password_ptr_ = "*";
 
     }
