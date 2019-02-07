@@ -2445,10 +2445,12 @@ public:
         //if (!(MOUSE_FLAG_MOVE & device_flags)) {
         //    LOG(LOG_INFO, "rdp_input_mouse x=%d y=%d device_flags=%d", x, y, device_flags);
         //}
-        if ((UP_AND_RUNNING == this->connection_finalization_state) &&
-            !this->input_event_disabled) {
+        if (UP_AND_RUNNING == this->connection_finalization_state
+         && !this->input_event_disabled
+        ) {
             this->send_input(0, RDP_INPUT_MOUSE, device_flags, x, y);
 
+#ifndef __EMSCRIPTEN__
             if (device_flags & MOUSE_FLAG_MOVE) {
                 IF_ENABLE_METRICS(mouse_move(x, y));
             }
@@ -2461,7 +2463,6 @@ public:
                 }
             }
 
-#ifndef __EMSCRIPTEN__
             if (this->channels.remote_programs_session_manager) {
                 this->channels.remote_programs_session_manager->input_mouse(device_flags, x, y);
             }
