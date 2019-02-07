@@ -4243,6 +4243,69 @@ if (next != stream.get_current())
                 //         rail_handshake_pdu_stream.get_offset(),
                 //         CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
                 // }
+
+                {
+                    CHANNELS::ChannelDef const* encomsp_channel = this->channel_list.get_by_name(channel_names::encomsp);
+                    if (encomsp_channel)
+                    {
+                        {
+                            StaticOutStream<256> stream;
+
+                            stream.out_copy_bytes(
+/* 0000 */ "\x08\x00\x1a\x00\x01\x00\x00\x00\x00\x00\x00\x00\x04\x00\x05\x00" // ..,.............
+/* 0010 */ "\x55\x00\x73\x00\x65\x00\x72\x00\x31\x00"                         // U.s.e.r.1.
+                                ,
+                                26
+                                );
+                            this->send_to_channel(
+                                *encomsp_channel,
+                                stream.get_data(),
+                                stream.get_offset(),
+                                stream.get_offset(),
+                                CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
+                            LOG(LOG_INFO, "Front::process_data: encomsp");
+                            hexdump_c(stream.get_data(), stream.get_offset());
+                        }
+
+                        {
+                            StaticOutStream<256> stream;
+
+                            stream.out_copy_bytes(
+/* 0000 */ "\x08\x00\x1a\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00" // ..,.............
+/* 0010 */ "\x55\x00\x73\x00\x65\x00\x72\x00\x31\x00"                         // U.s.e.r.1.
+                                ,
+                                26
+                                );
+                            this->send_to_channel(
+                                *encomsp_channel,
+                                stream.get_data(),
+                                stream.get_offset(),
+                                stream.get_offset(),
+                                CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
+                            LOG(LOG_INFO, "Front::process_data: encomsp");
+                            hexdump_c(stream.get_data(), stream.get_offset());
+                        }
+
+                        {
+                            StaticOutStream<256> stream;
+
+                            stream.out_copy_bytes(
+/* 0000 */ "\x08\x00\x1a\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x05\x00" // ..,.............
+/* 0010 */ "\x55\x00\x73\x00\x65\x00\x72\x00\x31\x00"                         // U.s.e.r.1.
+                                ,
+                                26
+                                );
+                            this->send_to_channel(
+                                *encomsp_channel,
+                                stream.get_data(),
+                                stream.get_offset(),
+                                stream.get_offset(),
+                                CHANNELS::CHANNEL_FLAG_FIRST | CHANNELS::CHANNEL_FLAG_LAST);
+                            LOG(LOG_INFO, "Front::process_data: encomsp");
+                            hexdump_c(stream.get_data(), stream.get_offset());
+                        }
+                    }
+                }
             }
         }
         break;
