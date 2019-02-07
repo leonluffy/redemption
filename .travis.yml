@@ -38,12 +38,12 @@ before_install:
 
 script:
   - |
-    docker build run $BJAM_COMPILER sh -c '$@' u rm -rf src tests include modules
-    docker build cp src $BJAM_COMPILER:/redemption/
-    docker build cp tests $BJAM_COMPILER:/redemption/
-    docker build cp include $BJAM_COMPILER:/redemption/
-    docker build cp modules $BJAM_COMPILER:/redemption/
-    docker build run $BJAM_COMPILER sh -c '$@' compile \
+    docker run $BJAM_COMPILER sh -c '$@' u rm -rf src tests include modules
+    docker cp src $BJAM_COMPILER:/redemption/
+    docker cp tests $BJAM_COMPILER:/redemption/
+    docker cp include $BJAM_COMPILER:/redemption/
+    docker cp modules $BJAM_COMPILER:/redemption/
+    docker run $BJAM_COMPILER sh -c '$@' compile \
         bjam -aq --toolset=$BJAM_COMPILER rdpproxy \
         cxxflags=-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING
 
