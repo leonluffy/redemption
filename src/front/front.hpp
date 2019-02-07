@@ -2687,11 +2687,15 @@ hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
                     size_t chunk_size = sec.payload.in_remain();
 
                     if (this->up_and_running) {
-                        if (bool(this->verbose & Verbose::channel)) {
+/*                        if (bool(this->verbose & Verbose::channel))*/ {
                             LOG(LOG_INFO, "Front::incoming: channel_name=\"%s\"", channel.name);
                         }
 
                         InStream chunk(sec.payload.get_current(), chunk_size);
+hexdump_c(sec.payload.get_current(), chunk_size);
+LOG(LOG_INFO, " ");
+LOG(LOG_INFO, " ");
+LOG(LOG_INFO, " ");
 
                         cb.send_to_mod_channel(channel.name, chunk, length, flags);
                     }
