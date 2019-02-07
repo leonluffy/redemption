@@ -10,8 +10,8 @@ RUN apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-d
 #RUN apt-get install -y libavcodec-extra libavformat57 libavutil55 libswscale4
 # RUN apt-get install -y libavcodec-extra
 
-RUN mkdir -p /gcc/
-WORKDIR /gcc/
+RUN mkdir -p /redemption/
+WORKDIR /redemption/
 
-COPY . /gcc/
+COPY . /redemption/
 RUN bjam -q --toolset=gcc cxxflags='-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING' rdpproxy

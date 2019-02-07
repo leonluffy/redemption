@@ -9,8 +9,8 @@ if: tag IS blank
 matrix:
   include:
   # Clang 7
-  - compiler: clang
-    env: DIST=ubuntu:18.04 INSTALL='clang-7 libc++-7-dev libc++abi-7-dev' BJAM_COMPILER=clang
+  # - compiler: clang
+  #   env: DIST=ubuntu:18.04 INSTALL='clang-7 libc++-7-dev libc++abi-7-dev' BJAM_COMPILER=clang
   # GCC 7
   - compiler: gcc
     env: DIST=ubuntu:18.04 INSTALL=g++ BJAM_COMPILER=gcc
@@ -31,12 +31,21 @@ before_install:
     else
       echo -e 'using gcc : : g++-7 : <cxxflags>-fdiagnostics-color=always ;' > project-config.jam
     fi
-  - cat $BJAM_COMPILER.dockerfile
-  - cat project-config.jam
-  - docker pull $DIST
+    cat $BJAM_COMPILER.dockerfile
+    cat project-config.jam
+    # docker pull $DIST
+    docker build -t $BJAM_COMPILER -f $BJAM_COMPILER.dockerfile .
 
 script:
-  - docker build -f $BJAM_COMPILER.dockerfile .
+  - |
+    docker build run $BJAM_COMPILER sh -c '$@' u rm -rf src tests include modules
+    docker build cp src $BJAM_COMPILER:/redemption/
+    docker build cp tests $BJAM_COMPILER:/redemption/
+    docker build cp include $BJAM_COMPILER:/redemption/
+    docker build cp modules $BJAM_COMPILER:/redemption/
+    docker build run sh -c '$@' compile \
+        bjam -aq --toolset=$BJAM_COMPILER rdpproxy \
+        cxxflags=-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING
 
 # branches:
 #   except:
@@ -48,7 +57,7 @@ notifications:
       - jpoelen@wallix.com
       - rzhou@wallix.com
       - cgrosjean@wallix.com
-      - cmoroldo@wallix.com
+      #- cmoroldo@wallix.com
       #- mtan@wallix.com
     on_success: change
     on_failure: always
