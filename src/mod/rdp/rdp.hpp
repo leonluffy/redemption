@@ -1613,7 +1613,7 @@ private:
                 rdpsnd::streamLogClient(clone, flags);
             }
 
-            if (bool(this->verbose & RDPVerbose::channels)) {
+/*            if (bool(this->verbose & RDPVerbose::channels))*/ {
                 LOG( LOG_INFO, "mod_rdp::send_to_channel length=%zu chunk_size=%zu", length, chunk_size);
                 channel.log(-1u);
             }
@@ -1625,6 +1625,7 @@ private:
             if (chunk_size <= CHANNELS::CHANNEL_CHUNK_LENGTH) {
                 CHANNELS::VirtualChannelPDU virtual_channel_pdu;
 
+LOG(LOG_INFO, "channel.chanid=%u", channel.chanid);
                 virtual_channel_pdu.send_to_server(stc, channel.chanid, length, flags, chunk, chunk_size);
             }
             else {
@@ -1662,7 +1663,7 @@ private:
                 while (remaining_data_length);
             }
 
-            if (bool(this->verbose & RDPVerbose::channels)) {
+/*            if (bool(this->verbose & RDPVerbose::channels))*/ {
                 LOG(LOG_INFO, "mod_rdp::send_to_channel done");
             }
         }
@@ -2975,12 +2976,25 @@ public:
                 IF_ENABLE_METRICS(server_other_channel_data(length));
                 this->channels.process_drdynvc_event(sec.payload, length, flags, chunk_size, this->front, this->stc, this->asynchronous_tasks);
             }
-            else {
-mod_channel.log(num_channel_src);
-LOG(LOG_INFO, " ");
-LOG(LOG_INFO, " ");
-LOG(LOG_INFO, " ");
+else if (mod_channel.name == channel_names::encomsp) {
+    hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
 
+    const CHANNELS::ChannelDef * mod_channel = this->channels.mod_channel_list.get_by_name(channel_names::encomsp);
+    if (mod_channel) {
+        StaticOutStream<256> chunk;
+        chunk.out_uint16_le(9); // Type
+        chunk.out_uint16_le(10); // Length
+        chunk.out_uint16_le(3); // Flags
+        chunk.out_uint32_le(1); // ParticipantId
+        this->channels.send_to_channel(*mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), flags, this->stc);
+        LOG(LOG_INFO, "Send to encomsp channel");
+        hexdump_c(chunk.get_data(), chunk.get_offset());
+        LOG(LOG_INFO, " ");
+        LOG(LOG_INFO, " ");
+        LOG(LOG_INFO, " ");
+    }
+}
+            else {
                 IF_ENABLE_METRICS(server_other_channel_data(length));
                 this->channels.process_unknown_channel_event(mod_channel, sec.payload, length, flags, chunk_size, this->front);
             }

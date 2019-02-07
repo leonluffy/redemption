@@ -502,7 +502,6 @@ class RDPBmpCache {
                     LOG(LOG_INFO, "/* BMP Cache compressed V2 */");
                 }
                 this->emit_v2_compressed(session_color_depth, stream);
-hexdump_d(stream.get_data(), stream.get_offset());
             }
             else {
                 if (this->verbose){
@@ -815,10 +814,7 @@ hexdump_d(stream.get_data(), stream.get_offset());
         this->bmp.compress(session_color_depth, stream);
 
         stream.set_out_uint16_be((stream.get_offset() - offset_startBitmap) | 0x4000, offset_bitmapLength); // set the actual size
-LOG(LOG_INFO, "Before ...");
-hexdump_d(stream.get_data(), stream.get_offset());
         stream.set_out_uint16_le(stream.get_offset() - (offset_header+12), offset_header); // length after type minus 7
-LOG(LOG_INFO, "After ...");
     }
 
     void emit_raw_v2(OutStream & stream) const
