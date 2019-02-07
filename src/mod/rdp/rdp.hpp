@@ -2939,6 +2939,7 @@ public:
 
             uint32_t length = sec.payload.in_uint32_le();
             int flags = sec.payload.in_uint32_le();
+            LOG(LOG_INFO, "length=%u flags=%u", length, flags);
             size_t chunk_size = sec.payload.in_remain();
 
             // If channel name is our virtual channel, then don't send data to front
@@ -2979,14 +2980,13 @@ public:
 else if (mod_channel.name == channel_names::encomsp) {
     hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
 
-    const CHANNELS::ChannelDef * mod_channel = this->channels.mod_channel_list.get_by_name(channel_names::encomsp);
-    if (mod_channel) {
+    {
         StaticOutStream<256> chunk;
         chunk.out_uint16_le(9); // Type
         chunk.out_uint16_le(10); // Length
         chunk.out_uint16_le(3); // Flags
         chunk.out_uint32_le(1); // ParticipantId
-        this->channels.send_to_channel(*mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), flags, this->stc);
+        this->channels.send_to_channel(mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), flags, this->stc);
         LOG(LOG_INFO, "Send to encomsp channel");
         hexdump_c(chunk.get_data(), chunk.get_offset());
         LOG(LOG_INFO, " ");
@@ -3146,6 +3146,23 @@ else if (mod_channel.name == channel_names::encomsp) {
                                 // sdata.log();
                                 sdata.payload.in_skip_bytes(sdata.payload.in_remain());
                             }
+
+if (this->deactivation_reactivation_in_progress)
+{
+    const CHANNELS::ChannelDef * mod_channel = this->channels.mod_channel_list.get_by_name(channel_names::encomsp);
+
+    StaticOutStream<256> chunk;
+    chunk.out_uint16_le(9); // Type
+    chunk.out_uint16_le(10); // Length
+    chunk.out_uint16_le(3); // Flags
+    chunk.out_uint32_le(1); // ParticipantId
+    this->channels.send_to_channel(*mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), 3, this->stc);
+    LOG(LOG_INFO, "Send to encomsp channel");
+    hexdump_c(chunk.get_data(), chunk.get_offset());
+    LOG(LOG_INFO, " ");
+    LOG(LOG_INFO, " ");
+    LOG(LOG_INFO, " ");
+}
 
                             this->deactivation_reactivation_in_progress = false;
 
