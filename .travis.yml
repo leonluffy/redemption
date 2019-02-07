@@ -31,21 +31,19 @@ before_install:
     else
       echo -e 'using gcc : : g++-7 : <cxxflags>-fdiagnostics-color=always ;' > project-config.jam
     fi
-    cat $BJAM_COMPILER.dockerfile
-    cat project-config.jam
+  - cat $BJAM_COMPILER.dockerfile
+  - cat project-config.jam
     # docker pull $DIST
-    docker build -t $BJAM_COMPILER -f $BJAM_COMPILER.dockerfile .
+  - docker build -t $BJAM_COMPILER -f $BJAM_COMPILER.dockerfile .
+  - docker exec $BJAM_COMPILER bash
 
 script:
-  - |
-    docker run $BJAM_COMPILER sh -c '$@' u rm -rf src tests include modules
-    docker cp src $BJAM_COMPILER:/redemption/
-    docker cp tests $BJAM_COMPILER:/redemption/
-    docker cp include $BJAM_COMPILER:/redemption/
-    docker cp modules $BJAM_COMPILER:/redemption/
-    docker run $BJAM_COMPILER sh -c '$@' compile \
-        bjam -aq --toolset=$BJAM_COMPILER rdpproxy \
-        cxxflags=-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING
+  # - docker run $BJAM_COMPILER sh -c '$@' u rm -rf src tests include modules
+  # - docker cp src $BJAM_COMPILER:/redemption/
+  # - docker cp tests $BJAM_COMPILER:/redemption/
+  # - docker cp include $BJAM_COMPILER:/redemption/
+  # - docker cp modules $BJAM_COMPILER:/redemption/
+  - docker run $BJAM_COMPILER sh -c '$@' compile bjam -aq --toolset=$BJAM_COMPILER rdpproxy cxxflags=-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING
 
 # branches:
 #   except:
