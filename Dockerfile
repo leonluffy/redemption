@@ -12,6 +12,3 @@ RUN apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-d
 
 RUN mkdir -p /redemption/
 WORKDIR /redemption/
-
-COPY . /redemption/
-RUN bjam -q --toolset=gcc cxxflags='-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING' rdpproxy

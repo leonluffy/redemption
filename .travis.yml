@@ -9,8 +9,8 @@ if: tag IS blank
 matrix:
   include:
   # Clang 7
-  # - compiler: clang
-  #   env: DIST=ubuntu:18.04 INSTALL='clang-7 libc++-7-dev libc++abi-7-dev' BJAM_COMPILER=clang
+  - compiler: clang
+    env: DIST=ubuntu:18.04 INSTALL='clang-7 libc++-7-dev libc++abi-7-dev' BJAM_COMPILER=clang
   # GCC 7
   - compiler: gcc
     env: DIST=ubuntu:18.04 INSTALL=g++ BJAM_COMPILER=gcc
@@ -43,7 +43,7 @@ script:
     docker build cp tests $BJAM_COMPILER:/redemption/
     docker build cp include $BJAM_COMPILER:/redemption/
     docker build cp modules $BJAM_COMPILER:/redemption/
-    docker build run sh -c '$@' compile \
+    docker build run $BJAM_COMPILER sh -c '$@' compile \
         bjam -aq --toolset=$BJAM_COMPILER rdpproxy \
         cxxflags=-DREDEMPTION_DISABLE_NO_BOOST_PREPROCESSOR_WARNING
 
