@@ -2463,6 +2463,7 @@ hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
             // between client-side plug-ins and server-side applications).
             {
                 if (buf.current_pdu_is_fast_path()) {
+LOG(LOG_INFO, "INPUT_EVENT Fast-Path");
                     FastPath::ClientInputEventPDU_Recv cfpie(new_x224_stream, this->decrypt);
 
                     int num_events = cfpie.numEvents;
@@ -3840,6 +3841,7 @@ if (next != stream.get_current())
         break;
         case PDUTYPE2_INPUT:   // 28(0x1c) Input PDU (section 2.2.8.1.1.3)
             {
+LOG(LOG_INFO, "INPUT_EVENT Slow-Path");
                 SlowPath::ClientInputEventPDU_Recv cie(sdata_in.payload);
 
                 if (bool(this->verbose & Verbose::basic_trace3)) {
