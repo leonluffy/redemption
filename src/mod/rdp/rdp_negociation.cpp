@@ -975,6 +975,9 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
                     if (!this->remote_program && channel_item.name == channel_names::rail) {
                         continue;
                     }
+else if (channel_item.name == channel_names::drdynvc) {
+    continue;
+}
                     else if (this->authorization_channels.is_authorized(channel_item.name) ||
                                 ((channel_item.name == channel_names::rdpdr ||
                                 channel_item.name == channel_names::rdpsnd) &&
@@ -1107,7 +1110,7 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
 {
     memcpy(cs_net.channelDefArray[cs_net.channelCount].name, channel_names::encomsp.c_str(), 8);
     cs_net.channelDefArray[cs_net.channelCount].options =
-        GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED;
+        GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED | GCC::UserData::CSNet::REMOTE_CONTROL_PERSISTENT | GCC::UserData::CSNet::CHANNEL_OPTION_COMPRESS_RDP;
     CHANNELS::ChannelDef def;
     def.name = channel_names::encomsp;
     def.flags = cs_net.channelDefArray[cs_net.channelCount].options;
@@ -1120,7 +1123,7 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
 {
     memcpy(cs_net.channelDefArray[cs_net.channelCount].name, channel_names::remdesk.c_str(), 8);
     cs_net.channelDefArray[cs_net.channelCount].options =
-        GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED;
+        GCC::UserData::CSNet::CHANNEL_OPTION_INITIALIZED | GCC::UserData::CSNet::REMOTE_CONTROL_PERSISTENT | GCC::UserData::CSNet::CHANNEL_OPTION_COMPRESS_RDP;
     CHANNELS::ChannelDef def;
     def.name = channel_names::remdesk;
     def.flags = cs_net.channelDefArray[cs_net.channelCount].options;

@@ -5254,7 +5254,7 @@ if (this->deactivation_reactivation_in_progress)
                 {
                     InputCaps input_caps;
                     input_caps.recv(stream, capset_length);
-                    if (bool(this->verbose & RDPVerbose::capabilities)) {
+/*                    if (bool(this->verbose & RDPVerbose::capabilities))*/ {
                         input_caps.log("Received from server");
                     }
 
@@ -5623,7 +5623,7 @@ if (this->deactivation_reactivation_in_progress)
 
 public:
     void send_input_slowpath(int time, int message_type, int device_flags, int param1, int param2) {
-        if (bool(this->verbose & RDPVerbose::input)){
+/*        if (bool(this->verbose & RDPVerbose::input))*/{
             LOG(LOG_INFO, "mod_rdp::send_input_slowpath");
         }
 
@@ -5655,7 +5655,7 @@ public:
 
     void send_input_fastpath(int time, int message_type, uint16_t device_flags, int param1, int param2) {
         (void)time;
-        if (bool(this->verbose & RDPVerbose::input)) {
+/*        if (bool(this->verbose & RDPVerbose::input))*/ {
             LOG(LOG_INFO, "mod_rdp::send_input_fastpath");
         }
 return;
@@ -5705,7 +5705,7 @@ return;
     }
 
     void send_input(int time, int message_type, int device_flags, int param1, int param2) override {
-        if (!this->enable_fastpath_client_input_event) {
+        if (!this->enable_fastpath_client_input_event || true) {
             this->send_input_slowpath(time, message_type, device_flags, param1, param2);
         }
         else {
