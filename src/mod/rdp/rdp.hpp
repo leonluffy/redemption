@@ -3824,7 +3824,11 @@ if (this->deactivation_reactivation_in_progress)
                 confirm_active_pdu.emit_capability_set(share_caps);
 
                 InputCaps input_caps;
-                if (bool(this->verbose & RDPVerbose::capabilities)) {
+                if (this->enable_fastpath) {
+                    input_caps.inputFlags |= (INPUT_FLAG_FASTPATH_INPUT | INPUT_FLAG_FASTPATH_INPUT2);
+                }
+
+/*                if (bool(this->verbose & RDPVerbose::capabilities))*/ {
                     input_caps.log("Sending to server");
                 }
                 confirm_active_pdu.emit_capability_set(input_caps);
@@ -5705,7 +5709,7 @@ return;
     }
 
     void send_input(int time, int message_type, int device_flags, int param1, int param2) override {
-        if (!this->enable_fastpath_client_input_event || true) {
+        if (!this->enable_fastpath_client_input_event) {
             this->send_input_slowpath(time, message_type, device_flags, param1, param2);
         }
         else {
