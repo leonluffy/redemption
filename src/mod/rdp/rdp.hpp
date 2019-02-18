@@ -5625,7 +5625,6 @@ public:
 /*        if (bool(this->verbose & RDPVerbose::input))*/ {
             LOG(LOG_INFO, "mod_rdp::send_input_fastpath");
         }
-return;
 
         write_packets(
             this->stc.trans,
@@ -5672,7 +5671,7 @@ return;
     }
 
     void send_input(int time, int message_type, int device_flags, int param1, int param2) override {
-        if (!this->enable_fastpath_client_input_event || true) {
+        if (!this->enable_fastpath_client_input_event) {
             this->send_input_slowpath(time, message_type, device_flags, param1, param2);
         }
         else {
