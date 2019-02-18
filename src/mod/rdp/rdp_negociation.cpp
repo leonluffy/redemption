@@ -975,9 +975,6 @@ void RdpNegociation::send_connectInitialPDUwithGccConferenceCreateRequest()
                     if (!this->remote_program && channel_item.name == channel_names::rail) {
                         continue;
                     }
-else if (channel_item.name == channel_names::drdynvc) {
-    continue;
-}
                     else if (this->authorization_channels.is_authorized(channel_item.name) ||
                                 ((channel_item.name == channel_names::rdpdr ||
                                 channel_item.name == channel_names::rdpsnd) &&
@@ -1659,7 +1656,6 @@ LOG(LOG_INFO, "");
 LOG(LOG_INFO, "");
 
         WorkingDir_ptr_ = auth_string_node.c_str();
-        // AlternateShell_ptr_ = "*";
         Password_ptr_ = "*";
 
     }

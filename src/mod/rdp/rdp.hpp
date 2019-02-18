@@ -1625,7 +1625,6 @@ private:
             if (chunk_size <= CHANNELS::CHANNEL_CHUNK_LENGTH) {
                 CHANNELS::VirtualChannelPDU virtual_channel_pdu;
 
-LOG(LOG_INFO, "channel.chanid=%u", channel.chanid);
                 virtual_channel_pdu.send_to_server(stc, channel.chanid, length, flags, chunk, chunk_size);
             }
             else {
@@ -2939,7 +2938,6 @@ public:
 
             uint32_t length = sec.payload.in_uint32_le();
             int flags = sec.payload.in_uint32_le();
-            LOG(LOG_INFO, "length=%u flags=%u", length, flags);
             size_t chunk_size = sec.payload.in_remain();
 
             // If channel name is our virtual channel, then don't send data to front
@@ -2977,25 +2975,9 @@ public:
                 IF_ENABLE_METRICS(server_other_channel_data(length));
                 this->channels.process_drdynvc_event(sec.payload, length, flags, chunk_size, this->front, this->stc, this->asynchronous_tasks);
             }
-else if (mod_channel.name == channel_names::encomsp) {
-    hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
-
-/*
-    {
-        StaticOutStream<256> chunk;
-        chunk.out_uint16_le(9); // Type
-        chunk.out_uint16_le(10); // Length
-        chunk.out_uint16_le(3); // Flags
-        chunk.out_uint32_le(1); // ParticipantId
-        this->channels.send_to_channel(mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), flags, this->stc);
-        LOG(LOG_INFO, "Send to encomsp channel");
-        hexdump_c(chunk.get_data(), chunk.get_offset());
-        LOG(LOG_INFO, " ");
-        LOG(LOG_INFO, " ");
-        LOG(LOG_INFO, " ");
-    }
-*/
-}
+// else if (mod_channel.name == channel_names::encomsp) {
+//     hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
+// }
             else {
                 IF_ENABLE_METRICS(server_other_channel_data(length));
                 this->channels.process_unknown_channel_event(mod_channel, sec.payload, length, flags, chunk_size, this->front);
@@ -3148,23 +3130,6 @@ else if (mod_channel.name == channel_names::encomsp) {
                                 // sdata.log();
                                 sdata.payload.in_skip_bytes(sdata.payload.in_remain());
                             }
-
-// if (this->deactivation_reactivation_in_progress)
-// {
-//     const CHANNELS::ChannelDef * mod_channel = this->channels.mod_channel_list.get_by_name(channel_names::encomsp);
-
-//     StaticOutStream<256> chunk;
-//     chunk.out_uint16_le(9); // Type
-//     chunk.out_uint16_le(10); // Length
-//     chunk.out_uint16_le(3); // Flags
-//     chunk.out_uint32_le(1); // ParticipantId
-//     this->channels.send_to_channel(*mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), 3, this->stc);
-//     LOG(LOG_INFO, "Send to encomsp channel");
-//     hexdump_c(chunk.get_data(), chunk.get_offset());
-//     LOG(LOG_INFO, " ");
-//     LOG(LOG_INFO, " ");
-//     LOG(LOG_INFO, " ");
-// }
 
                             this->deactivation_reactivation_in_progress = false;
 
@@ -3826,10 +3791,6 @@ else if (mod_channel.name == channel_names::encomsp) {
                 confirm_active_pdu.emit_capability_set(share_caps);
 
                 InputCaps input_caps;
-                if (this->enable_fastpath) {
-                    input_caps.inputFlags |= (INPUT_FLAG_FASTPATH_INPUT | INPUT_FLAG_FASTPATH_INPUT2);
-                }
-
 /*                if (bool(this->verbose & RDPVerbose::capabilities))*/ {
                     input_caps.log("Sending to server");
                 }
