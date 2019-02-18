@@ -2980,6 +2980,7 @@ public:
 else if (mod_channel.name == channel_names::encomsp) {
     hexdump_c(sec.payload.get_current(), sec.payload.in_remain());
 
+/*
     {
         StaticOutStream<256> chunk;
         chunk.out_uint16_le(9); // Type
@@ -2993,6 +2994,7 @@ else if (mod_channel.name == channel_names::encomsp) {
         LOG(LOG_INFO, " ");
         LOG(LOG_INFO, " ");
     }
+*/
 }
             else {
                 IF_ENABLE_METRICS(server_other_channel_data(length));
@@ -3147,22 +3149,22 @@ else if (mod_channel.name == channel_names::encomsp) {
                                 sdata.payload.in_skip_bytes(sdata.payload.in_remain());
                             }
 
-if (this->deactivation_reactivation_in_progress)
-{
-    const CHANNELS::ChannelDef * mod_channel = this->channels.mod_channel_list.get_by_name(channel_names::encomsp);
+// if (this->deactivation_reactivation_in_progress)
+// {
+//     const CHANNELS::ChannelDef * mod_channel = this->channels.mod_channel_list.get_by_name(channel_names::encomsp);
 
-    StaticOutStream<256> chunk;
-    chunk.out_uint16_le(9); // Type
-    chunk.out_uint16_le(10); // Length
-    chunk.out_uint16_le(3); // Flags
-    chunk.out_uint32_le(1); // ParticipantId
-    this->channels.send_to_channel(*mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), 3, this->stc);
-    LOG(LOG_INFO, "Send to encomsp channel");
-    hexdump_c(chunk.get_data(), chunk.get_offset());
-    LOG(LOG_INFO, " ");
-    LOG(LOG_INFO, " ");
-    LOG(LOG_INFO, " ");
-}
+//     StaticOutStream<256> chunk;
+//     chunk.out_uint16_le(9); // Type
+//     chunk.out_uint16_le(10); // Length
+//     chunk.out_uint16_le(3); // Flags
+//     chunk.out_uint32_le(1); // ParticipantId
+//     this->channels.send_to_channel(*mod_channel, chunk.get_data(), chunk.get_offset(), chunk.get_offset(), 3, this->stc);
+//     LOG(LOG_INFO, "Send to encomsp channel");
+//     hexdump_c(chunk.get_data(), chunk.get_offset());
+//     LOG(LOG_INFO, " ");
+//     LOG(LOG_INFO, " ");
+//     LOG(LOG_INFO, " ");
+// }
 
                             this->deactivation_reactivation_in_progress = false;
 
@@ -3812,7 +3814,7 @@ if (this->deactivation_reactivation_in_progress)
                     pointer_caps.len                   = 8;
                     assert(pointer_caps.colorPointerCacheSize <= sizeof(this->cursors) / sizeof(Pointer));
                 }
-                if (bool(this->verbose & RDPVerbose::capabilities)) {
+/*                if (bool(this->verbose & RDPVerbose::capabilities))*/ {
                     pointer_caps.log("Sending to server");
                 }
                 confirm_active_pdu.emit_capability_set(pointer_caps);
@@ -5709,7 +5711,7 @@ return;
     }
 
     void send_input(int time, int message_type, int device_flags, int param1, int param2) override {
-        if (!this->enable_fastpath_client_input_event) {
+        if (!this->enable_fastpath_client_input_event || true) {
             this->send_input_slowpath(time, message_type, device_flags, param1, param2);
         }
         else {
