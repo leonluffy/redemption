@@ -504,11 +504,9 @@ public:
                 if (this->channel_filter_on && (this->clip_data.client_data.last_dwFlags == RDPECLIP::FILECONTENTS_RANGE)) {
 
                     this->channel_file.set_data(chunk.get_current(), chunk.in_remain());
-
                     if (flags & CHANNELS::CHANNEL_FLAG_LAST) {
                         this->channel_file.set_end_of_file();
                     }
-
                     send_message_to_client = !this->channel_file.is_interupting();
                 }
 
